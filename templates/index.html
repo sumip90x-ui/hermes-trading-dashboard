@@ -1,0 +1,1976 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hermes Trading Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.1.1/dist/chartjs-chart-financial.min.js"></script>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+<style>
+  :root {
+    --bg:     #0d1117;
+    --panel:  #161b22;
+    --border: #30363d;
+    --green:  #3fb950;
+    --red:    #f85149;
+    --blue:   #58a6ff;
+    --gold:   #d4a017;
+    --text:   #e6edf3;
+    --muted:  #8b949e;
+    --accent: #1f6feb;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', monospace; font-size: 13px; }
+
+  /* Layout */
+  .grid { display: grid; grid-template-columns: 1fr 380px; grid-template-rows: 95px 1fr 220px; gap: 8px; height: 100vh; padding: 8px; }
+  .header     { grid-column: 1 / -1; grid-row: 1; overflow: visible; }
+  .chart-panel { grid-column: 1; grid-row: 2; }
+  .right-panel { grid-column: 2; grid-row: 2 / 4; }
+  .buy-panel   { grid-column: 1; grid-row: 3; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+
+  /* Header */
+  .header { grid-column: 1/-1; display: flex; flex-direction: column; justify-content: center; padding: 4px 16px; gap: 3px; }
+  .header-row1 { display: flex; align-items: center; gap: 14px; }
+  .header-row2 { display: flex; align-items: center; gap: 14px; padding: 2px 0; border-top: 1px solid var(--border); }
+  .header h1 { font-size: 16px; color: var(--gold); font-weight: 700; white-space: nowrap; }
+  .metric { text-align: center; }
+  .metric .val { font-size: 20px; font-weight: 700; }
+  .metric .lbl { font-size: 10px; color: var(--muted); }
+  .metric2 { text-align: center; white-space: nowrap; }
+  .metric2 .val2 { font-size: 15px; font-weight: 700; }
+  .metric2 .lbl2 { font-size: 9px; color: var(--muted); letter-spacing: .3px; }
+  .metric2.big .val2 { font-size: 17px; }
+  .metric2.big .lbl2 { font-size: 9px; }
+  .green { color: var(--green); }
+  .red   { color: var(--red); }
+  .gold  { color: var(--gold); }
+  .blue  { color: var(--blue); }
+
+  /* ATH badge — also a button */
+  .ath-badge { margin-left: auto; padding: 6px 14px; border-radius: 20px; font-weight: 700; font-size: 13px; border: 2px solid; cursor: pointer; background: none; font-family: inherit; transition: transform .1s; }
+  .ath-badge:hover { transform: scale(1.05); }
+  .ath-badge:active { transform: scale(.97); }
+  .ath-badge.triggered  { border-color: var(--green); color: var(--green); background: #0d2818; animation: pulse 1s infinite; }
+  .ath-badge.triggered:hover { background: #133d22; }
+  .ath-badge.pulled_back { border-color: var(--gold); color: var(--gold); background: #1c1a08; animation: none; }
+  .ath-badge.pulled_back:hover { background: #2a2510; }
+  .ath-badge.waiting    { border-color: var(--muted); color: var(--muted); }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.5; } }
+  .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse .8s infinite; display: inline-block; }
+
+  /* Chart panel */
+  .chart-panel { padding: 0; display: flex; flex-direction: column; }
+  .chart-tabs  { display: flex; border-bottom: 1px solid var(--border); }
+  .tab { padding: 8px 16px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; font-size: 12px; }
+  .tab.active { color: var(--blue); border-bottom-color: var(--blue); }
+  .chart-body  { flex:1; padding: 12px; position: relative; min-height: 0; }
+  canvas { width:100%!important; }
+
+  /* Buy list panel — below chart, vertical scroll */
+  .buy-bar {
+    border-top: 2px solid var(--gold);
+    background: #0d1117;
+    flex-shrink: 0;
+    height: 220px;
+    display: flex;
+    flex-direction: column;
+  }
+  .buy-bar-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border);
+    background: #161b22;
+    flex-shrink: 0;
+  }
+  .buy-bar-header span { color: var(--gold); font-weight: 700; font-size: 12px; letter-spacing: .5px; }
+  .buy-bar-scroll {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  .buy-bar-scroll::-webkit-scrollbar { width: 4px; }
+  .buy-bar-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* Each row in the buy list */
+  .buy-row {
+    display: flex; align-items: center; gap: 0;
+    border-bottom: 1px solid #1c2128;
+    padding: 5px 10px;
+    transition: background .15s;
+  }
+  .buy-row:hover { background: #161b22; }
+  .buy-row.mf-row  { border-left: 3px solid var(--gold);  }
+  .buy-row.gap-row { border-left: 3px solid var(--green); }
+  .buy-row.hi-row  { border-left: 3px solid var(--blue);  }
+  .br-sym  { font-weight: 700; font-size: 13px; width: 58px; }
+  .br-amt  { color: var(--green); font-size: 13px; font-weight: 600; width: 56px; }
+  .br-accts { color: var(--muted); font-size: 11px; width: 46px; }
+  .br-type  { font-size: 10px; width: 52px; }
+  .br-reason { color: var(--muted); font-size: 10px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 6px; }
+  .br-edgar  { font-size: 10px; width: 54px; text-align: right; padding-right: 8px; }
+  .br-buy { background: #1a4731; color: var(--green); border: 1px solid var(--green); border-radius: 4px; padding: 3px 10px; font-size: 11px; font-weight: 700; cursor: pointer; margin-right: 6px; }
+  .br-buy:hover { background: #2ea04333; }
+  .br-del { background: none; border: 1px solid #30363d; color: var(--muted); font-size: 13px; cursor: pointer; padding: 2px 7px; border-radius: 4px; line-height: 1; }
+  .br-del:hover { color: var(--red); border-color: var(--red); }
+  .buy-bar-empty { color: var(--muted); font-size: 12px; text-align: center; padding: 30px 12px; }
+
+  /* Buy/Sell tab toggle */
+  .bs-tab { padding: 5px 14px; font-size: 11px; font-weight: 700; cursor: pointer; background: none; color: var(--muted); border: none; font-family: inherit; transition: background .15s, color .15s; }
+  .bs-tab.active { background: #1c2128; color: var(--text); }
+  .bs-tab:hover:not(.active) { background: #21262d; }
+
+  /* Sell row */
+  .sell-row { display: flex; align-items: center; gap: 0; border-bottom: 1px solid #1c2128; padding: 5px 10px; transition: background .15s; border-left: 3px solid var(--red); }
+  .sell-row:hover { background: #1c1515; }
+  .sr-sym   { font-weight: 700; font-size: 13px; width: 58px; color: var(--red); }
+  .sr-amt   { color: var(--red); font-size: 13px; font-weight: 600; width: 72px; }
+  .sr-gain  { color: var(--gold); font-size: 11px; width: 64px; }
+  .sr-reason { color: var(--muted); font-size: 10px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 6px; }
+  .sr-sell  { background: #2d0f0f; color: var(--red); border: 1px solid var(--red); border-radius: 4px; padding: 3px 10px; font-size: 11px; font-weight: 700; cursor: pointer; margin-right: 6px; }
+  .sr-sell:hover { background: #4a1a1a; }
+  .sr-del   { background: none; border: 1px solid #30363d; color: var(--muted); font-size: 13px; cursor: pointer; padding: 2px 7px; border-radius: 4px; line-height: 1; }
+  .sr-del:hover { color: var(--red); border-color: var(--red); }
+
+  /* Right panel — tabbed */
+  .right-panel { display: flex; flex-direction: column; }
+  .rpanel-tabs { display: flex; border-bottom: 1px solid var(--border); }
+  .rpanel-content { flex:1; overflow-y:auto; padding:10px; }
+
+  /* Chat */
+  .chat-messages { height: calc(100% - 90px); overflow-y: auto; padding: 4px; display: flex; flex-direction: column; gap: 8px; }
+  .msg { padding: 8px 12px; border-radius: 8px; max-width: 95%; line-height: 1.5; font-size: 12px; }
+  .msg.user { background: var(--accent); align-self: flex-end; }
+  .msg.hermes { background: #1c2128; border: 1px solid var(--border); align-self: flex-start; }
+  .msg.system { background: #0d2818; border: 1px solid var(--green); align-self: center; font-size: 11px; }
+  .chat-input { display: flex; gap: 6px; margin-top: 8px; }
+  .chat-input input { flex:1; background: #0d1117; border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 8px; font-size: 12px; }
+  .chat-input input:focus { outline: none; border-color: var(--blue); }
+
+  /* Buttons */
+  button { cursor: pointer; border: none; border-radius: 6px; padding: 7px 14px; font-size: 12px; font-weight: 600; }
+  .btn-blue   { background: var(--accent); color: white; }
+  .btn-green  { background: #1a4731; color: var(--green); border: 1px solid var(--green); }
+  .btn-red    { background: #2d0f0f; color: var(--red); border: 1px solid var(--red); }
+  .btn-gold   { background: #2d2008; color: var(--gold); border: 1px solid var(--gold); }
+  .btn-muted  { background: #21262d; color: var(--muted); }
+  button:hover { opacity: .85; }
+
+  /* Trade panel */
+  .trade-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+  .trade-row input, .trade-row select { background: #0d1117; border: 1px solid var(--border); color: var(--text); border-radius: 4px; padding: 6px 8px; font-size: 12px; }
+  .trade-row input { flex: 1; }
+
+  /* Candidates table */
+  .candidates table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .candidates th { color: var(--muted); padding: 4px 6px; text-align: left; border-bottom: 1px solid var(--border); }
+  .candidates td { padding: 4px 6px; border-bottom: 1px solid #1c2128; }
+  .candidates tr:hover td { background: #1c2128; }
+  .badge-mf   { background: #2d2008; color: var(--gold); border-radius: 3px; padding: 1px 4px; font-size: 10px; }
+  .badge-gap  { background: #0d2818; color: var(--green); border-radius: 3px; padding: 1px 4px; font-size: 10px; }
+
+  /* Positions */
+  .pos-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #1c2128; }
+  .pos-sym { font-weight: 700; width: 60px; }
+  .pos-bar { flex:1; height:4px; border-radius:2px; align-self:center; margin: 0 8px; }
+
+  /* Candle trigger panel */
+  .trigger-box { border-radius: 8px; padding: 14px; text-align: center; margin-bottom: 10px; }
+  .trigger-box.hot { border: 2px solid var(--green); background: #0d2818; }
+  .trigger-box.cold { border: 2px solid var(--border); background: #161b22; }
+  .trigger-val { font-size: 28px; font-weight: 700; }
+  .progress-bar { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; margin: 8px 0; }
+  .progress-fill { height: 100%; border-radius: 4px; transition: width .5s; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+<div class="grid">
+
+  <!-- HEADER -->
+  <div class="header panel">
+    <!-- Row 1: main metrics -->
+    <div class="header-row1">
+      <h1>⚡ HERMES</h1>
+      <span class="live-dot"></span>
+      <div class="metric">
+        <div class="val" id="equity">—</div>
+        <div class="lbl">EQUITY</div>
+      </div>
+      <div class="metric">
+        <div class="val" id="day_pl">—</div>
+        <div class="lbl">DAY P/L</div>
+      </div>
+      <button class="ath-badge waiting" id="ath_badge" onclick="badgeClick()" title="Click for Hermes analysis">ATH WATCH</button>
+      <button class="btn-muted" style="padding:4px 12px;font-size:11px;margin-left:8px" onclick="saveSessionNote()" id="save-note-btn" title="Save today's session note to Trading Vault">📝 Save Note</button>
+    </div>
+    <!-- Row 2: key metrics only -->
+    <div class="header-row2">
+      <div class="metric2">
+        <div class="val2 green" id="intra_high">—</div>
+        <div class="lbl2">INTRADAY HIGH</div>
+      </div>
+      <div style="width:1px;height:28px;background:var(--border);margin:0 4px"></div>
+      <div class="metric2">
+        <div class="val2" id="pullback_goal" style="color:var(--gold)">—</div>
+        <div class="lbl2">🎯 PULLBACK GOAL</div>
+      </div>
+      <div style="width:1px;height:28px;background:var(--border);margin:0 4px"></div>
+      <div class="metric2 big">
+        <div class="val2" id="true_profit_val" style="color:var(--green)">—</div>
+        <div class="lbl2">TRUE PROFIT</div>
+      </div>
+      <div class="metric2 big">
+        <div class="val2" id="true_profit_pct_val" style="color:var(--green)">—</div>
+        <div class="lbl2">VS $1,154 PRINCIPAL</div>
+      </div>
+      <div style="width:1px;height:28px;background:var(--border);margin:0 4px"></div>
+      <!-- Profit checkpoint / variation tracker -->
+      <div class="metric2 big">
+        <div style="display:flex;align-items:baseline;gap:6px">
+          <div class="val2" id="checkpoint_profit_val" style="color:var(--green)">—</div>
+          <div style="font-size:11px;color:var(--muted);cursor:pointer;user-select:none" onclick="zeroCheckpoint()" title="Click to zero out checkpoint">⊙</div>
+          <div class="val2" id="checkpoint_delta_val" style="color:var(--muted)">0.00</div>
+        </div>
+        <div class="lbl2" id="checkpoint_lbl">CHECKPOINT — click ⊙ to zero</div>
+      </div>
+      <div class="metric2">
+        <div class="val2" id="checkpoint_pct_val" style="color:var(--muted)">0.00%</div>
+        <div class="lbl2">VARIATION</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN CHART PANEL -->
+  <div class="chart-panel panel">
+    <div class="chart-tabs">
+      <div class="tab active" onclick="switchChart('intraday',this)">Intraday</div>
+      <div class="tab" onclick="switchChart('candles',this)">Candles</div>
+      <div class="tab" onclick="switchChart('positions',this)">Positions</div>
+    </div>
+    <div class="chart-body">
+      <!-- Intraday equity curve -->
+      <div id="view-intraday">
+        <!-- Phase badge strip -->
+        <div style="display:flex;align-items:center;gap:10px;padding:4px 4px 2px;flex-shrink:0">
+          <span style="font-size:10px;color:var(--muted)">PHASE:</span>
+          <span id="phase-badge" style="font-size:11px;font-weight:700;padding:2px 10px;border-radius:10px;background:#21262d;color:var(--muted)">—</span>
+          <span id="phase-detail" style="font-size:10px;color:var(--muted)"></span>
+        </div>
+        <canvas id="intradayChart" height="340"></canvas>
+        <div style="text-align:center;margin-top:6px;font-size:11px;color:var(--muted)" id="intraday_label">Loading...</div>
+        <!-- HERMES SEES panel -->
+        <div id="hermes-sees" style="margin:6px 0 0;background:#0d1117;border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:10px;font-family:monospace;color:var(--muted);line-height:1.6;display:none">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+            <span style="color:var(--gold);font-weight:700;font-size:10px">👁 HERMES SEES</span>
+            <span id="hermes-sees-time" style="font-size:9px"></span>
+          </div>
+          <div id="hermes-sees-content">—</div>
+        </div>
+        <div style="text-align:right;margin-top:2px">
+          <button class="btn-muted" style="font-size:9px;padding:1px 8px" onclick="toggleHermesSees()">👁 HERMES SEES</button>
+        </div>
+      </div>
+      <!-- Multi-session candlesticks -->
+      <div id="view-candles" style="display:none;height:100%;display:none;flex-direction:column">
+        <canvas id="candleChart" height="300"></canvas>
+        <div id="candle-stats" style="display:flex;gap:16px;padding:6px 4px;flex-shrink:0;flex-wrap:wrap"></div>
+      </div>
+      <!-- Positions list -->
+      <div id="view-positions" style="display:none;overflow-y:auto;height:100%">
+        <table id="pos-table" style="width:100%;border-collapse:collapse;font-size:11px">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border);color:var(--muted);position:sticky;top:0;background:var(--panel);z-index:1">
+              <th style="padding:5px 6px;text-align:left">SYM</th>
+              <th style="padding:5px 6px;text-align:right">CUR</th>
+              <th style="padding:5px 6px;text-align:right">ENTRY</th>
+              <th style="padding:5px 6px;text-align:right">GAP</th>
+              <th style="padding:5px 6px;text-align:right">TODAY</th>
+              <th style="padding:5px 6px;text-align:right">TOTAL</th>
+              <th style="padding:5px 6px;text-align:right">MV</th>
+              <th style="padding:5px 6px;text-align:right">ACCTS</th>
+              <th style="padding:5px 6px;text-align:right">DCA</th>
+              <th style="padding:5px 6px;text-align:left">ACTION</th>
+            </tr>
+          </thead>
+          <tbody id="pos-list"></tbody>
+        </table>
+      </div>
+    </div><!-- end chart-body -->
+
+  </div><!-- end chart-panel -->
+
+  <!-- BUY / SELL SPLIT PANEL — grid row 3, col 1 -->
+  <div class="buy-panel panel" id="buy-bar" style="display:flex;flex-direction:column;overflow:hidden;">
+
+    <!-- shared header bar -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:5px 12px;border-bottom:1px solid var(--border);background:#161b22;flex-shrink:0;">
+      <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:6px;overflow:hidden;">
+        <button id="bs-tab-buy" class="bs-tab active" onclick="showBuySellTab('buy')">⚡ BUY LIST</button>
+        <button id="bs-tab-sell" class="bs-tab" onclick="showBuySellTab('sell')">🔴 SELL LIST</button>
+      </div>
+      <!-- buy-side controls -->
+      <div id="bs-ctrl-buy" style="display:flex;align-items:center;gap:8px;">
+        <span id="buy-bar-status" style="font-size:10px;color:var(--muted)">Upload CSV to populate</span>
+        <button class="btn-green" style="padding:3px 12px;font-size:11px;font-weight:700" onclick="buyAll()">⚡ BUY ALL</button>
+        <button class="btn-muted" style="padding:2px 8px;font-size:10px" onclick="refreshBuyBar()">↻ Refresh</button>
+        <button class="btn-muted" style="padding:2px 8px;font-size:10px;color:var(--red)" onclick="clearBuyBar()">✕ Clear</button>
+      </div>
+      <!-- sell-side controls -->
+      <div id="bs-ctrl-sell" style="display:none;align-items:center;gap:8px;">
+        <span id="sell-bar-status" style="font-size:10px;color:var(--muted)">Click ATH badge to populate</span>
+        <button class="btn-red" style="padding:3px 12px;font-size:11px;font-weight:700" onclick="sellAll()">🔴 SELL ALL</button>
+        <button class="btn-muted" style="padding:2px 8px;font-size:10px;color:var(--red)" onclick="clearSellBar()">✕ Clear</button>
+      </div>
+    </div>
+
+    <!-- BUY side -->
+    <div id="bs-pane-buy" style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
+      <div style="display:flex;align-items:center;padding:3px 10px;border-bottom:1px solid var(--border);background:#0d1117;flex-shrink:0;">
+        <span style="width:58px;font-size:10px;color:var(--muted)">SYM</span>
+        <span style="width:56px;font-size:10px;color:var(--muted)">BUY $</span>
+        <span style="width:46px;font-size:10px;color:var(--muted)">ACCTS</span>
+        <span style="width:52px;font-size:10px;color:var(--muted)">TYPE</span>
+        <span style="flex:1;font-size:10px;color:var(--muted);padding:0 6px">REASON</span>
+        <span style="width:54px;font-size:10px;color:var(--muted);text-align:right;padding-right:8px">EDGAR</span>
+        <span style="width:100px;font-size:10px;color:var(--muted)"></span>
+      </div>
+      <div class="buy-bar-scroll" id="buy-bar-scroll">
+        <div class="buy-bar-empty">No candidates — upload a fresh Fidelity CSV</div>
+      </div>
+    </div>
+
+    <!-- SELL side (hidden by default) -->
+    <div id="bs-pane-sell" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
+      <div style="display:flex;align-items:center;padding:3px 10px;border-bottom:1px solid var(--border);background:#0d1117;flex-shrink:0;">
+        <span style="width:58px;font-size:10px;color:var(--muted)">SYM</span>
+        <span style="width:72px;font-size:10px;color:var(--muted)">SELL $</span>
+        <span style="width:64px;font-size:10px;color:var(--muted)">GAIN %</span>
+        <span style="flex:1;font-size:10px;color:var(--muted);padding:0 6px">REASON (Hermes)</span>
+        <span style="width:110px;font-size:10px;color:var(--muted)"></span>
+      </div>
+      <div class="buy-bar-scroll" id="sell-bar-scroll">
+        <div class="buy-bar-empty">Click the ATH badge button to ask Hermes what to sell</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="right-panel panel">
+    <div class="rpanel-tabs">
+      <div class="tab active" onclick="switchPanel('chat',this)">💬 Hermes</div>
+      <div class="tab" onclick="switchPanel('trade',this)">⚡ Trade</div>
+      <div class="tab" onclick="switchPanel('candle',this)">🕯 Candle</div>
+      <div class="tab" onclick="switchPanel('buys',this)">📋 Buys</div>
+      <div class="tab" onclick="switchPanel('journey',this)">🗺 Journey</div>
+    </div>
+
+    <!-- CHAT -->
+    <div class="rpanel-content" id="panel-chat">
+      <div class="chat-messages" id="chat-messages">
+        <div class="msg system">Hermes is live. Ask anything about your portfolio.</div>
+      </div>
+      <div class="chat-input">
+        <input type="text" id="chat-in" placeholder="Ask Hermes..." onkeydown="if(event.key==='Enter')sendChat()">
+        <button class="btn-blue" onclick="sendChat()">Send</button>
+      </div>
+    </div>
+
+    <!-- TRADE -->
+    <div class="rpanel-content" id="panel-trade" style="display:none">
+      <div style="margin-bottom:12px">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">QUICK TRADE</div>
+        <div class="trade-row">
+          <input type="text" id="t-sym" placeholder="Symbol (e.g. INTU)" style="text-transform:uppercase">
+        </div>
+        <div class="trade-row">
+          <select id="t-side" style="width:80px">
+            <option value="buy">BUY</option>
+            <option value="sell">SELL</option>
+          </select>
+          <input type="number" id="t-notional" placeholder="$ amount" step="0.01">
+          <button class="btn-green" onclick="executeTrade()">Execute</button>
+        </div>
+        <div id="trade-result" style="margin-top:8px;font-size:11px;color:var(--muted)"></div>
+      </div>
+      <hr style="border-color:var(--border);margin:10px 0">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">EDGAR RESEARCH</div>
+      <div class="trade-row">
+        <input type="text" id="edgar-sym" placeholder="Ticker to research">
+        <button class="btn-gold" onclick="runEdgar()">Score</button>
+      </div>
+      <div id="edgar-result" style="margin-top:8px;font-size:11px;background:#1c2128;padding:8px;border-radius:4px;min-height:40px"></div>
+      <hr style="border-color:var(--border);margin:10px 0">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">UPLOAD FIDELITY CSV</div>
+      <input type="file" id="csv-file" accept=".csv" style="font-size:11px;color:var(--muted)">
+      <button class="btn-muted" style="margin-top:6px;width:100%" onclick="uploadCSV(); switchPanel('buys', document.querySelector('.rpanel-tabs .tab:nth-child(4)'))">Upload &amp; Analyze CSV</button>
+      <div id="csv-result" style="margin-top:6px;font-size:11px;color:var(--muted)"></div>
+    </div>
+
+    <!-- CANDLE TRIGGER -->
+    <div class="rpanel-content" id="panel-candle" style="display:none">
+      <div class="trigger-box cold" id="trigger-box">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:4px">DISTANCE FROM ATH ZONE</div>
+        <div class="trigger-val" id="trig-dist">—</div>
+        <div class="progress-bar">
+          <div class="progress-fill" id="trig-progress" style="width:0%;background:var(--muted)"></div>
+        </div>
+        <div style="font-size:11px;color:var(--muted)" id="trig-detail">Loading...</div>
+      </div>
+
+      <div style="margin-bottom:8px;font-size:11px;color:var(--muted)">
+        When HIGH enters ATH zone → trim (HIGH-LOW) from top gainers → redeploy via Fidelity CSV + EDGAR scores
+      </div>
+
+      <div style="display:flex;gap:6px;margin-bottom:10px">
+        <button class="btn-gold" style="flex:1" onclick="runCandleTrade(true)">🔍 Preview Trade</button>
+        <button class="btn-green" style="flex:1" onclick="runCandleTrade(false)">⚡ Execute Trade</button>
+      </div>
+
+      <div id="candle-output" style="font-size:11px;background:#0d1117;padding:8px;border-radius:4px;min-height:60px;white-space:pre-wrap;overflow-y:auto;max-height:250px;color:var(--muted)">
+        Output will appear here...
+      </div>
+
+      <hr style="border-color:var(--border);margin:10px 0">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:6px">HOUSE MONEY MARKERS</div>
+      <div id="house-money" style="font-size:11px"></div>
+
+      <hr style="border-color:var(--border);margin:10px 0">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div style="font-size:12px;color:var(--muted)">STOP LOSS TIERS</div>
+        <span id="stop-status-badge" style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;background:#0d2818;color:var(--green)">SAFE</span>
+      </div>
+      <div id="stop-tiers-panel" style="font-size:11px;font-family:monospace"></div>
+    </div>
+
+    <!-- BUY CANDIDATES -->
+    <div class="rpanel-content" id="panel-buys" style="display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;color:var(--muted)">RANKED: conviction × EDGAR fundamentals</span>
+        <button class="btn-muted" onclick="loadCandidates()" style="padding:4px 8px;font-size:11px">↻ Refresh</button>
+      </div>
+      <div class="candidates">
+        <table>
+          <thead>
+            <tr>
+              <th>SYM</th><th>BUY</th><th>⭐</th><th>ACCTS</th><th>GM%</th><th>NM%</th><th>TYPE</th>
+            </tr>
+          </thead>
+          <tbody id="candidates-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- JOURNEY — 100 envelope challenge -->
+    <div class="rpanel-content" id="panel-journey" style="display:none;padding:10px">
+
+      <!-- Header stats -->
+      <div style="text-align:center;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border)">
+        <div style="font-size:11px;color:var(--muted);letter-spacing:1px;margin-bottom:4px">JOURNEY TO $100,000</div>
+        <div style="font-size:22px;font-weight:700;color:var(--gold)" id="journey-profit">—</div>
+        <div style="font-size:11px;color:var(--muted)">true profit</div>
+        <div style="margin:6px 0;height:6px;background:var(--border);border-radius:3px;overflow:hidden">
+          <div id="journey-overall-bar" style="height:100%;background:var(--gold);border-radius:3px;width:0%;transition:width .8s"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted)">
+          <span id="journey-filled-count">0/100 envelopes</span>
+          <span id="journey-phase-badge" style="color:var(--green)">🌱 SEED</span>
+          <span id="journey-to-next">next: —</span>
+        </div>
+      </div>
+
+      <!-- Phase legend -->
+      <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap" id="journey-legend"></div>
+
+      <!-- Envelope grid -->
+      <div id="journey-grid" style="display:grid;grid-template-columns:repeat(10,1fr);gap:3px"></div>
+
+    </div>
+
+  </div>
+</div>
+
+<script>
+const socket = io();
+let intradayChart = null;
+let candleChart   = null;
+let ohlcData      = {};
+let _equityPoints = [];        // [{t, v}] — raw intraday bars, updated every refresh
+let _curveAnalyzer = null;     // EquityCurveAnalyzer instance, updated every refresh
+let _chartMonitor  = null;     // HermesChartMonitor instance
+window.portfolioData = {};     // {equity, cash, day_pl} — kept fresh
+window.currentPositions = [];  // live positions array
+
+// ── EquityCurveAnalyzer — feeds chart shape to Hermes ─────────────────────
+class EquityCurveAnalyzer {
+  constructor(dataPoints) {
+    this.points = dataPoints; // [{t, v}]
+    this.computed = this.analyze();
+  }
+
+  analyze() {
+    if (this.points.length < 2) return {};
+    const values = this.points.map(p => p.v);
+    const n = values.length;
+    const current = values[n - 1];
+    const open    = values[0];
+    const peak    = Math.max(...values);
+    const trough  = Math.min(...values);
+    const peakIdx = values.lastIndexOf(peak);
+    const recent20 = values.slice(-20);
+    const recent5  = values.slice(-5);
+    const trend    = this._linearTrend(recent20);
+    const drawdown_from_peak  = peak > open ? ((peak - current) / peak) * 100 : 0;
+    const pct_of_peak_held    = (peak - open) > 0.01 ? ((current - open) / (peak - open)) * 100 : 100;
+    const ma20 = recent20.reduce((a,b)=>a+b,0) / recent20.length;
+    const ma5  = recent5.reduce((a,b)=>a+b,0)  / recent5.length;
+    const momentum = ma5 > ma20 ? 'RISING' : 'FALLING';
+
+    let phase;
+    if (current < trough * 1.005 && peakIdx > n * 0.3)   phase = 'CAPITULATION';
+    else if (drawdown_from_peak > 0.3 && trend < 0)        phase = 'PULLBACK';
+    else if (drawdown_from_peak > 0.3 && trend > 0)        phase = 'RECOVERY';
+    else if (drawdown_from_peak < 0.05)                    phase = 'AT_PEAK';
+    else if (current > open * 1.005 && trend > 0)          phase = 'GRINDING_UP';
+    else                                                    phase = 'CONSOLIDATING';
+
+    const support = this._findSupport(values, trough);
+    return {
+      current_equity:            current,
+      session_open:              open,
+      intraday_peak:             peak,
+      intraday_trough:           trough,
+      peak_time_index:           peakIdx,
+      drawdown_from_peak_pct:    drawdown_from_peak.toFixed(2),
+      drawdown_from_peak_dollars:(peak - current).toFixed(2),
+      pct_of_peak_held:          pct_of_peak_held.toFixed(1),
+      trend_slope:               trend.toFixed(4),
+      momentum,
+      phase,
+      ma5:                       ma5.toFixed(2),
+      ma20:                      ma20.toFixed(2),
+      price_vs_ma5:  current > ma5  ? 'ABOVE' : 'BELOW',
+      price_vs_ma20: current > ma20 ? 'ABOVE' : 'BELOW',
+      support_level:             support.toFixed(2),
+      resistance_level:          peak.toFixed(2),
+      total_range_today:         (peak - trough).toFixed(2),
+      pct_through_range:         (peak - trough) > 0.01
+                                   ? ((current - trough) / (peak - trough) * 100).toFixed(1)
+                                   : '50.0',
+    };
+  }
+
+  _linearTrend(values) {
+    const n = values.length;
+    const xMean = (n - 1) / 2;
+    const yMean = values.reduce((a,b)=>a+b,0) / n;
+    let num = 0, den = 0;
+    for (let i = 0; i < n; i++) { num += (i - xMean)*(values[i]-yMean); den += (i-xMean)**2; }
+    return den !== 0 ? num / den : 0;
+  }
+
+  _findSupport(values, trough) {
+    const clusterCounts = {};
+    for (const v of values) {
+      const bucket = Math.round(v / 2) * 2;
+      clusterCounts[bucket] = (clusterCounts[bucket] || 0) + 1;
+    }
+    const best = Object.entries(clusterCounts).sort((a,b)=>b[1]-a[1])[0];
+    return best ? parseFloat(best[0]) : trough;
+  }
+
+  toHermesContext() {
+    const c = this.computed;
+    if (!c || !c.phase) return '';
+    return (
+`PORTFOLIO EQUITY CURVE ANALYSIS (live):
+  Phase:              ${c.phase}
+  Current equity:     $${parseFloat(c.current_equity).toFixed(2)}
+  Session open:       $${parseFloat(c.session_open).toFixed(2)}
+  Intraday peak:      $${parseFloat(c.intraday_peak).toFixed(2)}
+  Drawdown from peak: $${c.drawdown_from_peak_dollars} (${c.drawdown_from_peak_pct}%)
+  Peak profit held:   ${c.pct_of_peak_held}%
+  Trend (last 20):    ${parseFloat(c.trend_slope) > 0 ? '▲ RISING' : '▼ FALLING'} (slope: ${c.trend_slope})
+  Momentum (MA5/MA20):${c.momentum}
+  Price vs MA5:       ${c.price_vs_ma5} ($${c.ma5})
+  Price vs MA20:      ${c.price_vs_ma20} ($${c.ma20})
+  Support:            $${c.support_level}
+  Resistance:         $${c.resistance_level}
+  Range position:     ${c.pct_through_range}% of today's range ($${c.total_range_today})
+
+CHART READING RULES:
+  PULLBACK + FALLING + BELOW MA5 → ATH pullback protocol active
+  RECOVERY + RISING + ABOVE MA5  → hold, let winners run
+  AT_PEAK                        → watch for reversal, prep harvest list
+  GRINDING_UP                    → DCA entries only, no harvesting yet
+  CAPITULATION                   → defensive mode, harvest remaining winners`
+    );
+  }
+}
+
+// ── HermesChartMonitor — autonomous alerts ────────────────────────────────
+class HermesChartMonitor {
+  constructor() {
+    this.lastAlertPhase = null;
+    this.lastAlertTime  = 0;
+    this.MIN_INTERVAL   = 5 * 60 * 1000; // 5 min
+  }
+
+  check() {
+    if (!_curveAnalyzer) return;
+    const data = _curveAnalyzer.computed;
+    if (!data || !data.phase) return;
+    const now = Date.now();
+    if (now - this.lastAlertTime < this.MIN_INTERVAL) return;
+
+    const drawdown = parseFloat(data.drawdown_from_peak_dollars || 0);
+    const cash     = window.portfolioData.cash || 0;
+    let alert = null;
+
+    if (drawdown >= 4.50 && data.phase !== 'RECOVERY' && data.phase !== 'AT_PEAK') {
+      alert = {
+        type:    'ATH_PULLBACK',
+        priority:'HIGH',
+        message: `📉 ATH PULLBACK: Down $${drawdown.toFixed(2)} from peak $${data.intraday_peak?.toFixed ? data.intraday_peak.toFixed(2) : data.intraday_peak}. Phase: ${data.phase}. Trend: ${parseFloat(data.trend_slope) > 0 ? 'recovering' : 'still falling'}. ${data.pct_of_peak_held}% of peak profit held.`,
+        ask_hermes: true,
+      };
+    } else if (data.phase === 'AT_PEAK' && this.lastAlertPhase !== 'AT_PEAK') {
+      alert = {
+        type:    'NEW_HIGH',
+        priority:'MEDIUM',
+        message: `🏆 NEW SESSION HIGH: $${parseFloat(data.intraday_peak).toFixed(2)}. Up $${(parseFloat(data.intraday_peak) - parseFloat(data.session_open)).toFixed(2)} from open. Harvest watchlist activated.`,
+        ask_hermes: false,
+      };
+    } else if (data.phase === 'RECOVERY' && data.momentum === 'RISING' && this.lastAlertPhase === 'PULLBACK') {
+      alert = {
+        type:    'RECOVERY',
+        priority:'MEDIUM',
+        message: `📈 RECOVERY SIGNAL: Equity turning up. MA5 $${data.ma5} vs MA20 $${data.ma20}. Phase: PULLBACK → RECOVERY. Hold positions.`,
+        ask_hermes: false,
+      };
+    } else if (cash < 1.00 && data.phase === 'PULLBACK') {
+      alert = {
+        type:    'CASH_CRITICAL',
+        priority:'HIGH',
+        message: `⚠️ CASH CRITICAL: $${cash.toFixed(2)} during PULLBACK. Cannot DCA. Need to harvest a winner.`,
+        ask_hermes: true,
+      };
+    } else if (parseFloat(data.current_equity) < parseFloat(data.support_level) - 2) {
+      alert = {
+        type:    'SUPPORT_BROKEN',
+        priority:'HIGH',
+        message: `🔴 SUPPORT BROKEN: Equity $${parseFloat(data.current_equity).toFixed(2)} below support $${data.support_level}. Defensive mode.`,
+        ask_hermes: false,
+      };
+    }
+
+    if (alert) {
+      this.lastAlertPhase = data.phase;
+      this.lastAlertTime  = now;
+      this._sendAlert(alert);
+    }
+  }
+
+  _sendAlert(alert) {
+    addChat('system', `[CHART MONITOR — ${alert.priority}] ${alert.message}`);
+    updatePhasePanel();
+    if (alert.ask_hermes) {
+      // Ask Hermes to respond to this alert
+      const inp = document.getElementById('chat-in');
+      const ctx = _curveAnalyzer ? _curveAnalyzer.toHermesContext() : '';
+      fetch('/api/chat', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({message: alert.message + '\n\nGiven current phase (' + alert.type + '), what is the optimal response?', chart_context: ctx})
+      }).then(r=>r.json()).then(d => {
+        if (d.reply) addChat('hermes', d.reply);
+      });
+    }
+  }
+}
+
+// ── Socket events ─────────────────────────────────────────────────────────
+socket.on('live_update', d => {
+  updateHeader(d);
+  updateTriggerBox(d);
+  if (d.equity) { _lastEquity = d.equity; }
+  // Update stop tiers from socket push
+  if (d.stop_tiers) {
+    renderStopTiers({
+      tiers:       d.stop_tiers,
+      status:      d.stop_status,
+      color:       d.stop_color,
+      breached:    d.stop_breached || [],
+      equity:      d.equity,
+      drop_from_ath: d.drop || 0,
+      drop_pct:    d.drop_pct || 0,
+    });
+  }
+});
+
+socket.on('trade_executed', d => {
+  const color = d.error ? 'var(--red)' : 'var(--green)';
+  document.getElementById('trade-result').innerHTML =
+    `<span style="color:${color}">${d.error || `${d.side.toUpperCase()} ${d.symbol} ${d.status} [${d.id}]`}</span>`;
+  addChat('system', `Trade: ${d.side.toUpperCase()} ${d.symbol} $${d.notional} → ${d.error || d.status}`);
+});
+
+socket.on('candle_trade_result', d => {
+  document.getElementById('candle-output').textContent = d.output;
+  fetchOHLC();  // refresh chart
+});
+
+socket.on('edgar_result', d => {
+  const r = document.getElementById('edgar-result');
+  if (d.error) { r.textContent = `Error: ${d.error}`; return; }
+  r.innerHTML = `<b style="color:var(--gold)">${d.ticker}</b> Score: <b>${d.score}/18</b><br>
+    GM: ${d.gm ? d.gm.toFixed(0)+'%' : 'N/A'} | NM: ${d.nm ? d.nm.toFixed(0)+'%' : 'N/A'}<br>
+    <span style="color:var(--muted)">${d.reasons || ''}</span>`;
+  loadCandidates(); // refresh the buy list
+});
+
+socket.on('hermes_proactive', d => {
+  addChat('hermes', `🤖 [${d.time}] ${d.message}`);
+  // Flash the chat tab if not already on it
+  const chatTab = document.querySelector('.rpanel-tabs .tab');
+  if (chatTab && !chatTab.classList.contains('active')) {
+    chatTab.style.color = 'var(--gold)';
+    setTimeout(() => { chatTab.style.color = ''; }, 3000);
+  }
+});
+
+socket.on('trades_executed_batch', d => {
+  // Hermes just placed real orders — refresh all live data immediately
+  setTimeout(() => { fetchAccount(); fetchOHLC(); }, 1500);
+});
+
+socket.on('pullback_trade', d => {
+  if (d.status === 'fired') {
+    let msg = `📉 AUTO PULLBACK $${d.drop.toFixed(2)} from session high $${d.session_high.toFixed(2)}\n`;
+    msg += `  SOLD: ${d.sells.map(s=>`${s.sym} $${s.amt.toFixed(2)} (${s.status})`).join(', ')}\n`;
+    msg += `  BOUGHT: ${d.buys.map(b=>`${b.sym} $${b.amt.toFixed(2)} (${b.status})`).join(', ')}`;
+    addChat('system', msg);
+    switchPanel('chat', document.querySelector('.rpanel-tabs .tab'));
+  } else if (d.status === 'no_gainers') {
+    addChat('system', `⚠ PULLBACK: ${d.message}`);
+  } else if (d.status === 'error') {
+    addChat('system', `❌ PULLBACK ERROR: ${d.message}`);
+  }
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────
+window.onload = () => {
+  fetchAccount();
+  fetchOHLC();
+  fetchTrigger();
+  fetchHouseMoney();
+  loadPreviousSessions();  // load last 3 session notes into Hermes brain
+  fetchStopTiers();        // load stop loss tiers on page load
+  // Seed dismissed set from today's actual Alpaca buy orders — survives page refresh
+  fetch('/api/today_buys').then(r=>r.json()).then(d => {
+    let added = 0;
+    (d.bought||[]).forEach(sym => {
+      if (!_buyBarDismissed.has(sym)) { _buyBarDismissed.add(sym); added++; }
+    });
+    if (added > 0) {
+      _persistDismissed();
+      document.getElementById('buy-bar-status').textContent = `${d.bought.length} already bought today — filtered`;
+    }
+  }).catch(()=>{});
+  setInterval(fetchAccount, 30000);
+  setInterval(fetchTrigger, 60000);
+};
+
+// ── Account ───────────────────────────────────────────────────────────────
+// Track last known intra_high for live pullback counter
+let _lastIntraHigh = 0;
+let _lastEquity    = 0;
+
+function fetchAccount() {
+  fetch('/api/account').then(r=>r.json()).then(d => {
+    window.portfolioData = {equity: d.equity, cash: d.cash, day_pl: d.day_pl};
+
+    // Row 1
+    const eqEl = document.getElementById('equity');
+    if (eqEl) eqEl.textContent = '$'+d.equity.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+    const pl = document.getElementById('day_pl');
+    if (pl) {
+      pl.textContent = (d.day_pl>=0?'+':'') + '$'+d.day_pl.toFixed(2);
+      pl.className   = 'val ' + (d.day_pl>=0?'green':'red');
+    }
+
+    // Row 2
+    const ihEl = document.getElementById('intra_high');
+    if (ihEl) ihEl.textContent = '$'+d.intra_high.toFixed(2);
+
+    // Pullback goal
+    _lastIntraHigh = d.intra_high;
+    _lastEquity    = d.equity;
+    updatePullbackCounter(d.equity, d.intra_high);
+
+    // True profit vs $1,154 principal
+    const tp2El  = document.getElementById('true_profit_val');
+    const pct2El = document.getElementById('true_profit_pct_val');
+    if (tp2El && d.true_profit !== undefined) {
+      tp2El.textContent = (d.true_profit >= 0 ? '+' : '') + '$' + d.true_profit.toFixed(2);
+      tp2El.style.color = d.true_profit >= 0 ? 'var(--green)' : 'var(--red)';
+    }
+    if (pct2El && d.true_profit_pct !== undefined) {
+      pct2El.textContent = (d.true_profit_pct >= 0 ? '+' : '') + d.true_profit_pct.toFixed(2) + '%';
+      pct2El.style.color = d.true_profit_pct >= 0 ? 'var(--green)' : 'var(--red)';
+    }
+
+    // Checkpoint / variation tracker
+    updateCheckpoint(d.true_profit);
+  }).catch(()=>{});
+}
+
+function updatePullbackCounter(equity, intraHigh) {
+  const pullback = intraHigh - equity;
+  const el = document.getElementById('pullback_goal');
+  if (!el) return;
+  if (pullback > 0.01) {
+    el.textContent = '+$' + pullback.toFixed(2);
+    el.style.color = 'var(--gold)';
+  } else {
+    el.textContent = '—';
+    el.style.color = 'var(--muted)';
+  }
+}
+
+// ── Profit Checkpoint / Variation Tracker ────────────────────────────────
+// Persisted in localStorage — survives refresh. Zero it whenever you want a new baseline.
+let _checkpointProfit = parseFloat(localStorage.getItem('hermes_checkpoint_profit') || '0');
+let _checkpointTime   = localStorage.getItem('hermes_checkpoint_time') || '';
+
+function zeroCheckpoint() {
+  const current = parseFloat(document.getElementById('true_profit_val')?.textContent?.replace(/[+$]/g,'') || '0');
+  if (!current) return;
+  _checkpointProfit = current;
+  _checkpointTime   = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+  localStorage.setItem('hermes_checkpoint_profit', _checkpointProfit);
+  localStorage.setItem('hermes_checkpoint_time',   _checkpointTime);
+  updateCheckpoint(current);
+}
+
+function updateCheckpoint(trueProfit) {
+  if (!trueProfit) return;
+  const cpEl    = document.getElementById('checkpoint_profit_val');
+  const deltaEl = document.getElementById('checkpoint_delta_val');
+  const pctEl   = document.getElementById('checkpoint_pct_val');
+  const lblEl   = document.getElementById('checkpoint_lbl');
+  if (!cpEl) return;
+
+  // Show the checkpoint baseline
+  cpEl.textContent = (_checkpointProfit >= 0 ? '+' : '') + '$' + _checkpointProfit.toFixed(2);
+  cpEl.style.color = _checkpointProfit >= 0 ? 'var(--green)' : 'var(--red)';
+
+  // Delta = current true profit minus checkpoint
+  const delta = trueProfit - _checkpointProfit;
+  deltaEl.textContent = (delta >= 0 ? '+' : '') + '$' + delta.toFixed(2);
+  deltaEl.style.color = delta > 0.01 ? 'var(--green)' : delta < -0.01 ? 'var(--red)' : 'var(--muted)';
+
+  // Variation % = delta / checkpoint * 100
+  const variationPct = _checkpointProfit !== 0 ? (delta / Math.abs(_checkpointProfit)) * 100 : 0;
+  pctEl.textContent  = (variationPct >= 0 ? '+' : '') + variationPct.toFixed(2) + '%';
+  pctEl.style.color  = variationPct > 0.01 ? 'var(--green)' : variationPct < -0.01 ? 'var(--red)' : 'var(--muted)';
+
+  // Label shows when it was zeroed
+  lblEl.textContent = _checkpointTime ? `CHECKPOINT @ ${_checkpointTime} — click ⊙ to reset` : 'CHECKPOINT — click ⊙ to zero';
+}
+
+// Live counter — re-compute pullback every second from last known values
+// (updates faster than the 30s API poll)
+setInterval(() => {
+  if (_lastIntraHigh > 0 && _lastEquity > 0) {
+    updatePullbackCounter(_lastEquity, _lastIntraHigh);
+  }
+}, 1000);
+
+// ── OHLC + Charts ─────────────────────────────────────────────────────────
+function fetchOHLC() {
+  fetch('/api/ohlc').then(r=>r.json()).then(d => {
+    ohlcData = d;
+    _equityPoints = d.intraday || [];
+    _curveAnalyzer = new EquityCurveAnalyzer(_equityPoints);
+    if (!_chartMonitor) {
+      _chartMonitor = new HermesChartMonitor();
+      setInterval(() => _chartMonitor.check(), 60 * 1000);
+    }
+    buildIntradayChart(d.intraday, d.ath_zone, d.ath);
+    updateATHDist(d);
+    updatePhasePanel();
+  });
+}
+
+function updateATHDist(d) {
+  const hi = d.intraday.length ? Math.max(...d.intraday.map(b=>b.v)) : 0;
+  const dist = hi - d.ath_zone;
+  const el = document.getElementById('ath_dist');
+  el.textContent = (dist>=0?'+':'') + '$'+dist.toFixed(2);
+  el.className = 'val ' + (dist>=0 ? 'green' : 'gold');
+
+  if (d.intraday.length >= 2) {
+    const lo = Math.min(...d.intraday.map(b=>b.v));
+    const range = hi - lo;
+    const rel = document.getElementById('range_val');
+    rel.textContent = '$'+range.toFixed(2);
+    rel.className = 'val ' + (range >= 5 ? 'green' : 'muted');
+    document.getElementById('intraday_label').textContent =
+      `O:$${d.intraday[0].v.toFixed(2)} H:$${hi.toFixed(2)} L:$${lo.toFixed(2)} C:$${d.intraday[d.intraday.length-1].v.toFixed(2)} | Range: $${range.toFixed(2)}`;
+  }
+}
+
+function buildIntradayChart(bars, athZone, ath) {
+  if (!bars || !bars.length) return;
+  const ctx = document.getElementById('intradayChart').getContext('2d');
+  const labels = bars.map(b => new Date(b.t));
+  const values = bars.map(b => b.v);
+
+  // Compute rolling MAs
+  function rollingMA(vals, period) {
+    return vals.map((v, i) => {
+      if (i < period - 1) return null;
+      return vals.slice(i - period + 1, i + 1).reduce((a,b)=>a+b,0) / period;
+    });
+  }
+  const ma5vals  = rollingMA(values, 5);
+  const ma20vals = rollingMA(values, 20);
+
+  if (intradayChart) intradayChart.destroy();
+  intradayChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Equity',
+          data: values,
+          borderColor: values[values.length-1] >= values[0] ? '#3fb950' : '#f85149',
+          borderWidth: 2,
+          pointRadius: 0,
+          fill: {target: 'origin', above: 'rgba(63,185,80,0.05)', below: 'rgba(248,81,73,0.05)'},
+          tension: 0.2,
+          order: 3,
+        },
+        {
+          label: 'MA5',
+          data: ma5vals,
+          borderColor: '#58a6ff',
+          borderWidth: 1,
+          pointRadius: 0,
+          fill: false,
+          tension: 0.3,
+          spanGaps: true,
+          order: 2,
+        },
+        {
+          label: 'MA20',
+          data: ma20vals,
+          borderColor: '#d4a017',
+          borderWidth: 1,
+          pointRadius: 0,
+          fill: false,
+          tension: 0.3,
+          spanGaps: true,
+          order: 1,
+        },
+      ]
+    },
+    options: {
+      responsive: true,
+      animation: false,
+      plugins: {
+        legend: {
+          display: true,
+          position: 'top',
+          labels: { color: '#8b949e', font: {size: 10}, boxWidth: 20, padding: 8 }
+        },
+        annotation: {
+          annotations: {
+            ath: {
+              type:'line', yMin:ath, yMax:ath,
+              borderColor:'rgba(212,160,23,0.6)', borderWidth:1, borderDash:[5,5],
+              label:{content:'ATH', display:true, position:'end', color:'#d4a017', font:{size:10}}
+            },
+            athZone: {
+              type:'line', yMin:athZone, yMax:athZone,
+              borderColor:'rgba(63,185,80,0.4)', borderWidth:1, borderDash:[3,3],
+              label:{content:'TRIGGER', display:true, position:'end', color:'#3fb950', font:{size:10}}
+            }
+          }
+        }
+      },
+      scales: {
+        x: { type:'time', time:{unit:'minute',displayFormats:{minute:'HH:mm'}},
+             grid:{color:'#1c2128'}, ticks:{color:'#8b949e',maxTicksLimit:8} },
+        y: { grid:{color:'#1c2128'}, ticks:{color:'#8b949e',
+             callback:v=>'$'+v.toLocaleString()} }
+      }
+    }
+  });
+}
+
+function buildCandleChart(history) {
+  // legacy — now using /api/candles
+}
+
+function loadCandles() {
+  fetch('/api/candles').then(r=>r.json()).then(candles => {
+    const ctx = document.getElementById('candleChart').getContext('2d');
+    if (!candles || !candles.length) {
+      ctx.clearRect(0,0,ctx.canvas.width,ctx.canvas.height);
+      ctx.fillStyle='#8b949e'; ctx.font='13px monospace';
+      ctx.fillText('No history yet — account too new. Builds as days pass.', 20, 120);
+      return;
+    }
+
+    const data = candles.map(c => ({ x: c.ts, o: c.open, h: c.high, l: c.low, c: c.close }));
+
+    if (candleChart) candleChart.destroy();
+    candleChart = new Chart(ctx, {
+      type: 'candlestick',
+      data: { datasets: [{ label: 'Portfolio', data,
+        color: { up:'#3fb950', down:'#f85149', unchanged:'#8b949e' } }] },
+      options: {
+        responsive: true, animation: false,
+        plugins: { legend:{display:false},
+          tooltip: { callbacks: { label: (i) => {
+            const d = i.raw;
+            const pct = d.c > d.o ? '+' : '';
+            return [`O:$${d.o.toFixed(2)} H:$${d.h.toFixed(2)} L:$${d.l.toFixed(2)} C:$${d.c.toFixed(2)}`,
+                    `Change: ${pct}${((d.c-d.o)/d.o*100).toFixed(2)}%`];
+          }}}
+        },
+        scales: {
+          x: { type:'time', time:{unit:'day', displayFormats:{day:'MMM d'}},
+               grid:{color:'#1c2128'}, ticks:{color:'#8b949e', maxTicksLimit:10} },
+          y: { grid:{color:'#1c2128'}, ticks:{color:'#8b949e', callback:v=>'$'+v.toLocaleString()} }
+        }
+      }
+    });
+
+    // Stats bar below chart
+    const first = candles[0], last = candles[candles.length-1];
+    const best  = candles.reduce((a,b)=>b.pct>a.pct?b:a);
+    const worst = candles.reduce((a,b)=>b.pct<a.pct?b:a);
+    const totalPct = ((last.close - first.open) / first.open * 100).toFixed(1);
+    const wins  = candles.filter(c=>c.close>=c.open).length;
+    document.getElementById('candle-stats').innerHTML = [
+      `<span style="color:var(--muted);font-size:10px">SINCE INCEPTION</span>`,
+      `<span style="color:${totalPct>=0?'var(--green)':'var(--red)'}">Total: ${totalPct>=0?'+':''}${totalPct}%</span>`,
+      `<span style="color:var(--muted)">$${first.open.toFixed(0)}→$${last.close.toFixed(0)}</span>`,
+      `<span style="color:var(--green)">Best: +${best.pct}% (${best.date})</span>`,
+      `<span style="color:var(--red)">Worst: ${worst.pct}% (${worst.date})</span>`,
+      `<span style="color:var(--muted)">Win rate: ${wins}/${candles.length} days (${(wins/candles.length*100).toFixed(0)}%)</span>`,
+      `<span style="color:var(--muted)">${candles.length} sessions</span>`,
+    ].map(s=>`<span style="font-size:11px">${s}</span>`).join('');
+  });
+}
+
+// ── Positions ─────────────────────────────────────────────────────────────
+function loadPositions() {
+  fetch('/api/positions').then(r=>r.json()).then(positions => {
+    const tbody = document.getElementById('pos-list');
+    if (!positions.length) {
+      tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:20px">No positions</td></tr>';
+      return;
+    }
+    tbody.innerHTML = positions.map(p => {
+      const uplColor   = p.upl  >= 0 ? 'var(--green)' : 'var(--red)';
+      const dayColor   = p.day_chg >= 0 ? 'var(--green)' : 'var(--red)';
+      const gapColor   = p.gap_pct > 0 ? 'var(--red)' : 'var(--muted)';
+      const mfBadge    = p.is_mf ? '<span style="color:var(--gold);font-size:9px">★MF</span> ' : '';
+      const acctColor  = p.accts >= 10 ? 'var(--green)' : p.accts >= 5 ? 'var(--blue)' : 'var(--muted)';
+
+      // Action cell
+      let action = '';
+      if (p.dca_buy > 0 && p.gap_pct > 0) {
+        action = `<button class="bc-buy" style="font-size:10px;padding:2px 6px" onclick="buyFromCard('${p.sym}',${p.dca_buy})">DCA $${p.dca_buy}</button>`;
+      } else if (p.uplpc >= 10) {
+        action = `<span style="color:var(--gold);font-size:10px">HARVEST</span>`;
+      } else if (p.gap_pct > 5) {
+        action = `<span style="color:var(--muted);font-size:10px">add $1.10</span>`;
+      }
+
+      return `<tr style="border-bottom:1px solid #1c2128;cursor:pointer" onclick="prefillTrade('${p.sym}')" title="Entry: $${p.entry} | Qty: ${p.qty.toFixed(4)}">
+        <td style="padding:4px 6px;font-weight:700">${mfBadge}${p.sym}</td>
+        <td style="padding:4px 6px;text-align:right">$${p.cur}</td>
+        <td style="padding:4px 6px;text-align:right;color:var(--muted)">$${p.entry}</td>
+        <td style="padding:4px 6px;text-align:right;color:${gapColor}">${p.gap_pct > 0 ? '-'+p.gap_pct+'%' : '—'}</td>
+        <td style="padding:4px 6px;text-align:right;color:${dayColor}">${p.day_chg>=0?'+':''}${p.day_chg.toFixed(1)}%</td>
+        <td style="padding:4px 6px;text-align:right;color:${uplColor}">${p.uplpc>=0?'+':''}${p.uplpc.toFixed(1)}%</td>
+        <td style="padding:4px 6px;text-align:right;color:var(--muted)">$${p.mv.toFixed(0)}</td>
+        <td style="padding:4px 6px;text-align:right;color:${acctColor}">${p.accts||'—'}</td>
+        <td style="padding:4px 6px;text-align:right;color:var(--green)">${p.dca_buy > 0 ? '$'+p.dca_buy : '—'}</td>
+        <td style="padding:4px 6px">${action}</td>
+      </tr>`;
+    }).join('');
+  });
+}
+
+// ── Trigger ───────────────────────────────────────────────────────────────
+function fetchTrigger() {
+  // Grab current equity from header display so we can detect pullback state
+  const eqText  = (document.getElementById('equity') || {}).textContent || '0';
+  const curEq   = parseFloat(eqText.replace(/[$,]/g,'')) || 0;
+  fetch('/api/candle_trigger').then(r=>r.json()).then(d => {
+    if (curEq > 0) d.equity = curEq;
+    updateTriggerBox(d);
+  });
+}
+
+function updateTriggerBox(d) {
+  const box      = document.getElementById('trigger-box');
+  const dist     = document.getElementById('trig-dist');
+  const progress = document.getElementById('trig-progress');
+  const detail   = document.getElementById('trig-detail');
+  const badge    = document.getElementById('ath_badge');
+
+  const gap = d.today_high - d.ath_zone;
+  const pct = Math.min(Math.max((d.today_high - (d.ath_zone - 20)) / 20 * 100, 0), 100);
+
+  // Use current equity vs today_high to detect pullback (available on live_update ticks)
+  // On fetchTrigger() calls d.equity may be undefined — fall back to today_high (no pullback known yet)
+  const curEquity  = d.equity || d.today_high;
+  const dropFromHigh = d.today_high - curEquity;
+
+  // Three states:
+  // 1. triggered + equity within $0.50 of today_high → AT ATH, flash green
+  // 2. triggered + equity dropped >$0.50 below today_high → PULLED BACK, solid gold, no flash
+  // 3. not triggered → muted WATCH
+  const atATH      = d.triggered && dropFromHigh < 0.50;
+  const pulledBack = d.triggered && dropFromHigh >= 0.50;
+
+  const color = atATH ? 'var(--green)' : pulledBack ? 'var(--gold)' : gap > -5 ? 'var(--gold)' : 'var(--muted)';
+
+  dist.textContent      = (gap>=0?'+':'') + '$'+gap.toFixed(2);
+  dist.style.color      = color;
+  progress.style.width      = pct+'%';
+  progress.style.background = color;
+  detail.textContent = `H:$${d.today_high.toFixed(2)} Zone:$${d.ath_zone.toFixed(2)} ATH:$${d.ath.toFixed(2)} | Range: $${d.range.toFixed(2)}`
+    + (pulledBack ? ` | ↓$${dropFromHigh.toFixed(2)} pullback` : '');
+
+  if (atATH) {
+    box.className     = 'trigger-box hot';
+    badge.className   = 'ath-badge triggered';
+    badge.textContent = '🔥 ATH TRIGGERED';
+  } else if (pulledBack) {
+    box.className     = 'trigger-box hot';
+    badge.className   = 'ath-badge pulled_back';
+    badge.textContent = `📉 PULLED BACK $${dropFromHigh.toFixed(2)}`;
+  } else {
+    box.className     = 'trigger-box cold';
+    badge.className   = 'ath-badge waiting';
+    badge.textContent = `ATH WATCH $${Math.abs(gap).toFixed(2)} away`;
+  }
+}
+
+// ── Candle trade ──────────────────────────────────────────────────────────
+function runCandleTrade(dryRun) {
+  document.getElementById('candle-output').textContent = dryRun ? 'Previewing...' : 'Executing...';
+  fetch('/api/run_candle_trade', {method:'POST',headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({dry_run: dryRun})});
+}
+
+function fetchHouseMoney() {
+  fetch('/api/house_money').then(r=>r.json()).then(d => {
+    const el = document.getElementById('house-money');
+    const keys = Object.keys(d);
+    if (!keys.length) { el.textContent = 'No positions trimmed yet.'; return; }
+    el.innerHTML = keys.map(sym => {
+      const m = d[sym];
+      return `<div style="padding:4px 0;border-bottom:1px solid var(--border)">
+        <b style="color:var(--blue)">${sym}</b>
+        <span style="color:var(--muted);margin-left:8px">house $${m.house_money?.toFixed(2)}</span>
+        <span style="color:var(--green);margin-left:8px">trimmed $${m.trimmed_profit?.toFixed(2)}</span>
+        <span style="color:var(--gold);margin-left:8px">rebuy@$${m.rebuy_trigger?.toFixed(2)}</span>
+      </div>`;
+    }).join('');
+  });
+}
+
+// ── Stop Loss Tiers ───────────────────────────────────────────────────────
+let _lastStopStatus = 'SAFE';
+
+function fetchStopTiers() {
+  fetch('/api/stop_tiers').then(r=>r.json()).then(d => {
+    renderStopTiers(d);
+  }).catch(()=>{});
+}
+
+function renderStopTiers(d) {
+  if (!d || !d.tiers) return;
+  const equity = d.equity || 0;
+  const tiers  = d.tiers;
+
+  const TIER_CONFIG = [
+    { key:'soft_stop',  label:'SOFT STOP',   desc:'Trim 1 winner',         color:'#d4a017' },
+    { key:'warn_stop',  label:'WARN STOP',   desc:'Harvest 2-3 winners',   color:'#f0883e' },
+    { key:'hard_stop',  label:'HARD STOP',   desc:'Freeze all new buys',   color:'#f85149' },
+    { key:'break_even', label:'BREAK-EVEN',  desc:'Day gain floor (open)', color:'#8b949e' },
+    { key:'prev_ath',   label:'PREV ATH',    desc:'Support level',         color:'#58a6ff' },
+    { key:'danger',     label:'DANGER',      desc:'Reduce exposure',       color:'#f85149' },
+    { key:'principal',  label:'PRINCIPAL',   desc:'Capital floor — never', color:'#f85149' },
+  ];
+
+  const html = TIER_CONFIG.map(t => {
+    const level   = tiers[t.key] || 0;
+    const dist    = equity - level;
+    const breached= dist < 0;
+    const bg      = breached ? 'rgba(248,81,73,0.08)' : 'transparent';
+    const distStr = (dist >= 0 ? '+' : '') + '$' + dist.toFixed(2);
+    const distCol = dist >= 0 ? 'var(--green)' : 'var(--red)';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 4px;border-radius:4px;background:${bg};margin-bottom:2px">
+      <span style="color:${t.color};width:80px">${t.label}</span>
+      <span style="color:var(--text)">\$${level.toFixed(2)}</span>
+      <span style="color:${distCol};width:60px;text-align:right">${distStr}</span>
+      <span style="color:var(--muted);font-size:9px;width:120px;text-align:right">${t.desc}</span>
+    </div>`;
+  }).join('');
+
+  document.getElementById('stop-tiers-panel').innerHTML = html;
+
+  // Status badge
+  const badge = document.getElementById('stop-status-badge');
+  const STATUS_COLORS = {
+    SAFE:       { bg:'#0d2818', color:'var(--green)' },
+    SOFT_STOP:  { bg:'#2d2008', color:'var(--gold)' },
+    WARN_STOP:  { bg:'#2d1a08', color:'#f0883e' },
+    HARD_STOP:  { bg:'#2d0f0f', color:'var(--red)' },
+    BELOW_OPEN: { bg:'#2d2008', color:'var(--gold)' },
+  };
+  const st = STATUS_COLORS[d.status] || STATUS_COLORS.SAFE;
+  badge.style.background = st.bg;
+  badge.style.color      = st.color;
+  badge.textContent      = d.status || 'SAFE';
+
+  // Alert if status changed
+  if (d.status !== _lastStopStatus && _lastStopStatus !== null) {
+    if (d.status !== 'SAFE') {
+      addChat('system', `🛑 STOP TIER: ${d.status} — equity $${equity.toFixed(2)}, ${d.drop_from_ath?.toFixed(2)} below ATH. ${
+        d.status === 'SOFT_STOP'  ? 'Trim top winner now.' :
+        d.status === 'WARN_STOP'  ? 'Harvest 2-3 winners → SGOL/DIA/QQQ/VOO split.' :
+        d.status === 'HARD_STOP'  ? 'FREEZE all new buys. Aggressively harvest.' :
+        d.status === 'BELOW_OPEN' ? 'Below today\'s open — day gain protection breached.' : ''
+      }`);
+    } else {
+      addChat('system', `✅ STOP CLEAR: Back to SAFE zone at $${equity.toFixed(2)}.`);
+    }
+  }
+  _lastStopStatus = d.status;
+}
+
+// ── Buy candidates ────────────────────────────────────────────────────────
+// ── Buy bar dismissed — persisted in localStorage by date ─────────────────
+const _today = new Date().toISOString().slice(0,10); // YYYY-MM-DD
+const _storageKey = `hermes_bought_${_today}`;
+
+// Load today's dismissed set from localStorage (clears automatically on new day)
+let _buyBarDismissed = new Set(JSON.parse(localStorage.getItem(_storageKey) || '[]'));
+
+function _persistDismissed() {
+  localStorage.setItem(_storageKey, JSON.stringify([..._buyBarDismissed]));
+  // Clean up old keys (keep only today)
+  Object.keys(localStorage).forEach(k => {
+    if (k.startsWith('hermes_bought_') && k !== _storageKey) localStorage.removeItem(k);
+  });
+}
+
+function loadCandidates() {
+  document.getElementById('candidates-body').innerHTML = '<tr><td colspan="7" style="color:var(--muted);text-align:center">Loading...</td></tr>';
+  fetch('/api/buy_candidates').then(r=>r.json()).then(d => {
+    if (d.error) {
+      document.getElementById('candidates-body').innerHTML = `<tr><td colspan="7" style="color:var(--red)">${d.error}</td></tr>`;
+      return;
+    }
+    _renderCandidates(d);
+    _renderBuyBar(d);
+  });
+}
+
+function refreshBuyBar() {
+  document.getElementById('buy-bar-status').textContent = 'Refreshing...';
+  fetch('/api/buy_candidates').then(r=>r.json()).then(d => {
+    if (!d.error) { _renderBuyBar(d); _renderCandidates(d); }
+    else document.getElementById('buy-bar-status').textContent = d.error;
+  });
+}
+
+function clearBuyBar() {
+  fetch('/api/buy_candidates').then(r=>r.json()).then(d => {
+    if (!d.error) (d||[]).forEach(c => _buyBarDismissed.add(c.sym));
+    _persistDismissed();
+    document.getElementById('buy-bar-scroll').innerHTML = '<span class="buy-bar-empty">Cleared — refresh to reload</span>';
+    document.getElementById('buy-bar-status').textContent = 'Cleared';
+  });
+}
+
+function dismissCard(sym) {
+  _buyBarDismissed.add(sym);
+  _persistDismissed();
+  const card = document.getElementById('bc-' + sym);
+  if (card) card.remove();
+  const scroll = document.getElementById('buy-bar-scroll');
+  if (!scroll.querySelector('.buy-card')) {
+    scroll.innerHTML = '<span class="buy-bar-empty">All dismissed — upload fresh CSV to reload</span>';
+  }
+  const n = document.querySelectorAll('.buy-card').length;
+  document.getElementById('buy-bar-status').textContent = n ? `${n} candidates` : 'All cleared';
+}
+
+function buyFromCard(sym, amt) {
+  if (!confirm(`BUY ${sym} $${amt}?`)) return;
+  fetch('/api/trade', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({symbol:sym, side:'buy', notional:amt})})
+  .then(r=>r.json()).then(d => {
+    const ok = !d.message;
+    addChat('system', ok ? `✅ BUY ${sym} $${amt} — ${d.status}` : `❌ ${sym}: ${d.message}`);
+    if (ok) dismissCard(sym);
+  });
+}
+
+function buyAll() {
+  const rows = document.querySelectorAll('#buy-bar-scroll .buy-row');
+  if (!rows.length) { alert('No candidates in list.'); return; }
+  const list = Array.from(rows).map(r => ({
+    sym: r.id.replace('bc-',''),
+    amt: parseFloat(r.querySelector('.br-amt').textContent.replace('$',''))
+  }));
+  const total = list.reduce((s,c) => s + c.amt, 0).toFixed(2);
+  if (!confirm(`BUY ALL ${list.length} positions?\nTotal: $${total}\n\n${list.map(c=>`${c.sym} $${c.amt}`).join('\n')}`)) return;
+
+  document.getElementById('buy-bar-status').textContent = `Buying ${list.length} positions...`;
+  switchPanel('chat', document.querySelector('.rpanel-tabs .tab'));
+
+  let done = 0;
+  let shortfall = 0;
+  let stoppedAt = -1;
+
+  function handleShortfall(fromIndex) {
+    // Sum remaining unplaced orders
+    const remaining = list.slice(fromIndex).reduce((s,c) => s + c.amt, 0);
+    shortfall = remaining;
+    document.getElementById('buy-bar-status').textContent = `⚠ Funds low — need $${shortfall.toFixed(2)} more`;
+    addChat('system', `⚠ BUY ALL stopped at ${list[fromIndex].sym} — insufficient funds. Need $${shortfall.toFixed(2)} more. Finding gainers to trim...`);
+
+    // Ask backend for trim candidates
+    fetch('/api/fund_shortfall', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({shortfall: shortfall})
+    })
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) {
+        addChat('system', `❌ Could not find trim candidates: ${d.error}`);
+        document.getElementById('buy-bar-status').textContent = `Stopped — need $${shortfall.toFixed(2)}`;
+        return;
+      }
+      if (!d.trims || !d.trims.length) {
+        addChat('system', `⚠ No gainers available to trim. Need $${shortfall.toFixed(2)} — add funds manually.`);
+        document.getElementById('buy-bar-status').textContent = `Stopped — no trims available`;
+        return;
+      }
+      const trimTotal = d.trims.reduce((s,t) => s + t.sell_amount, 0).toFixed(2);
+      const msg = d.covers
+        ? `✅ Found ${d.trims.length} positions to trim ($${trimTotal}) — covers the shortfall. See SELL LIST.`
+        : `⚠ Partial coverage: can trim $${trimTotal} of $${shortfall.toFixed(2)} needed. Still short $${d.still_need.toFixed(2)}.`;
+      addChat('system', msg);
+
+      // Populate sell list with trim candidates
+      _renderSellBar(d.trims);
+      showBuySellTab('sell');
+      document.getElementById('sell-bar-status').textContent = `${d.trims.length} trims to fund buys`;
+    })
+    .catch(e => {
+      addChat('system', `❌ Shortfall lookup failed: ${e}`);
+      document.getElementById('buy-bar-status').textContent = `Stopped — need $${shortfall.toFixed(2)}`;
+    });
+  }
+
+  function next(i) {
+    if (i >= list.length) {
+      document.getElementById('buy-bar-status').textContent = `All ${done} orders placed`;
+      return;
+    }
+    const {sym, amt} = list[i];
+    fetch('/api/trade', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({symbol:sym, side:'buy', notional:amt})})
+    .then(r=>r.json()).then(d => {
+      const errMsg = (d.message || '').toLowerCase();
+      const isInsufficient = errMsg.includes('insufficient') || errMsg.includes('buying power') || errMsg.includes('funds');
+
+      if (isInsufficient) {
+        // STOP — don't continue, go into shortfall mode
+        addChat('system', `🛑 ${sym}: ${d.message}`);
+        stoppedAt = i;
+        handleShortfall(i);
+        return; // do NOT call next()
+      }
+
+      const ok = !d.message;
+      addChat('system', ok ? `✅ BUY ${sym} $${amt} — ${d.status}` : `❌ ${sym}: ${d.message}`);
+      if (ok) { dismissCard(sym); done++; }
+      document.getElementById('buy-bar-status').textContent = `${i+1}/${list.length} placed...`;
+      setTimeout(() => next(i+1), 400);
+    }).catch(() => { setTimeout(() => next(i+1), 400); });
+  }
+  next(0);
+}
+
+function _renderBuyBar(cands) {
+  const scroll  = document.getElementById('buy-bar-scroll');
+  const visible = (cands||[]).filter(c => !_buyBarDismissed.has(c.sym));
+  if (!visible.length) {
+    scroll.innerHTML = '<div class="buy-bar-empty">No candidates — upload a fresh Fidelity CSV</div>';
+    document.getElementById('buy-bar-status').textContent = 'No candidates';
+    return;
+  }
+  document.getElementById('buy-bar-status').textContent = `${visible.length} candidates`;
+  scroll.innerHTML = visible.map(c => {
+    const rowClass = c.is_mf ? 'mf-row' : c.source==='gap' ? 'gap-row' : c.source==='hi_conv' ? 'hi-row' : '';
+    const typeLabel = c.is_mf      ? `<span style="color:var(--gold)">★ MF</span>`
+                    : c.source==='gap'     ? `<span style="color:var(--green)">↓ gap</span>`
+                    : c.source==='hi_conv' ? `<span style="color:var(--blue)">hi✓</span>`
+                    : `<span style="color:var(--muted)">${c.source}</span>`;
+    const edgar = c.edgar_score != null
+      ? `<span style="color:${c.edgar_score>=10?'var(--green)':c.edgar_score>=6?'var(--gold)':'var(--muted)'}">${c.edgar_score}/18</span>`
+      : `<span style="color:var(--muted)">—</span>`;
+    return `<div class="buy-row ${rowClass}" id="bc-${c.sym}">
+      <div class="br-sym">${c.sym}</div>
+      <div class="br-amt">$${c.buy.toFixed(2)}</div>
+      <div class="br-accts">${c.accts} accts</div>
+      <div class="br-type">${typeLabel}</div>
+      <div class="br-reason">${c.reason||''}</div>
+      <div class="br-edgar">${edgar}</div>
+      <button class="br-buy" onclick="buyFromCard('${c.sym}',${c.buy})">BUY</button>
+      <button class="br-del" onclick="dismissCard('${c.sym}')" title="Remove from list">✕</button>
+    </div>`;
+  }).join('');
+}
+
+// ── Chat ──────────────────────────────────────────────────────────────────
+function addChat(role, text) {
+  const el  = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = `msg ${role}`;
+  div.textContent = text;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+}
+
+// ── Phase panel + HERMES SEES ─────────────────────────────────────────────
+const PHASE_STYLES = {
+  PULLBACK:     {color:'var(--red)',   bg:'#2d0f0f', icon:'▼'},
+  CAPITULATION: {color:'var(--red)',   bg:'#3a0808', icon:'⚠'},
+  AT_PEAK:      {color:'var(--gold)',  bg:'#2d2008', icon:'★'},
+  RECOVERY:     {color:'var(--green)', bg:'#0d2818', icon:'▲'},
+  GRINDING_UP:  {color:'var(--green)', bg:'#0d2010', icon:'↗'},
+  CONSOLIDATING:{color:'var(--muted)', bg:'#21262d', icon:'—'},
+};
+
+function updatePhasePanel() {
+  if (!_curveAnalyzer) return;
+  const c = _curveAnalyzer.computed;
+  if (!c || !c.phase) return;
+
+  const badge  = document.getElementById('phase-badge');
+  const detail = document.getElementById('phase-detail');
+  const st     = PHASE_STYLES[c.phase] || PHASE_STYLES.CONSOLIDATING;
+
+  badge.textContent = st.icon + ' ' + c.phase;
+  badge.style.color      = st.color;
+  badge.style.background = st.bg;
+
+  const trend = parseFloat(c.trend_slope) > 0 ? '▲' : '▼';
+  detail.textContent = `${c.momentum} | MA5 $${c.ma5} | MA20 $${c.ma20} | ${parseFloat(c.drawdown_from_peak_dollars) > 0.1 ? '↓$'+c.drawdown_from_peak_dollars+' from peak' : 'near peak'}`;
+
+  // Update HERMES SEES content
+  const content = document.getElementById('hermes-sees-content');
+  const timeEl  = document.getElementById('hermes-sees-time');
+  if (content) {
+    content.innerHTML = [
+      `Phase: <b style="color:${st.color}">${c.phase}</b> | Trend: ${trend} ${parseFloat(c.trend_slope) > 0 ? 'rising' : 'falling'} | Momentum: ${c.momentum}`,
+      `MA5: $${c.ma5} <span style="color:${c.price_vs_ma5==='ABOVE'?'var(--green)':'var(--red)'}">● ${c.price_vs_ma5}</span> &nbsp; MA20: $${c.ma20} <span style="color:${c.price_vs_ma20==='ABOVE'?'var(--green)':'var(--red)'}">● ${c.price_vs_ma20}</span>`,
+      `Support: $${c.support_level} | Resistance: $${c.resistance_level} | Range position: ${c.pct_through_range}%`,
+      `Drawdown from peak: <span style="color:var(--red)">$${c.drawdown_from_peak_dollars}</span> | Peak profit held: <span style="color:var(--green)">${c.pct_of_peak_held}%</span>`,
+    ].join('<br>');
+  }
+  if (timeEl) timeEl.textContent = new Date().toLocaleTimeString();
+}
+
+function toggleHermesSees() {
+  const el = document.getElementById('hermes-sees');
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+function sendChat() {
+  const inp = document.getElementById('chat-in');
+  const msg = inp.value.trim();
+  if (!msg) return;
+  addChat('user', msg);
+  inp.value = '';
+  addChat('hermes', '...');
+
+  // Always inject chart context + previous session notes into chat payload
+  const chartCtx = _curveAnalyzer ? _curveAnalyzer.toHermesContext() : '';
+  const sessionCtx = _prevSessionsContext ? '\n\nPREVIOUS SESSION NOTES (for pattern recognition):\n' + _prevSessionsContext : '';
+
+  fetch('/api/chat', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({message: msg, chart_context: chartCtx + sessionCtx})
+  })
+  .then(r=>r.json()).then(d=>{
+    const msgs = document.querySelectorAll('#chat-messages .msg.hermes');
+    const last = msgs[msgs.length-1];
+    if (last && last.textContent === '...') last.textContent = d.reply || d.error;
+  });
+}
+
+// ── Trade ─────────────────────────────────────────────────────────────────
+function prefillTrade(sym) {
+  switchPanel('trade', document.querySelector('.rpanel-tabs .tab:nth-child(2)'));
+  document.getElementById('t-sym').value = sym;
+  document.getElementById('t-notional').focus();
+}
+
+function executeTrade() {
+  const sym  = document.getElementById('t-sym').value.trim().toUpperCase();
+  const side = document.getElementById('t-side').value;
+  const amt  = parseFloat(document.getElementById('t-notional').value);
+  if (!sym || !amt) { document.getElementById('trade-result').textContent='Enter symbol and amount'; return; }
+  fetch('/api/trade',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({symbol:sym,side,notional:amt})})
+    .then(r=>r.json()).then(d=>{
+      const ok = !d.message;
+      document.getElementById('trade-result').innerHTML =
+        `<span style="color:${ok?'var(--green)':'var(--red)'}">${ok ? `${side.toUpperCase()} ${sym} $${amt} — ${d.status}` : d.message}</span>`;
+    });
+}
+
+function runEdgar() {
+  const sym = document.getElementById('edgar-sym').value.trim().toUpperCase();
+  if (!sym) return;
+  document.getElementById('edgar-result').textContent = `Pulling EDGAR data for ${sym}...`;
+  fetch('/api/run_edgar',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ticker:sym})});
+}
+
+function uploadCSV() {
+  // called from CSV upload button — uploads file then triggers full Hermes analysis
+  const f = document.getElementById('csv-file').files[0];
+  if (!f) return;
+  const fd = new FormData();
+  fd.append('file', f);
+  const statusEl = document.getElementById('csv-result');
+  statusEl.style.color = 'var(--muted)';
+  statusEl.textContent = 'Uploading...';
+
+  fetch('/api/upload_csv', {method:'POST', body:fd})
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) { statusEl.style.color='var(--red)'; statusEl.textContent=d.error; return; }
+      statusEl.textContent = `Saved (${(d.size/1024).toFixed(0)}kb) — Hermes analyzing...`;
+
+      // Trigger full Hermes analysis
+      fetch('/api/analyze_csv', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
+        .then(r => r.json())
+        .then(a => {
+          if (a.error) {
+            statusEl.style.color = 'var(--red)';
+            statusEl.textContent = a.error;
+            return;
+          }
+          // Show Hermes narrative in an analysis box
+          let box = document.getElementById('hermes-analysis');
+          if (!box) {
+            box = document.createElement('div');
+            box.id = 'hermes-analysis';
+            box.style.cssText = 'margin-top:10px;padding:10px;background:#0d1117;border:1px solid var(--border);border-radius:6px;font-size:12px;line-height:1.6;white-space:pre-wrap;color:#e6edf3;max-height:260px;overflow-y:auto;';
+            document.getElementById('panel-buys').insertBefore(box, document.getElementById('panel-buys').firstChild);
+          }
+          box.textContent = a.analysis;
+          statusEl.style.color = 'var(--green)';
+          statusEl.textContent = `Analysis complete — ${(a.candidates||[]).length} candidates`;
+          // Populate table too
+          _renderCandidates(a.candidates || []);
+          // Populate the buy bar below the chart
+          _buyBarDismissed.clear();
+          _persistDismissed(); // reset storage on fresh CSV upload
+          _renderBuyBar(a.candidates || []);
+        })
+        .catch(e => { statusEl.style.color='var(--red)'; statusEl.textContent='Analysis error: '+e; });
+    });
+}
+
+function _renderCandidates(cands) {
+  const rows = cands.map(c => {
+    const typeTag = c.is_mf
+      ? `<span class="badge-mf">★MF</span>`
+      : c.source==='gap'     ? `<span class="badge-gap">gap</span>`
+      : c.source==='hi_conv' ? `<span style="color:var(--green);font-size:10px">hi✓</span>`
+      : `<span style="color:var(--muted);font-size:10px">${c.source}</span>`;
+    const gm = c.gm  ? c.gm.toFixed(0)+'%'  : '—';
+    const nm = c.nm  ? c.nm.toFixed(0)+'%'  : '—';
+    const es = c.edgar_score !== null ? c.edgar_score : '—';
+    const score_color = c.edgar_score >= 10 ? 'var(--green)' : c.edgar_score >= 6 ? 'var(--gold)' : 'var(--muted)';
+    const reason = c.reason || '';
+    return `<tr onclick="prefillTrade('${c.sym}')" style="cursor:pointer" title="${reason}">
+      <td><b>${c.sym}</b></td>
+      <td style="color:var(--green)">$${c.buy.toFixed(2)}</td>
+      <td style="color:${score_color}">${c.combined}</td>
+      <td>${c.accts}</td>
+      <td>${gm}</td>
+      <td>${nm}</td>
+      <td>${typeTag}</td>
+    </tr>`;
+  });
+  document.getElementById('candidates-body').innerHTML =
+    rows.join('') || '<tr><td colspan="7" style="color:var(--muted)">No candidates</td></tr>';
+}
+
+// ── Tab switching ─────────────────────────────────────────────────────────
+function switchChart(view, el) {
+  ['intraday','candles','positions'].forEach(v => {
+    document.getElementById(`view-${v}`).style.display = v===view ? '' : 'none';
+  });
+  document.querySelectorAll('.chart-tabs .tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  if (view === 'positions') loadPositions();
+  if (view === 'candles')   loadCandles();
+}
+
+function switchPanel(panel, el) {
+  ['chat','trade','candle','buys','journey'].forEach(p => {
+    document.getElementById(`panel-${p}`).style.display = p===panel ? '' : 'none';
+  });
+  document.querySelectorAll('.rpanel-tabs .tab').forEach(t => t.classList.remove('active'));
+  if (el) el.classList.add('active');
+  if (panel === 'buys')    loadCandidates();
+  if (panel === 'candle')  { fetchTrigger(); fetchHouseMoney(); fetchStopTiers(); }
+  if (panel === 'journey') loadJourney();
+}
+
+// ── Journey / 100-Envelope Challenge ─────────────────────────────────────
+function loadJourney() {
+  fetch('/api/journey').then(r=>r.json()).then(d => {
+    if (d.error) return;
+
+    // Header
+    document.getElementById('journey-profit').textContent = (d.true_profit>=0?'+':'')+'$'+d.true_profit.toFixed(2);
+    document.getElementById('journey-overall-bar').style.width = Math.min(d.overall_pct, 100) + '%';
+    document.getElementById('journey-filled-count').textContent = `${d.filled_count}/100 envelopes`;
+    document.getElementById('journey-to-next').textContent = `next: $${d.to_next.toFixed(2)} away`;
+
+    const phaseEmojis = {};
+    d.phases.forEach(p => { phaseEmojis[p.name] = {emoji:p.emoji, color:p.color}; });
+    const ph = phaseEmojis[d.current_phase] || {emoji:'🌱', color:'var(--green)'};
+    document.getElementById('journey-phase-badge').textContent = `${ph.emoji} ${d.current_phase}`;
+    document.getElementById('journey-phase-badge').style.color = ph.color;
+
+    // Phase legend
+    const legend = document.getElementById('journey-legend');
+    legend.innerHTML = d.phases.map(p => {
+      const phEnvs = d.envelopes.filter(e => e.phase === p.name);
+      const filled = phEnvs.filter(e => e.filled).length;
+      return `<div style="font-size:10px;display:flex;align-items:center;gap:3px">
+        <span style="width:10px;height:10px;border-radius:2px;background:${p.color};display:inline-block"></span>
+        ${p.emoji} ${p.name} ${filled}/${p.envelopes}
+      </div>`;
+    }).join('');
+
+    // Envelope grid — 10 columns × 10 rows
+    const grid = document.getElementById('journey-grid');
+    grid.innerHTML = d.envelopes.map(e => {
+      const ph2 = phaseEmojis[e.phase] || {color:'#444'};
+      let bg, border;
+      if (e.filled) {
+        bg = ph2.color; border = ph2.color;
+      } else if (e.partial) {
+        // Gradient fill based on pct complete
+        bg = `linear-gradient(to top, ${ph2.color} ${e.pct}%, #21262d ${e.pct}%)`;
+        border = ph2.color;
+      } else {
+        bg = '#161b22'; border = '#30363d';
+      }
+      const tip = `#${e.n} $${e.start.toFixed(0)}→$${e.end.toFixed(0)} (${e.phase})${e.partial?' '+e.pct+'%':''}`;
+      return `<div title="${tip}" style="
+        height:22px;border-radius:3px;
+        background:${bg};
+        border:1px solid ${border};
+        cursor:default;
+        position:relative;
+        font-size:8px;
+        display:flex;align-items:center;justify-content:center;
+        color:${e.filled?'rgba(0,0,0,0.5)':'transparent'}
+      ">${e.filled ? '✓' : ''}</div>`;
+    }).join('');
+
+    // Celebrate new milestones
+    if (d.new_milestones && d.new_milestones.length) {
+      d.new_milestones.forEach(m => {
+        addChat('system', `🎉 ENVELOPE #${m.n} FILLED! ${m.emoji} ${m.phase} phase — $${m.start.toFixed(0)}→$${m.end.toFixed(0)} ✅ ${d.filled_count}/100 envelopes colored in!`);
+      });
+      switchPanel('chat', document.querySelector('.rpanel-tabs .tab'));
+    }
+  }).catch(()=>{});
+}
+
+function updateHeader(d) {
+  if (d.equity) {
+    document.getElementById('equity').textContent = '$'+d.equity.toLocaleString('en-US',{minimumFractionDigits:2});
+    document.getElementById('cash').textContent   = '$'+d.cash.toFixed(2);
+  }
+}
+
+// ── Session Notes ──────────────────────────────────────────────────────────
+let _prevSessionsLoaded = false;
+let _prevSessionsContext = '';
+
+function loadPreviousSessions() {
+  if (_prevSessionsLoaded) return;
+  fetch('/api/load_previous_sessions?n=3').then(r=>r.json()).then(d => {
+    if (d.sessions && d.sessions.length) {
+      _prevSessionsContext = d.sessions.map(s =>
+        `=== Session ${s.date} ===\n${s.content}`
+      ).join('\n\n');
+      _prevSessionsLoaded = true;
+      console.log(`[Hermes] Loaded ${d.sessions.length} previous session notes into brain`);
+    }
+  }).catch(()=>{});
+}
+
+function saveSessionNote(force=false) {
+  const btn = document.getElementById('save-note-btn');
+  btn.textContent = '⏳ Saving...';
+  btn.disabled = true;
+
+  const chartCtx = _curveAnalyzer ? _curveAnalyzer.toHermesContext() : '';
+
+  fetch('/api/save_session_note', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({chart_context: chartCtx, force})
+  })
+  .then(r=>r.json())
+  .then(d => {
+    btn.disabled = false;
+    if (d.error) {
+      btn.textContent = '❌ Failed';
+      addChat('system', `❌ Session note failed: ${d.error}`);
+      setTimeout(() => { btn.textContent = '📝 Save Note'; }, 3000);
+      return;
+    }
+    btn.textContent = '✅ Saved';
+    const action = d.appended ? 'Updated' : 'Created';
+    addChat('system', `📝 ${action} session note → ${d.path}\n\n${d.note.substring(0, 300)}...`);
+    switchPanel('chat', document.querySelector('.rpanel-tabs .tab'));
+    setTimeout(() => { btn.textContent = '📝 Save Note'; }, 4000);
+    _prevSessionsLoaded = false; // force reload next time
+  })
+  .catch(e => {
+    btn.disabled = false;
+    btn.textContent = '❌ Error';
+    setTimeout(() => { btn.textContent = '📝 Save Note'; }, 3000);
+  });
+}
+
+// ── Buy/Sell panel tab toggle ─────────────────────────────────────────────────
+function showBuySellTab(side) {
+  const isBuy = side === 'buy';
+  document.getElementById('bs-pane-buy').style.display  = isBuy ? 'flex' : 'none';
+  document.getElementById('bs-pane-sell').style.display = isBuy ? 'none' : 'flex';
+  document.getElementById('bs-ctrl-buy').style.display  = isBuy ? 'flex' : 'none';
+  document.getElementById('bs-ctrl-sell').style.display = isBuy ? 'none' : 'flex';
+  document.getElementById('bs-tab-buy').classList.toggle('active', isBuy);
+  document.getElementById('bs-tab-sell').classList.toggle('active', !isBuy);
+}
+
+// ── ATH Decision — Hermes decides what to sell ────────────────────────────────
+let _sellBarDismissed = new Set();
+
+function badgeClick() {
+  const badge = document.getElementById('ath_badge');
+  const cls   = badge.className;
+  if (cls.includes('pulled_back')) {
+    pullbackPreview();   // show what the auto-trade will do / already did
+  } else if (cls.includes('triggered')) {
+    athDecision();       // at ATH — ask Hermes what to trim
+  }
+  // waiting state — do nothing on click
+}
+
+function pullbackPreview() {
+  const badge = document.getElementById('ath_badge');
+  badge.disabled = true;
+  const origText = badge.textContent;
+  badge.textContent = '⏳ Calculating...';
+  document.getElementById('sell-bar-status').textContent = 'Calculating pullback trade...';
+
+  // Get current equity and today_high from header/detail
+  const eqText = (document.getElementById('equity') || {}).textContent || '0';
+  const curEq  = parseFloat(eqText.replace(/[$,]/g,'')) || 0;
+
+  fetch('/api/pullback_preview', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({current_equity: curEq})
+  })
+  .then(r => r.json())
+  .then(d => {
+    badge.disabled = false;
+    badge.textContent = origText;
+    if (d.error) {
+      addChat('system', `❌ Pullback preview error: ${d.error}`);
+      return;
+    }
+    // Build sell list from all planned trims
+    const sells = (d.sell_plan||[]).map(s => ({
+      sym:         s.sym,
+      sell_amount: s.amt,
+      gain_pct:    s.gain_pct,
+      reason:      `Pullback $${d.drop.toFixed(2)} — sell → buy SGOL/DIA/QQQ/VOO $${d.buy_each.toFixed(2)} each`
+    }));
+    _renderSellBar(sells);
+    showBuySellTab('sell');
+    document.getElementById('sell-bar-status').textContent = `Pullback: sell ${sells.length} pos → buy 4-way $${d.buy_each.toFixed(2)} each`;
+
+    const sellStr = (d.sell_plan||[]).map(s=>`${s.sym} $${s.amt.toFixed(2)} (+${s.gain_pct.toFixed(1)}%)`).join(', ');
+    let msg = `📉 PULLBACK $${d.drop.toFixed(2)}: Sell ${sellStr}\n`;
+    msg += `  → Buy SGOL + DIA + QQQ + VOO = $${d.buy_each.toFixed(2)} each ($${d.total_sell.toFixed(2)} total)`;
+    addChat('system', msg);
+    switchPanel('chat', document.querySelector('.rpanel-tabs .tab'));
+  })
+  .catch(e => {
+    badge.disabled = false;
+    badge.textContent = origText;
+    addChat('system', `❌ Pullback preview failed: ${e}`);
+  });
+}
+
+function athDecision() {
+  const badge = document.getElementById('ath_badge');
+  badge.textContent = '⏳ Asking Hermes...';
+  badge.disabled = true;
+  document.getElementById('sell-bar-status').textContent = 'Hermes is thinking...';
+
+  fetch('/api/ath_decision', {method:'POST'})
+    .then(r => r.json())
+    .then(d => {
+      badge.disabled = false;
+      if (d.error) {
+        badge.textContent = '⚠ ATH ERROR';
+        document.getElementById('sell-bar-status').textContent = 'Error: ' + d.error;
+        return;
+      }
+      _renderSellBar(d.sells);
+      showBuySellTab('sell');
+      // Switch the badge back to normal state
+      if (d.trigger && d.trigger.triggered) {
+        badge.textContent = '🔥 ATH TRIGGERED';
+      } else {
+        const gap = d.trigger ? d.trigger.distance : 0;
+        badge.textContent = 'ATH WATCH $' + Math.abs(gap).toFixed(2) + ' away';
+      }
+      addChat('system', `🔴 ATH Decision: Hermes flagged ${d.sells.length} positions to trim — see SELL LIST`);
+    })
+    .catch(e => {
+      badge.disabled = false;
+      badge.textContent = '⚠ ATH ERROR';
+      document.getElementById('sell-bar-status').textContent = 'Network error';
+    });
+}
+
+function _renderSellBar(sells) {
+  const scroll = document.getElementById('sell-bar-scroll');
+  const visible = (sells||[]).filter(s => !_sellBarDismissed.has(s.sym));
+  if (!visible.length) {
+    scroll.innerHTML = '<div class="buy-bar-empty">No sells recommended — portfolio looks safe</div>';
+    document.getElementById('sell-bar-status').textContent = 'No sells needed';
+    return;
+  }
+  document.getElementById('sell-bar-status').textContent = `${visible.length} positions to trim`;
+  scroll.innerHTML = visible.map(s => `
+    <div class="sell-row" id="sc-${s.sym}">
+      <div class="sr-sym">${s.sym}</div>
+      <div class="sr-amt">$${(+s.sell_amount).toFixed(2)}</div>
+      <div class="sr-gain">+${(+s.gain_pct).toFixed(1)}%</div>
+      <div class="sr-reason">${s.reason||''}</div>
+      <button class="sr-sell" onclick="sellFromCard('${s.sym}',${(+s.sell_amount).toFixed(2)})">SELL</button>
+      <button class="sr-del" onclick="dismissSellCard('${s.sym}')">✕</button>
+    </div>`).join('');
+}
+
+function dismissSellCard(sym) {
+  _sellBarDismissed.add(sym);
+  const card = document.getElementById('sc-' + sym);
+  if (card) card.remove();
+  const n = document.querySelectorAll('#sell-bar-scroll .sell-row').length;
+  document.getElementById('sell-bar-status').textContent = n ? `${n} positions to trim` : 'All cleared';
+  if (!n) document.getElementById('sell-bar-scroll').innerHTML = '<div class="buy-bar-empty">All cleared</div>';
+}
+
+function sellFromCard(sym, amt) {
+  if (!confirm(`SELL ${sym} $${amt}?\n\nThis will place a market sell order.`)) return;
+  fetch('/api/trade', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({symbol:sym, side:'sell', notional:amt})})
+  .then(r=>r.json()).then(d => {
+    const ok = !d.message;
+    addChat('system', ok ? `🔴 SOLD ${sym} $${amt} — ${d.status}` : `❌ SELL ${sym}: ${d.message}`);
+    if (ok) dismissSellCard(sym);
+  });
+}
+
+function sellAll() {
+  const rows = document.querySelectorAll('#sell-bar-scroll .sell-row');
+  if (!rows.length) { alert('No sell candidates.'); return; }
+  const list = Array.from(rows).map(r => ({
+    sym: r.id.replace('sc-',''),
+    amt: parseFloat(r.querySelector('.sr-amt').textContent.replace('$',''))
+  }));
+  const total = list.reduce((s,c) => s + c.amt, 0).toFixed(2);
+  if (!confirm(`SELL ALL ${list.length} positions?\nTotal: $${total}\n\n${list.map(c=>`${c.sym} $${c.amt}`).join('\n')}`)) return;
+
+  document.getElementById('sell-bar-status').textContent = `Selling ${list.length} positions...`;
+  switchPanel('chat', document.querySelector('.rpanel-tabs .tab'));
+
+  let done = 0;
+  function next(i) {
+    if (i >= list.length) {
+      document.getElementById('sell-bar-status').textContent = `All ${done} sells placed`;
+      return;
+    }
+    const {sym, amt} = list[i];
+    fetch('/api/trade', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({symbol:sym, side:'sell', notional:amt})})
+    .then(r=>r.json()).then(d => {
+      const ok = !d.message;
+      addChat('system', ok ? `🔴 SOLD ${sym} $${amt} — ${d.status}` : `❌ SELL ${sym}: ${d.message}`);
+      if (ok) { dismissSellCard(sym); done++; }
+      document.getElementById('sell-bar-status').textContent = `${i+1}/${list.length} placed...`;
+      setTimeout(() => next(i+1), 400);
+    }).catch(() => { setTimeout(() => next(i+1), 400); });
+  }
+  next(0);
+}
+
+function clearSellBar() {
+  _sellBarDismissed.clear();
+  document.getElementById('sell-bar-scroll').innerHTML = '<div class="buy-bar-empty">Cleared — click ATH badge to reload</div>';
+  document.getElementById('sell-bar-status').textContent = 'Cleared';
+}
+</script>
+</body>
+</html>

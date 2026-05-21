@@ -1,0 +1,32 @@
+# Hermes Trading Dashboard — .gitignore
+
+# Environment / secrets — NEVER commit these
+.env
+*.env
+trading.env
+alpaca.env
+trading_secrets.*
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# Data files — personal trading data, not for public repo
+candle_history.json
+edgar_score_cache.json
+house_money.json
+portfolio.csv
+~/trading_reports/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
