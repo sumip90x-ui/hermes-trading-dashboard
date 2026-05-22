@@ -2051,9 +2051,9 @@ def fundamentals_html(ticker):
                 return False
 
         th_cells = ''.join(
-            f'<th style="background:#0a2a0a;color:#88cc88;padding:5px 12px;'
+            f'<th style="background:#0a2a0a;color:#88cc88;padding:4px 8px;'
             f'text-align:right;border-bottom:1px solid #1a3a1a;'
-            f'font-family:monospace;font-size:11px;min-width:90px;white-space:nowrap;">'
+            f'font-family:monospace;font-size:11px;min-width:70px;white-space:nowrap;">'
             f'{html_mod.escape(d)}</th>'
             for d in date_labels
         )
@@ -2087,16 +2087,18 @@ def fundamentals_html(ticker):
                 )
                 continue
 
-            tds = f'<td style="color:#88cc88;padding:3px 12px;border-bottom:1px solid #0a1a0a;' \
-                  f'white-space:nowrap;font-family:monospace;font-size:11px;min-width:220px;">' \
+            tds = f'<td style="color:#88cc88;padding:2px 8px;border-bottom:1px solid #0a1a0a;' \
+                  f'font-family:monospace;font-size:11px;max-width:260px;overflow:hidden;' \
+                  f'text-overflow:ellipsis;white-space:nowrap;" title="{metric}">' \
                   f'{metric}</td>'
             for v in vals:
-                display = cell(v)
+                display = cell(v, max_len=30)
                 color = '#00ff88' if display and is_num(v) else '#88cc88'
-                tds += (f'<td style="color:{color};padding:3px 12px;'
+                tds += (f'<td style="color:{color};padding:2px 8px;'
                         f'border-bottom:1px solid #0a1a0a;text-align:right;'
                         f'white-space:nowrap;font-family:monospace;font-size:11px;'
-                        f'min-width:90px;">{display}</td>')
+                        f'min-width:70px;" title="{html_mod.escape(str(v)) if v and v==v else ""}">'
+                        f'{display}</td>')
             rows_html.append(f'<tr>{tds}</tr>')
 
         html_out = f'''
@@ -2112,9 +2114,9 @@ def fundamentals_html(ticker):
   <table style="border-collapse:collapse;white-space:nowrap;">
     <thead>
       <tr>
-        <th style="background:#0a2a0a;color:#ffaa00;padding:5px 12px;text-align:left;
+        <th style="background:#0a2a0a;color:#ffaa00;padding:4px 8px;text-align:left;
                    border-bottom:1px solid #1a3a1a;font-family:monospace;
-                   font-size:11px;min-width:220px;">Metric</th>
+                   font-size:11px;max-width:260px;">Metric</th>
         {th_cells}
       </tr>
     </thead>
