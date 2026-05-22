@@ -2102,24 +2102,58 @@ async function loadFundamentals(ticker) {
       return;
     }
     const cols = Object.keys(rows[0]);
+
+    // Detect if this is a two-column metric/value layout
+    const isTwoCol = cols.length === 2;
+
     tableDiv.innerHTML = `
-      <table style="border-collapse:collapse; width:100%; font-family:monospace; font-size:11px;">
+      <div style="padding:8px 12px; background:#0a2a0a; border-bottom:1px solid #1a3a1a;
+                  font-family:monospace; font-size:11px; color:#ffaa00; letter-spacing:1px;">
+        ${ticker} — ${rows.length} rows
+      </div>
+      <table style="border-collapse:collapse; width:100%; font-family:monospace; font-size:12px;">
+        ${isTwoCol ? '' : `
         <thead>
           <tr>${cols.map(c => `
-            <th style="background:#0a2a0a; color:#ffaa00; padding:5px 10px;
-                       text-align:left; position:sticky; top:0; border-bottom:1px solid #1a3a1a;
-                       white-space:nowrap;">${c}</th>`).join('')}
+            <th style="background:#0a2a0a; color:#ffaa00; padding:5px 12px;
+                       text-align:left; position:sticky; top:0;
+                       border-bottom:1px solid #1a3a1a; white-space:nowrap;">
+              ${c}
+            </th>`).join('')}
           </tr>
-        </thead>
+        </thead>`}
         <tbody>
-          ${rows.map((row, i) => `
-            <tr style="background:${i % 2 === 0 ? '#060e06' : '#080e08'}">
-              ${cols.map(c => `
-                <td style="color:#88cc88; padding:4px 10px;
-                           border-bottom:1px solid #0a1a0a; white-space:nowrap;">
-                  ${row[c] ?? ''}
-                </td>`).join('')}
-            </tr>`).join('')}
+          ${rows.map((row, i) => {
+            const vals = Object.values(row);
+            const isHeader = isTwoCol && (
+              vals[1] === null || vals[1] === '' || vals[1] === undefined ||
+              String(vals[0]).startsWith('PHASE') ||
+              String(vals[0]).startsWith('---') ||
+              String(vals[0]).toUpperCase() === String(vals[0])
+            );
+            if (isHeader) {
+              return `<tr>
+                <td colspan="2" style="color:#ffaa00; padding:8px 12px 4px 12px;
+                    font-family:monospace; font-size:11px; letter-spacing:1px;
+                    border-top:1px solid #1a3a1a; background:#080e08;">
+                  ${vals[0] ?? ''}
+                </td>
+              </tr>`;
+            }
+            return `<tr style="background:${i % 2 === 0 ? '#060e06' : '#080e08'}">
+              ${isTwoCol ? `
+                <td style="color:#88cc88; padding:4px 12px; border-bottom:1px solid #0a1a0a;
+                           width:65%; white-space:nowrap;">${vals[0] ?? ''}</td>
+                <td style="color:#00ff88; padding:4px 12px; border-bottom:1px solid #0a1a0a;
+                           text-align:right; white-space:nowrap; font-weight:bold;">
+                  ${vals[1] ?? ''}
+                </td>
+              ` : cols.map(c => `
+                <td style="color:#88cc88; padding:4px 12px; border-bottom:1px solid #0a1a0a;
+                           white-space:nowrap;">${row[c] ?? ''}</td>
+              `).join('')}
+            </tr>`;
+          }).join('')}
         </tbody>
       </table>`;
   } catch(e) {
