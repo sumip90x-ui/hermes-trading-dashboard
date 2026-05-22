@@ -190,31 +190,6 @@
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-
-  /* Research tab */
-  #view-research { grid-column: 1 / -1; grid-row: 2 / 4; display: none; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; height: 100%; min-height: 0; }
-  .research-layout { display: flex; height: 100%; min-height: 0; }
-  .research-left { width: 200px; min-width: 200px; border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
-  .research-center { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-  .research-right { width: 200px; min-width: 200px; border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
-  .research-section-hdr { font-size: 10px; color: var(--gold); font-weight: 700; letter-spacing: 1px; padding: 8px 10px 4px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
-  .research-list { overflow-y: auto; flex: 1; }
-  .research-item { padding: 5px 10px; font-size: 11px; color: var(--text); cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 4px; }
-  .research-item:hover { background: #21262d; }
-  .research-item.active { background: #0d2818; color: var(--green); }
-  .research-item .sim-btn { font-size: 10px; padding: 1px 6px; background: #0d2818; border: 1px solid var(--green); color: var(--green); border-radius: 3px; cursor: pointer; flex-shrink: 0; }
-  .research-item .sim-btn:hover { background: var(--green); color: #000; }
-  .research-center-hdr { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
-  .research-center-hdr span { font-size: 11px; color: var(--gold); font-weight: 700; }
-  #fundamentals-table { flex: 1; overflow: auto; padding: 8px; font-size: 11px; }
-  .fund-table { border-collapse: collapse; width: 100%; }
-  .fund-table th { background: #21262d; color: var(--muted); font-size: 10px; padding: 4px 8px; text-align: left; position: sticky; top: 0; border-bottom: 1px solid var(--border); }
-  .fund-table td { padding: 3px 8px; border-bottom: 1px solid #21262d; color: var(--text); }
-  .fund-table tr:hover td { background: #21262d; }
-  .research-tabs { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; }
-  .research-tab { padding: 5px 12px; font-size: 11px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; }
-  .research-tab.active { color: var(--gold); border-bottom-color: var(--gold); }
-  .research-right-section { display: flex; flex-direction: column; flex: 1; overflow: hidden; border-bottom: 1px solid var(--border); min-height: 0; }
 </style>
 </head>
 <body>
@@ -274,56 +249,12 @@
     </div>
   </div>
 
-  <!-- RESEARCH PANEL — full width when active -->
-  <div id="view-research">
-    <div class="research-layout">
-      <!-- Left: EDGAR tickers -->
-      <div class="research-left">
-        <div class="research-section-hdr">📊 EDGAR TICKERS</div>
-        <div class="research-list" id="research-edgar-list">
-          <div style="padding:10px;font-size:11px;color:var(--muted)">Loading...</div>
-        </div>
-      </div>
-      <!-- Center: data viewer -->
-      <div class="research-center">
-        <div class="research-center-hdr">
-          <span id="miroshark-panel-title" style="color:var(--gold);font-family:monospace;letter-spacing:1px">MIROSHARK</span>
-          <button class="btn-muted" style="margin-left:auto;font-size:10px;padding:2px 8px" onclick="document.getElementById('miroshark-frame').src='about:blank';document.getElementById('miroshark-panel-title').textContent='MIROSHARK'">CLEAR</button>
-          <button class="btn-muted" style="font-size:10px;padding:2px 8px" onclick="switchChart('intraday', document.querySelector('.chart-tabs .tab'))">← Dashboard</button>
-        </div>
-        <div id="miroshark-panel" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
-          <iframe id="miroshark-frame"
-                  src="about:blank"
-                  style="flex:1;width:100%;border:none;background:#060e06;display:block;pointer-events:all"
-                  allow="same-origin scripts">
-          </iframe>
-        </div>
-      </div>
-      <!-- Right: Seeds + Reports -->
-      <div class="research-right">
-        <div class="research-right-section" style="flex:1">
-          <div class="research-section-hdr">🌱 SEED FILES</div>
-          <div class="research-list" id="research-seeds-list">
-            <div style="padding:10px;font-size:11px;color:var(--muted)">Loading...</div>
-          </div>
-        </div>
-        <div class="research-right-section" style="flex:1">
-          <div class="research-section-hdr">📋 SIM REPORTS</div>
-          <div class="research-list" id="research-reports-list">
-            <div style="padding:10px;font-size:11px;color:var(--muted)">Loading...</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <!-- MAIN CHART PANEL -->
   <div class="chart-panel panel">
     <div class="chart-tabs">
       <div class="tab active" onclick="switchChart('intraday',this)">Intraday</div>
       <div class="tab" onclick="switchChart('candles',this)">Candles</div>
       <div class="tab" onclick="switchChart('positions',this)">Positions</div>
-      <div class="tab" onclick="switchChart('research',this)">🔬 Research</div>
     </div>
     <div class="chart-body">
       <!-- Intraday equity curve -->
@@ -933,20 +864,12 @@ function zeroCheckpoint() {
 }
 
 function updateCheckpoint(trueProfit) {
-  if (trueProfit == null || trueProfit === undefined) return;
+  if (!trueProfit) return;
   const cpEl    = document.getElementById('checkpoint_profit_val');
   const deltaEl = document.getElementById('checkpoint_delta_val');
   const pctEl   = document.getElementById('checkpoint_pct_val');
   const lblEl   = document.getElementById('checkpoint_lbl');
   if (!cpEl) return;
-
-  // Auto-initialize checkpoint to current profit on first ever load
-  if (_checkpointTime === '' && _checkpointProfit === 0) {
-    _checkpointProfit = trueProfit;
-    _checkpointTime   = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
-    localStorage.setItem('hermes_checkpoint_profit', _checkpointProfit);
-    localStorage.setItem('hermes_checkpoint_time',   _checkpointTime);
-  }
 
   // Show the checkpoint baseline
   cpEl.textContent = (_checkpointProfit >= 0 ? '+' : '') + '$' + _checkpointProfit.toFixed(2);
@@ -1613,8 +1536,6 @@ function sendChat() {
     const msgs = document.querySelectorAll('#chat-messages .msg.hermes');
     const last = msgs[msgs.length-1];
     if (last && last.textContent === '...') last.textContent = d.reply || d.error;
-    const el = document.getElementById('chat-messages');
-    if (el) el.scrollTop = el.scrollHeight;
   });
 }
 
@@ -1722,33 +1643,13 @@ function _renderCandidates(cands) {
 
 // ── Tab switching ─────────────────────────────────────────────────────────
 function switchChart(view, el) {
-  const isResearch = (view === 'research');
-  const cp = document.querySelector('.chart-panel');
-  const rp = document.querySelector('.right-panel');
-  const bp = document.querySelector('.buy-panel');
-  const vr = document.getElementById('view-research');
-  const grid = document.querySelector('.grid');
-  if (cp) cp.style.display = isResearch ? 'none' : '';
-  if (rp) rp.style.display = isResearch ? 'none' : '';
-  if (bp) bp.style.display = isResearch ? 'none' : '';
-  if (vr) vr.style.display = isResearch ? 'flex' : 'none';
-  if (grid) {
-    grid.style.gridTemplateRows    = isResearch ? '95px 1fr' : '';
-    grid.style.gridTemplateColumns = isResearch ? '1fr' : '';
-  }
-
-  if (isResearch) {
-    loadResearchData();
-  } else {
-    ['intraday','candles','positions'].forEach(v => {
-      const el2 = document.getElementById('view-'+v);
-      if (el2) el2.style.display = v === view ? '' : 'none';
-    });
-    if (view === 'positions') loadPositions();
-    if (view === 'candles')   loadCandles();
-  }
+  ['intraday','candles','positions'].forEach(v => {
+    document.getElementById(`view-${v}`).style.display = v===view ? '' : 'none';
+  });
   document.querySelectorAll('.chart-tabs .tab').forEach(t => t.classList.remove('active'));
-  if (el) el.classList.add('active');
+  el.classList.add('active');
+  if (view === 'positions') loadPositions();
+  if (view === 'candles')   loadCandles();
 }
 
 function switchPanel(panel, el) {
@@ -2069,149 +1970,6 @@ function clearSellBar() {
   _sellBarDismissed.clear();
   document.getElementById('sell-bar-scroll').innerHTML = '<div class="buy-bar-empty">Cleared — click ATH badge to reload</div>';
   document.getElementById('sell-bar-status').textContent = 'Cleared';
-}
-
-// ── Research Tab ──────────────────────────────────────────────────────────────
-let _researchLoaded = false;
-let _researchView   = 'fundamentals';
-
-function esc(v) {
-  if (v === null || v === undefined) return '';
-  return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-function loadResearchData() {
-  if (_researchLoaded) return;
-  _researchLoaded = true;
-  loadEdgarTickers();
-  loadSeedFiles();
-  loadSimReports();
-}
-
-function loadEdgarTickers() {
-  fetch('/api/research/edgar-tickers').then(r=>r.json()).then(d => {
-    const el = document.getElementById('research-edgar-list');
-    if (!el) return;
-    if (!d.tickers || d.tickers.length === 0) {
-      el.innerHTML = '<div style="padding:10px;font-size:11px;color:var(--muted)">No EDGAR data yet. Upload a CSV.</div>';
-      return;
-    }
-    el.innerHTML = d.tickers.map(t =>
-      `<div class="research-item" onclick="loadFundamentals('${esc(t)}')">${esc(t)}</div>`
-    ).join('');
-  }).catch(() => {
-    const el = document.getElementById('research-edgar-list');
-    if (el) el.innerHTML = '<div style="padding:10px;font-size:11px;color:var(--red)">Error loading tickers</div>';
-  });
-}
-
-function loadSeedFiles() {
-  fetch('/api/research/seeds').then(r=>r.json()).then(d => {
-    const el = document.getElementById('research-seeds-list');
-    if (!el) return;
-    if (!d.seeds || d.seeds.length === 0) {
-      el.innerHTML = '<div style="padding:10px;font-size:11px;color:var(--muted)">No seed files yet.</div>';
-      return;
-    }
-    el.innerHTML = d.seeds.map(s =>
-      `<div class="research-item">
-        <span style="flex:1">${esc(s.ticker)}</span>
-        <span class="sim-btn" id="sim-btn-${esc(s.ticker)}" onclick="launchSim('${esc(s.ticker)}')">+ SIM</span>
-      </div>`
-    ).join('');
-  }).catch(() => {
-    const el = document.getElementById('research-seeds-list');
-    if (el) el.innerHTML = '<div style="padding:10px;font-size:11px;color:var(--red)">Error loading seeds</div>';
-  });
-}
-
-function loadSimReports() {
-  fetch('/api/research/reports').then(r=>r.json()).then(d => {
-    const el = document.getElementById('research-reports-list');
-    if (!el) return;
-    if (!d.reports || d.reports.length === 0) {
-      el.innerHTML = '<div style="padding:10px;font-size:11px;color:var(--muted)">No sim reports yet.</div>';
-      return;
-    }
-    el.innerHTML = d.reports.map(r =>
-      `<div class="research-item" onclick="loadSimReport('${esc(r.report_id)}')">${esc(r.ticker || r.report_id.slice(0,12))}</div>`
-    ).join('');
-  }).catch(() => {
-    const el = document.getElementById('research-reports-list');
-    if (el) el.innerHTML = '<div style="padding:10px;font-size:11px;color:var(--red)">Error loading reports</div>';
-  });
-}
-
-function switchResearchView(view, el) {
-  _researchView = view;
-  document.querySelectorAll('.research-tab').forEach(t => t.classList.remove('active'));
-  if (el) el.classList.add('active');
-}
-
-function loadFundamentals(ticker) {
-  document.querySelectorAll('#research-edgar-list .research-item').forEach(el => el.classList.remove('active'));
-  event.currentTarget?.classList.add('active');
-  const ct = document.getElementById('research-center-title');
-  const ft = document.getElementById('fundamentals-table');
-  if (ct) ct.textContent = ticker + ' — Fundamentals';
-  if (ft) ft.innerHTML = '<div style="padding:10px;color:var(--muted)">Loading...</div>';
-  switchResearchView('fundamentals', document.querySelector('.research-tab'));
-  fetch(`/api/research/fundamentals/${ticker}`).then(r=>r.json()).then(d => {
-    if (!d.success) { ft.innerHTML = `<div style="padding:10px;color:var(--red)">${esc(d.error)}</div>`; return; }
-    const cols = d.columns;
-    const rows = d.records;
-    ft.innerHTML = `<table class="fund-table">
-      <thead><tr>${cols.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead>
-      <tbody>${rows.map(r=>`<tr>${cols.map(c=>`<td>${esc(r[c])}</td>`).join('')}</tr>`).join('')}</tbody>
-    </table>`;
-  }).catch(e => { ft.innerHTML = `<div style="padding:10px;color:var(--red)">Error: ${esc(String(e))}</div>`; });
-}
-
-function loadSeedDoc(ticker) {
-  const ct = document.getElementById('research-center-title');
-  const ft = document.getElementById('fundamentals-table');
-  if (ct) ct.textContent = ticker + ' — Seed Document';
-  if (ft) ft.innerHTML = '<div style="padding:10px;color:var(--muted)">Loading...</div>';
-  fetch(`/api/research/seed/${ticker}`).then(r=>r.json()).then(d => {
-    if (!d.success) { ft.innerHTML = `<div style="padding:10px;color:var(--red)">${esc(d.error)}</div>`; return; }
-    ft.style.overflow = 'auto';
-    ft.innerHTML = `<pre style="white-space:pre-wrap;font-size:11px;color:var(--text);line-height:1.5;margin:0">${esc(d.content)}</pre>`;
-  }).catch(e => { ft.innerHTML = `<div style="padding:10px;color:var(--red)">Error: ${esc(String(e))}</div>`; });
-}
-
-function loadSimReport(reportId) {
-  const ct = document.getElementById('research-center-title');
-  const ft = document.getElementById('fundamentals-table');
-  if (ct) ct.textContent = 'Sim Report — ' + reportId.slice(0, 16);
-  if (ft) ft.innerHTML = '<div style="padding:10px;color:var(--muted)">Loading...</div>';
-  fetch(`/api/research/report/${reportId}`).then(r=>r.json()).then(d => {
-    if (!d.success) { ft.innerHTML = `<div style="padding:10px;color:var(--red)">${esc(d.error)}</div>`; return; }
-    ft.style.overflow = 'auto';
-    ft.innerHTML = `<pre style="white-space:pre-wrap;font-size:11px;color:var(--text);line-height:1.5;margin:0">${esc(d.content)}</pre>`;
-  }).catch(e => { ft.innerHTML = `<div style="padding:10px;color:var(--red)">Error: ${esc(String(e))}</div>`; });
-}
-
-async function launchSim(ticker) {
-  const btn = document.getElementById(`sim-btn-${ticker}`);
-  if (btn) { btn.textContent = 'LOADING...'; btn.disabled = true; }
-  try {
-    const r = await fetch(`/api/research/launch-sim/${ticker}`);
-    const data = await r.json();
-    if (data.error) {
-      if (btn) { btn.textContent = '+ SIM'; btn.disabled = false; }
-      document.getElementById('miroshark-panel-title').textContent = `ERROR: ${data.error}`;
-      return;
-    }
-    document.getElementById('miroshark-panel-title').textContent = `MIROSHARK — ${ticker}`;
-    const iframe = document.getElementById('miroshark-frame');
-    iframe.style.pointerEvents = 'all';
-    iframe.parentElement.style.pointerEvents = 'all';
-    iframe.src = data.url;
-    if (btn) { btn.textContent = '+ SIM'; btn.disabled = false; }
-  } catch(e) {
-    if (btn) { btn.textContent = '+ SIM'; btn.disabled = false; }
-    document.getElementById('miroshark-panel-title').textContent = `ERROR: ${e.message}`;
-  }
 }
 </script>
 </body>
