@@ -214,6 +214,9 @@
         <div class="lbl">CASH</div>
       </div>
       <button class="ath-badge waiting" id="ath_badge" onclick="badgeClick()" title="Click for Hermes analysis">ATH WATCH</button>
+      <div id="macro_signal_badge" style="padding:4px 10px;font-size:11px;font-family:monospace;
+           border:1px solid #333;border-radius:4px;cursor:default;white-space:nowrap"
+           title="ORACLE MacroComposite — click to refresh">⚪ NEUTRAL</div>
       <button class="btn-muted" style="padding:4px 12px;font-size:11px;margin-left:8px" onclick="saveSessionNote()" id="save-note-btn" title="Save today's session note to Trading Vault">📝 Save Note</button>
       <button class="btn-muted" style="padding:4px 12px;font-size:11px" onclick="location.reload(true)" title="Hard refresh — reloads page and clears cache">🔄 Refresh</button>
     </div>
@@ -857,6 +860,8 @@ window.onload = () => {
   setInterval(fetchTrigger, 60000);
   setInterval(fetchProfitBasket, 60000);
   fetchProfitBasket();
+  setInterval(fetchMacroSignal, 300000);  // refresh every 5 min
+  fetchMacroSignal();
 };
 
 // ── Account ───────────────────────────────────────────────────────────────
@@ -1611,11 +1616,14 @@ function sendChat() {
   // Always inject chart context + previous session notes into chat payload
   const chartCtx = _curveAnalyzer ? _curveAnalyzer.toHermesContext() : '';
   const sessionCtx = _prevSessionsContext ? '\n\nPREVIOUS SESSION NOTES (for pattern recognition):\n' + _prevSessionsContext : '';
+  const macroCtx = window._macroSignal
+    ? `\n\nORACLE MACRO COMPOSITE (${window._macroSignal.updated_at || 'live'}):\nQuadrant: ${window._macroSignal.quadrant} | Equity Rank: ${window._macroSignal.equity_rank} pctile | Hard Asset Rank: ${window._macroSignal.hard_rank} pctile\nSignal: ${window._macroSignal.signal}\nHarvest threshold: ${window._macroSignal.harvest_pct}%+`
+    : '';
 
   fetch('/api/chat', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({message: msg, chart_context: chartCtx + sessionCtx})
+    body: JSON.stringify({message: msg, chart_context: chartCtx + sessionCtx + macroCtx})
   })
   .then(r=>r.json()).then(d=>{
     const msgs = document.querySelectorAll('#chat-messages .msg.hermes');
@@ -2186,6 +2194,23 @@ async function launchSim(ticker) {
 }
 
 // ── Profit Basket ──────────────────────────────────────────────────────────
+// ── Macro Signal ──────────────────────────────────────────────────────────────
+function fetchMacroSignal() {
+  fetch('/api/macro_signal').then(r=>r.json()).then(d => {
+    window._macroSignal = d;
+    const badge = document.getElementById('macro_signal_badge');
+    if (!badge) return;
+    badge.textContent = d.signal || '⚪ NEUTRAL';
+    const col = d.quadrant === 'OVERHEATED' ? '#f85149' :
+                d.quadrant === 'RISK-ON'    ? '#3fb950' :
+                d.quadrant === 'CHEAP'      ? '#4a9eff' :
+                d.quadrant === 'FLIGHT'     ? '#d4a017' : '#8b949e';
+    badge.style.color = col;
+    badge.style.borderColor = col + '66';
+    badge.title = `ORACLE MacroComposite @ ${d.updated_at||'—'} | Equity:${d.equity_rank} | Hard:${d.hard_rank} | Harvest ${d.harvest_pct}%+`;
+  }).catch(()=>{});
+}
+
 let _basketCheckpoint = parseFloat(localStorage.getItem('hermes_basket_checkpoint') || '0');
 let _basketCheckpointTime = localStorage.getItem('hermes_basket_checkpoint_time') || '';
 

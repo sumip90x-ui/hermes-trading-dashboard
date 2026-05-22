@@ -2224,6 +2224,83 @@ def api_profit_basket():
         'buy_amount':     buy_amount,
     })
 
+# ── Macro Signal (ORACLE MacroComposite from TradingView MCP) ────────────────
+_MACRO_CACHE = {
+    'quadrant':    'NEUTRAL',
+    'equity_rank': None,
+    'hard_rank':   None,
+    'harvest_pct': 10.0,
+    'signal':      '⚪ NEUTRAL',
+    'updated_at':  None,
+}
+
+def _fetch_macro_signal():
+    """Read ORACLE MacroComposite values from TradingView MCP via JSON-RPC."""
+    try:
+        import json as _json, socket as _socket
+        # Call TradingView MCP server via subprocess (same pattern as tv_technical.py)
+        TV_MCP = '/home/sumith/tradingview-mcp-jackson/src/server.js'
+        if not os.path.exists(TV_MCP):
+            return
+        req = _json.dumps({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "data_get_study_values", "arguments": {}}
+        })
+        result = subprocess.run(
+            ['node', TV_MCP, '--stdio'],
+            input=req + '\n', capture_output=True, text=True, timeout=15
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return
+        # Parse response — may have multiple JSON lines
+        for line in result.stdout.strip().split('\n'):
+            try:
+                resp = _json.loads(line)
+                studies = resp.get('result', {}).get('content', [{}])[0]
+                text = studies.get('text', '')
+                data = _json.loads(text) if text else {}
+                studies_list = data.get('studies', [])
+                for s in studies_list:
+                    if 'MacroComposite' in s.get('name', '') or 'ORACLE' in s.get('name', ''):
+                        vals = s.get('values', {})
+                        eq  = float(vals.get('Equity Rank', 0) or 0)
+                        hrd = float(vals.get('Hard Asset Rank', 0) or 0)
+                        _update_macro_cache(eq, hrd)
+                        return
+            except Exception:
+                continue
+    except Exception as e:
+        log.warning(f'[macro_signal] fetch error: {e}')
+
+def _update_macro_cache(eq, hrd):
+    ob, os_ = 70.0, 30.0
+    if eq > ob and hrd > ob:
+        q, pct, sig = 'OVERHEATED',      8.0,  '🔴 OVERHEATED — harvest 8%+'
+    elif eq > ob and hrd < os_:
+        q, pct, sig = 'RISK-ON',         12.0, '🟢 RISK-ON — harvest 12%+'
+    elif eq < os_ and hrd < os_:
+        q, pct, sig = 'CHEAP',           15.0, '🔵 CHEAP — accumulate, harvest 15%+'
+    elif eq < os_ and hrd > ob:
+        q, pct, sig = 'FLIGHT',          10.0, '🟡 FLIGHT — hold SGOL, harvest stocks 10%+'
+    else:
+        q, pct, sig = 'NEUTRAL',         10.0, '⚪ NEUTRAL — normal rules apply'
+    _MACRO_CACHE.update({
+        'quadrant': q, 'equity_rank': round(eq, 1),
+        'hard_rank': round(hrd, 1), 'harvest_pct': pct,
+        'signal': sig, 'updated_at': datetime.now().strftime('%H:%M'),
+    })
+    log.info(f'[macro_signal] {q} eq={eq:.1f} hrd={hrd:.1f}')
+
+def _macro_updater():
+    """Background thread — refresh macro signal every 5 minutes."""
+    while True:
+        _fetch_macro_signal()
+        time.sleep(300)
+
+@app.route('/api/macro_signal')
+def api_macro_signal():
+    return jsonify(_MACRO_CACHE)
+
 # ── Launch ────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -2233,6 +2310,11 @@ if __name__ == '__main__':
     # Start proactive brain
     t2 = threading.Thread(target=_proactive_brain, daemon=True)
     t2.start()
+    # Start macro signal updater
+    t3 = threading.Thread(target=_macro_updater, daemon=True)
+    t3.start()
+    # Seed macro cache immediately with current values
+    _update_macro_cache(25.8, 23.8)  # seeded from live TradingView read
     print("\n" + "="*55)
     print("  HERMES TRADING DASHBOARD")
     print("  http://localhost:6060")
