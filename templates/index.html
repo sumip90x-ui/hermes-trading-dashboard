@@ -2073,9 +2073,54 @@ async function loadSimHistory() {
   }
 }
 
-function loadFundamentals(ticker) {
-  // Placeholder — shows ticker name in MiroShark title bar for now
+async function loadFundamentals(ticker) {
+  const center = document.getElementById('miroshark-frame').parentElement;
   document.getElementById('miroshark-panel-title').textContent = `📊 EDGAR DATA — ${ticker}`;
+  let tableDiv = document.getElementById('fundamentals-table-view');
+  if (!tableDiv) {
+    tableDiv = document.createElement('div');
+    tableDiv.id = 'fundamentals-table-view';
+    tableDiv.style.cssText = 'flex:1; overflow:auto; background:#060e06; display:none;';
+    center.appendChild(tableDiv);
+  }
+  document.getElementById('miroshark-frame').style.display = 'none';
+  tableDiv.style.display = 'block';
+  tableDiv.innerHTML = '<div style="padding:12px; color:#446644; font-family:monospace;">Loading...</div>';
+  try {
+    const r = await fetch(`/api/research/fundamentals/${ticker}`);
+    const rows = await r.json();
+    if (rows.error) {
+      tableDiv.innerHTML = `<div style="padding:12px; color:#664444; font-family:monospace;">Error: ${rows.error}</div>`;
+      return;
+    }
+    if (!rows.length) {
+      tableDiv.innerHTML = '<div style="padding:12px; color:#446644; font-family:monospace;">No data.</div>';
+      return;
+    }
+    const cols = Object.keys(rows[0]);
+    tableDiv.innerHTML = `
+      <table style="border-collapse:collapse; width:100%; font-family:monospace; font-size:11px;">
+        <thead>
+          <tr>${cols.map(c => `
+            <th style="background:#0a2a0a; color:#ffaa00; padding:5px 10px;
+                       text-align:left; position:sticky; top:0; border-bottom:1px solid #1a3a1a;
+                       white-space:nowrap;">${c}</th>`).join('')}
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((row, i) => `
+            <tr style="background:${i % 2 === 0 ? '#060e06' : '#080e08'}">
+              ${cols.map(c => `
+                <td style="color:#88cc88; padding:4px 10px;
+                           border-bottom:1px solid #0a1a0a; white-space:nowrap;">
+                  ${row[c] ?? ''}
+                </td>`).join('')}
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } catch(e) {
+    tableDiv.innerHTML = `<div style="padding:12px; color:#664444; font-family:monospace;">Error: ${e.message}</div>`;
+  }
 }
 
 async function launchSim(ticker) {
@@ -2088,6 +2133,10 @@ async function launchSim(ticker) {
       return;
     }
     document.getElementById('miroshark-frame').src = data.url;
+    // Hide fundamentals table, restore iframe
+    const tableDiv = document.getElementById('fundamentals-table-view');
+    if (tableDiv) tableDiv.style.display = 'none';
+    document.getElementById('miroshark-frame').style.display = 'block';
     const f = document.getElementById('miroshark-frame');
     f.style.pointerEvents = 'all';
     f.style.zIndex = '1';

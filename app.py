@@ -1940,6 +1940,26 @@ def simulation_history():
     except Exception as e:
         return jsonify({"error": str(e)}), 502
 
+@app.route('/api/research/fundamentals/<ticker>')
+def fundamentals(ticker):
+    ticker = ticker.upper()
+    path = os.path.join(EDGAR_BASE, ticker, f"{ticker}_fundamentals.xlsx")
+    if not os.path.exists(path):
+        return jsonify({"error": f"No fundamentals file found for {ticker}"}), 404
+    try:
+        import pandas as pd
+        df = pd.read_excel(path, header=0)
+        df.columns = [str(c).strip() for c in df.columns]
+        df = df.replace([float('inf'), float('-inf')], None)
+        df = df.where(pd.notnull(df), None)
+        records = []
+        for _, row in df.iterrows():
+            records.append({k: (v if isinstance(v, (int, float, str, type(None)))
+                           else str(v)) for k, v in row.items()})
+        return jsonify(records)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 # ── Launch ────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
