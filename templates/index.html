@@ -2086,7 +2086,7 @@ async function loadFundamentals(ticker) {
   if (!tableDiv) {
     tableDiv = document.createElement('div');
     tableDiv.id = 'fundamentals-table-view';
-    tableDiv.style.cssText = 'flex:1; overflow:auto; background:#060e06;';
+    tableDiv.style.cssText = 'flex:1; overflow:auto; background:#060e06; width:100%;';
     frame.parentElement.appendChild(tableDiv);
   }
   tableDiv.style.display = 'block';
@@ -2112,18 +2112,18 @@ async function loadFundamentals(ticker) {
                   position:sticky; top:0;">
         ${rows[0][c0] || ticker} &nbsp;|&nbsp; ${rows[1] ? Object.values(rows[1]).filter(v=>v).join(' | ') : ''}
       </div>
-      <table style="border-collapse:collapse; width:100%; font-family:monospace; font-size:11px;">
+      <table style="border-collapse:collapse; width:max-content; min-width:100%; font-family:monospace; font-size:11px;">
         <thead>
           <tr>
             <th style="background:#0a2a0a; color:#ffaa00; padding:4px 12px; text-align:left;
                        position:sticky; top:28px; border-bottom:1px solid #1a3a1a;
-                       min-width:280px;">Metric</th>
+                       width:40%;">Metric</th>
             <th style="background:#0a2a0a; color:#00ff88; padding:4px 12px; text-align:right;
                        position:sticky; top:28px; border-bottom:1px solid #1a3a1a;
                        min-width:100px;">Value</th>
             <th style="background:#0a2a0a; color:#446644; padding:4px 12px; text-align:left;
                        position:sticky; top:28px; border-bottom:1px solid #1a3a1a;">Note</th>
-            ${periodCols.map(p => `
+            ${periodCols.filter(p => !String(p).startsWith('Unnamed')).map(p => `
             <th style="background:#0a2a0a; color:#88cc88; padding:4px 10px; text-align:right;
                        position:sticky; top:28px; border-bottom:1px solid #1a3a1a;
                        white-space:nowrap;">${p}</th>`).join('')}
@@ -2134,7 +2134,7 @@ async function loadFundamentals(ticker) {
             const metric = row[c0];
             const val = row[c1];
             const note = row[c2];
-            const periods = periodCols.map(p => row[p]);
+            const periods = periodCols.filter(p => !String(p).startsWith('Unnamed')).map(p => row[p]);
 
             // Blank row — skip
             if (!metric && !val) return '';
