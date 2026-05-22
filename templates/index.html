@@ -253,17 +253,20 @@
       </div>
       <div style="width:1px;height:28px;background:var(--border);margin:0 4px"></div>
       <!-- Profit Basket: DIA+QQQ+VOO+SGOL vs True Profit -->
-      <div class="metric2 big" id="basket-widget" title="Profit basket: DIA+QQQ+VOO+SGOL should equal true profit. Each = 25%.">
-        <div style="display:flex;align-items:baseline;gap:4px">
+      <div class="metric2 big" id="basket-widget" title="Click ⊙ to reset basket checkpoint">
+        <div style="display:flex;align-items:baseline;gap:6px">
           <div class="val2" id="basket_total_val" style="color:var(--muted)">—</div>
-          <div style="font-size:9px;color:var(--muted)" id="basket_status_label">of $—</div>
+          <div style="font-size:11px;color:var(--muted);cursor:pointer;user-select:none" onclick="resetBasketCheckpoint()" title="Reset basket checkpoint">⊙</div>
+          <div class="val2" id="basket_delta_val" style="color:var(--muted)">—</div>
         </div>
-        <div class="lbl2">📦 BASKET</div>
+        <div class="lbl2" id="basket_lbl">📦 BASKET</div>
       </div>
       <div class="metric2">
-        <div style="display:flex;gap:3px;align-items:center" id="basket_bars">
-          <div style="font-size:9px;color:var(--muted);font-family:monospace" id="basket_detail">DIA — QQQ — VOO — SGOL</div>
-        </div>
+        <div class="val2" id="basket_pct_val" style="color:var(--muted)">—</div>
+        <div class="lbl2">BASKET VAR</div>
+      </div>
+      <div class="metric2">
+        <div style="font-size:9px;color:var(--muted);font-family:monospace;line-height:1.6" id="basket_detail">DIA · QQQ · VOO · SGOL</div>
         <div class="lbl2">TARGET $<span id="basket_target_each">—</span> EACH</div>
       </div>
     </div>
@@ -2183,54 +2186,86 @@ async function launchSim(ticker) {
 }
 
 // ── Profit Basket ──────────────────────────────────────────────────────────
-function fetchProfitBasket() {
-  fetch('/api/profit_basket').then(r=>r.json()).then(d => {
-    const totalEl   = document.getElementById('basket_total_val');
-    const statusEl  = document.getElementById('basket_status_label');
-    const detailEl  = document.getElementById('basket_detail');
-    const targetEl  = document.getElementById('basket_target_each');
-    if (!totalEl) return;
+let _basketCheckpoint = parseFloat(localStorage.getItem('hermes_basket_checkpoint') || '0');
+let _basketCheckpointTime = localStorage.getItem('hermes_basket_checkpoint_time') || '';
 
-    const total      = d.basket_total || 0;
-    const profit     = d.true_profit  || 0;
-    const targetEach = d.target_each  || 0;
-    const signal     = d.signal       || '';
-    const b          = d.basket       || {};
+function resetBasketCheckpoint() {
+  const cur = parseFloat(document.getElementById('basket_total_val')?.textContent?.replace(/[+$]/g,'') || '0');
+  if (!cur) return;
+  _basketCheckpoint = cur;
+  _basketCheckpointTime = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+  localStorage.setItem('hermes_basket_checkpoint', _basketCheckpoint);
+  localStorage.setItem('hermes_basket_checkpoint_time', _basketCheckpointTime);
+  updateBasketDisplay(cur, null);
+}
 
-    // Total basket value
-    totalEl.textContent = '$' + total.toFixed(2);
+function updateBasketDisplay(total, data) {
+  const totalEl  = document.getElementById('basket_total_val');
+  const deltaEl  = document.getElementById('basket_delta_val');
+  const pctEl    = document.getElementById('basket_pct_val');
+  const lblEl    = document.getElementById('basket_lbl');
+  const detailEl = document.getElementById('basket_detail');
+  const targetEl = document.getElementById('basket_target_each');
+  if (!totalEl) return;
+
+  // Auto-init checkpoint on first load
+  if (_basketCheckpointTime === '' && _basketCheckpoint === 0 && total > 0) {
+    _basketCheckpoint = total;
+    _basketCheckpointTime = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+    localStorage.setItem('hermes_basket_checkpoint', _basketCheckpoint);
+    localStorage.setItem('hermes_basket_checkpoint_time', _basketCheckpointTime);
+  }
+
+  // Basket total
+  totalEl.textContent = '$' + total.toFixed(2);
+  if (data) {
+    const signal = data.signal || '';
     totalEl.style.color = signal === 'OVER' ? 'var(--gold)'
                         : signal === 'UNDER' ? 'var(--red)'
                         : signal === 'BALANCED' ? 'var(--green)'
                         : 'var(--muted)';
+  }
 
-    statusEl.textContent = `of $${profit.toFixed(2)} profit`;
+  // Delta vs checkpoint
+  const delta = total - _basketCheckpoint;
+  if (deltaEl) {
+    deltaEl.textContent = (delta >= 0 ? '+' : '') + '$' + delta.toFixed(2);
+    deltaEl.style.color = delta > 0.01 ? 'var(--green)' : delta < -0.01 ? 'var(--red)' : 'var(--muted)';
+  }
 
-    // Target each
+  // Variation %
+  const pct = _basketCheckpoint !== 0 ? (delta / Math.abs(_basketCheckpoint)) * 100 : 0;
+  if (pctEl) {
+    pctEl.textContent = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
+    pctEl.style.color = pct > 0.01 ? 'var(--green)' : pct < -0.01 ? 'var(--red)' : 'var(--muted)';
+  }
+
+  // Label with timestamp
+  if (lblEl) {
+    lblEl.textContent = _basketCheckpointTime
+      ? `📦 BASKET @ ${_basketCheckpointTime}`
+      : '📦 BASKET';
+  }
+
+  // Per-position breakdown
+  if (data && detailEl) {
+    const b = data.basket || {};
+    const targetEach = data.target_each || 0;
     if (targetEl) targetEl.textContent = targetEach.toFixed(2);
+    const parts = ['DIA','QQQ','VOO','SGOL'].map(sym => {
+      const mv = (b[sym] || {}).mv || 0;
+      const pct2 = targetEach > 0 ? Math.round(mv / targetEach * 100) : 0;
+      const col = pct2 >= 90 ? '#3fb950' : pct2 >= 50 ? '#d4a017' : '#f85149';
+      return `<span style="color:${col}">${sym} $${mv.toFixed(0)}</span>`;
+    });
+    detailEl.innerHTML = parts.join(' · ');
+  }
+}
 
-    // Per-position detail
-    if (detailEl) {
-      const parts = ['DIA','QQQ','VOO','SGOL'].map(sym => {
-        const mv = (b[sym] || {}).mv || 0;
-        const pct = targetEach > 0 ? Math.round(mv / targetEach * 100) : 0;
-        const color = pct >= 90 ? '#3fb950' : pct >= 50 ? '#d4a017' : '#f85149';
-        return `<span style="color:${color}">${sym} $${mv.toFixed(0)}</span>`;
-      });
-      detailEl.innerHTML = parts.join(' · ');
-    }
-
-    // Show buy suggestion in widget title if UNDER
-    const widget = document.getElementById('basket-widget');
-    if (widget) {
-      if (signal === 'UNDER' && d.buy_candidate) {
-        widget.title = `ADD $${d.buy_amount.toFixed(2)} to ${d.buy_candidate} to rebalance`;
-      } else if (signal === 'OVER') {
-        widget.title = `Basket over target — harvest stocks, not basket`;
-      } else {
-        widget.title = `Profit basket balanced — DIA+QQQ+VOO+SGOL = $${total.toFixed(2)}`;
-      }
-    }
+function fetchProfitBasket() {
+  fetch('/api/profit_basket').then(r=>r.json()).then(d => {
+    const total = d.basket_total || 0;
+    updateBasketDisplay(total, d);
   }).catch(()=>{});
 }
 </script>
