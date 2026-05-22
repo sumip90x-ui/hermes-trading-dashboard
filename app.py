@@ -1889,6 +1889,13 @@ MIROSHARK_BASE = "http://localhost:5001"
 def edgar_tickers():
     folders = glob.glob(os.path.join(EDGAR_BASE, "*"))
     tickers = [os.path.basename(f) for f in folders
+               if os.path.isfile(os.path.join(f, f"{os.path.basename(f)}_fundamentals.xlsx"))]
+    return jsonify(sorted(tickers))
+
+@app.route('/api/research/seed-tickers')
+def seed_tickers():
+    folders = glob.glob(os.path.join(EDGAR_BASE, "*"))
+    tickers = [os.path.basename(f) for f in folders
                if os.path.isfile(os.path.join(f, f"{os.path.basename(f)}_seed.md"))]
     return jsonify(sorted(tickers))
 

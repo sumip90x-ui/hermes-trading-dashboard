@@ -2021,11 +2021,11 @@ function clearSellBar() {
 async function loadEdgarTickers() {
   const leftEl = document.getElementById('edgar-fundamentals-list');
   const rightEl = document.getElementById('edgar-ticker-list');
+
+  // Left column — Excel fundamentals (longer list)
   try {
     const r = await fetch('/api/research/edgar-tickers');
     const tickers = await r.json();
-
-    // Left: EDGAR DATA — click to view fundamentals
     if (leftEl) leftEl.innerHTML = tickers.map(t => `
       <div style="padding:5px 10px; cursor:pointer; color:#88cc88;
                   border-bottom:1px solid #0a1a0a; font-family:monospace; font-size:12px;"
@@ -2034,21 +2034,25 @@ async function loadEdgarTickers() {
            onclick="loadFundamentals('${t}')">
         ${t}
       </div>`).join('');
+  } catch(e) {
+    if (leftEl) leftEl.innerHTML = `<div style="padding:8px; color:#664444;">${e.message}</div>`;
+  }
 
-    // Right: SEED FILES — +SIM buttons
-    if (rightEl) rightEl.innerHTML = tickers.map(t => `
-      <div style="padding:5px 10px; cursor:pointer;
-                  border-bottom:1px solid #0a1a0a; font-family:monospace; font-size:12px;
+  // Right column — seed files with +SIM buttons (shorter list)
+  try {
+    const r2 = await fetch('/api/research/seed-tickers');
+    const seeds = await r2.json();
+    if (rightEl) rightEl.innerHTML = seeds.map(t => `
+      <div style="padding:5px 10px; border-bottom:1px solid #0a1a0a;
                   display:flex; justify-content:space-between; align-items:center;"
            onmouseover="this.style.background='#0a2a0a'"
            onmouseout="this.style.background=''">
-        <span style="color:#00ff88;">${t}</span>
+        <span style="color:#00ff88; font-family:monospace; font-size:12px;">${t}</span>
         <span onclick="launchSim('${t}')"
               style="background:#0a2a0a; border:1px solid #00ff88; color:#00ff88;
-                     font-size:10px; padding:1px 6px; cursor:pointer;">+SIM</span>
+                     font-size:10px; padding:1px 6px; cursor:pointer; font-family:monospace;">+SIM</span>
       </div>`).join('');
   } catch(e) {
-    if (leftEl) leftEl.innerHTML = `<div style="padding:8px; color:#664444;">${e.message}</div>`;
     if (rightEl) rightEl.innerHTML = `<div style="padding:8px; color:#664444;">${e.message}</div>`;
   }
 }
