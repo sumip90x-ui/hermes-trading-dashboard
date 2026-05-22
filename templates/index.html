@@ -2086,7 +2086,7 @@ async function loadFundamentals(ticker) {
   if (!tableDiv) {
     tableDiv = document.createElement('div');
     tableDiv.id = 'fundamentals-table-view';
-    tableDiv.style.cssText = 'flex:1; overflow:auto; background:#060e06; width:100%;';
+    tableDiv.style.cssText = 'flex:1; overflow:auto; background:#060e06; display:block;';
     frame.parentElement.appendChild(tableDiv);
   }
   tableDiv.style.display = 'block';
@@ -2101,95 +2101,88 @@ async function loadFundamentals(ticker) {
     }
 
     const cols = Object.keys(rows[0]);
-    const c0 = cols[0]; // metric name column
-    const c1 = cols[1]; // primary value
-    const c2 = cols[2]; // note
-    const periodCols = cols.slice(3); // additional periods
+    const c0 = cols[0];
+    const dataCols = cols.slice(1);
+
+    const metaRow = rows[0][c0] || '';
+
+    // Find the date header row
+    let dateHeaders = dataCols.map(() => '');
+    for (const row of rows) {
+      const v0 = row[c0];
+      const v1 = row[dataCols[0]];
+      if ((!v0 || String(v0).trim() === '') && v1 && String(v1).match(/\d{4}/)) {
+        dateHeaders = dataCols.map(c => row[c] ? String(row[c]).trim() : '');
+        break;
+      }
+    }
 
     let html = `
       <div style="padding:6px 12px; background:#0a2a0a; border-bottom:1px solid #1a3a1a;
-                  font-family:monospace; font-size:11px; color:#ffaa00; letter-spacing:1px;
-                  position:sticky; top:0;">
-        ${rows[0][c0] || ticker} &nbsp;|&nbsp; ${rows[1] ? Object.values(rows[1]).filter(v=>v).join(' | ') : ''}
+                  font-family:monospace; font-size:10px; color:#446644;
+                  position:sticky; top:0; z-index:2;">
+        ${metaRow}
       </div>
-      <table style="border-collapse:collapse; width:max-content; min-width:100%; font-family:monospace; font-size:11px;">
+      <div style="overflow-x:auto;">
+      <table style="border-collapse:collapse; min-width:100%; font-family:monospace; font-size:11px;">
         <thead>
-          <tr>
-            <th style="background:#0a2a0a; color:#ffaa00; padding:4px 12px; text-align:left;
-                       position:sticky; top:28px; border-bottom:1px solid #1a3a1a;
-                       width:40%;">Metric</th>
-            <th style="background:#0a2a0a; color:#00ff88; padding:4px 12px; text-align:right;
-                       position:sticky; top:28px; border-bottom:1px solid #1a3a1a;
-                       min-width:100px;">Value</th>
-            <th style="background:#0a2a0a; color:#446644; padding:4px 12px; text-align:left;
-                       position:sticky; top:28px; border-bottom:1px solid #1a3a1a;">Note</th>
-            ${periodCols.filter(p => !String(p).startsWith('Unnamed')).map(p => `
-            <th style="background:#0a2a0a; color:#88cc88; padding:4px 10px; text-align:right;
-                       position:sticky; top:28px; border-bottom:1px solid #1a3a1a;
-                       white-space:nowrap;">${p}</th>`).join('')}
+          <tr style="position:sticky; top:28px; z-index:1;">
+            <th style="background:#0a2a0a; color:#ffaa00; padding:5px 14px; text-align:left;
+                       border-bottom:1px solid #1a3a1a; min-width:250px; white-space:nowrap;">
+              Metric</th>
+            ${dateHeaders.map(d => `
+            <th style="background:#0a2a0a; color:#88cc88; padding:5px 12px; text-align:right;
+                       border-bottom:1px solid #1a3a1a; white-space:nowrap; min-width:90px;">
+              ${d}</th>`).join('')}
           </tr>
         </thead>
         <tbody>
           ${rows.slice(2).map((row, i) => {
             const metric = row[c0];
-            const val = row[c1];
-            const note = row[c2];
-            const periods = periodCols.filter(p => !String(p).startsWith('Unnamed')).map(p => row[p]);
+            const vals = dataCols.map(c => row[c]);
+            const metricStr = metric ? String(metric).trim() : '';
+            const hasAnyVal = vals.some(v => v !== null && v !== undefined && String(v).trim() !== '');
 
-            // Blank row — skip
-            if (!metric && !val) return '';
+            if (!metricStr && !hasAnyVal) return '';
+            if (!metricStr && hasAnyVal) return '';
 
-            // Date header row — col0 is null, col1 has a date
-            if (!metric && val) {
+            if (metricStr.startsWith('PHASE') || metricStr.startsWith('---')) {
               return `<tr>
-                <td colspan="${3 + periodCols.length}"
-                    style="color:#ffaa00; padding:3px 12px; background:#080e08;
-                           font-size:10px; border-top:1px solid #1a3a1a; letter-spacing:1px;">
-                  ${val} ${periods.filter(v=>v).join(' | ')}
+                <td colspan="${1 + dataCols.length}"
+                    style="color:#ffaa00; padding:10px 14px 4px 14px;
+                           font-size:10px; letter-spacing:2px;
+                           border-top:1px solid #1a3a1a; background:#080e08;">
+                  ${metricStr}
                 </td>
               </tr>`;
             }
 
-            // Section header
-            const isSection = !val && metric && (
-              String(metric).startsWith('PHASE') ||
-              String(metric).startsWith('---') ||
-              String(metric).toUpperCase() === String(metric)
-            );
-            if (isSection) {
-              return `<tr>
-                <td colspan="${3 + periodCols.length}"
-                    style="color:#ffaa00; padding:8px 12px 3px 12px; background:#080e08;
-                           font-size:10px; letter-spacing:2px; border-top:1px solid #1a3a1a;">
-                  ${metric}
-                </td>
-              </tr>`;
-            }
-
-            // Normal data row
-            return `<tr style="background:${i % 2 === 0 ? '#060e06' : '#070d07'}">
-              <td style="color:#88cc88; padding:3px 12px; border-bottom:1px solid #0a1a0a;">
-                ${metric ?? ''}</td>
-              <td style="color:#00ff88; padding:3px 12px; border-bottom:1px solid #0a1a0a;
-                         text-align:right; font-weight:bold; white-space:nowrap;">
-                ${val ?? ''}</td>
-              <td style="color:#446644; padding:3px 12px; border-bottom:1px solid #0a1a0a;
-                         font-size:10px;">
-                ${note ?? ''}</td>
-              ${periods.map(v => `
-              <td style="color:#88cc88; padding:3px 10px; border-bottom:1px solid #0a1a0a;
-                         text-align:right; white-space:nowrap;">
-                ${v ?? ''}</td>`).join('')}
+            const isEven = i % 2 === 0;
+            return `<tr style="background:${isEven ? '#060e06' : '#070d07'}">
+              <td style="color:#88cc88; padding:3px 14px; border-bottom:1px solid #0a1a0a;
+                         white-space:nowrap;">${metricStr}</td>
+              ${vals.map(v => {
+                const display = (v !== null && v !== undefined && String(v).trim() !== '')
+                  ? String(v).trim() : '';
+                const isNum = display && !isNaN(display.replace(/[,%$]/g, ''));
+                return `<td style="color:${isNum ? '#00ff88' : '#88cc88'};
+                           padding:3px 12px; border-bottom:1px solid #0a1a0a;
+                           text-align:right; white-space:nowrap;">
+                  ${display}
+                </td>`;
+              }).join('')}
             </tr>`;
           }).join('')}
         </tbody>
-      </table>`;
+      </table>
+      </div>`;
 
     tableDiv.innerHTML = html;
   } catch(e) {
     tableDiv.innerHTML = `<div style="padding:12px; color:#664444; font-family:monospace;">Error: ${e.message}</div>`;
   }
 }
+
 
 async function launchSim(ticker) {
   document.getElementById('miroshark-panel-title').textContent = `✏ MIROSHARK — ${ticker} (loading...)`;
