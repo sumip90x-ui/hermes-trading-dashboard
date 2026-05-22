@@ -311,28 +311,36 @@
       <div id="view-research" style="display:none; height:calc(100vh - 180px); overflow:hidden;">
         <div style="display:flex; height:100%; gap:0;">
 
-          <!-- LEFT: EDGAR ticker list + sim history -->
+          <!-- LEFT: EDGAR fundamentals -->
           <div style="width:160px; min-width:160px; background:#060e06; border-right:1px solid #1a3a1a; display:flex; flex-direction:column;">
-            <div style="padding:6px 10px; color:#ffaa00; font-family:monospace; font-size:10px; letter-spacing:2px; border-bottom:1px solid #1a3a1a;">📁 SEED FILES</div>
-            <div id="edgar-ticker-list" style="overflow-y:auto; flex:1; font-family:monospace; font-size:12px;">
-              <div style="padding:8px; color:#446644;">Loading...</div>
-            </div>
-            <div style="padding:6px 10px; color:#ffaa00; font-family:monospace; font-size:10px; letter-spacing:2px; border-top:1px solid #1a3a1a; border-bottom:1px solid #1a3a1a;">🧠 SIM REPORTS</div>
-            <div id="sim-history-list" style="overflow-y:auto; flex:1; font-family:monospace; font-size:12px;">
+            <div style="padding:6px 10px; color:#ffaa00; font-family:monospace; font-size:10px; letter-spacing:2px; border-bottom:1px solid #1a3a1a;">📊 EDGAR DATA</div>
+            <div id="edgar-fundamentals-list" style="overflow-y:auto; flex:1; font-family:monospace; font-size:12px;">
               <div style="padding:8px; color:#446644;">Loading...</div>
             </div>
           </div>
 
           <!-- CENTER: MiroShark iframe -->
-          <div style="flex:1; display:flex; flex-direction:column; background:#060e06;">
+          <div style="flex:1; display:flex; flex-direction:column; background:#060e06; pointer-events:all;">
             <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 12px; border-bottom:1px solid #1a3a1a;">
               <span id="miroshark-panel-title" style="color:#ffaa00; font-family:monospace; font-size:10px; letter-spacing:2px;">✏ MIROSHARK</span>
               <button onclick="document.getElementById('miroshark-frame').src='about:blank'; document.getElementById('miroshark-panel-title').textContent='✏ MIROSHARK';"
                       style="background:none; border:1px solid #1a3a1a; color:#446644; font-family:monospace; font-size:10px; cursor:pointer; padding:2px 8px;">CLEAR</button>
             </div>
             <iframe id="miroshark-frame" src="about:blank"
-                    style="flex:1; width:100%; height:100%; border:none;"
+                    style="flex:1; width:100%; height:100%; border:none; pointer-events:all;"
                     allow="same-origin"></iframe>
+          </div>
+
+          <!-- RIGHT: Seed files + Sim reports -->
+          <div style="width:200px; min-width:200px; background:#060e06; border-left:1px solid #1a3a1a; display:flex; flex-direction:column;">
+            <div style="padding:6px 10px; color:#ffaa00; font-family:monospace; font-size:10px; letter-spacing:2px; border-bottom:1px solid #1a3a1a;">📁 SEED FILES</div>
+            <div id="edgar-ticker-list" style="overflow-y:auto; flex:1; font-family:monospace; font-size:12px;">
+              <div style="padding:8px; color:#446644;">Loading...</div>
+            </div>
+            <div style="padding:6px 10px; color:#ff4444; font-family:monospace; font-size:10px; letter-spacing:2px; border-top:1px solid #1a3a1a; border-bottom:1px solid #1a3a1a;">🔴 SIM REPORTS</div>
+            <div id="sim-history-list" style="overflow-y:auto; flex:1; font-family:monospace; font-size:12px;">
+              <div style="padding:8px; color:#446644;">Loading...</div>
+            </div>
           </div>
 
         </div>
@@ -2011,23 +2019,37 @@ function clearSellBar() {
 
 // ── Research Tab ──────────────────────────────────────────────────────────────
 async function loadEdgarTickers() {
-  const el = document.getElementById('edgar-ticker-list');
-  if (!el) return;
+  const leftEl = document.getElementById('edgar-fundamentals-list');
+  const rightEl = document.getElementById('edgar-ticker-list');
   try {
     const r = await fetch('/api/research/edgar-tickers');
     const tickers = await r.json();
-    el.innerHTML = tickers.map(t => `
-      <div style="padding:5px 10px; cursor:pointer; color:#00ff88;
+
+    // Left: EDGAR DATA — click to view fundamentals
+    if (leftEl) leftEl.innerHTML = tickers.map(t => `
+      <div style="padding:5px 10px; cursor:pointer; color:#88cc88;
                   border-bottom:1px solid #0a1a0a; font-family:monospace; font-size:12px;"
            onmouseover="this.style.background='#0a2a0a'"
            onmouseout="this.style.background=''"
-           onclick="launchSim('${t}')">
+           onclick="loadFundamentals('${t}')">
         ${t}
-        <span style="float:right; background:#0a2a0a; border:1px solid #00ff88;
-                     color:#00ff88; font-size:10px; padding:1px 5px; cursor:pointer;">+SIM</span>
+      </div>`).join('');
+
+    // Right: SEED FILES — +SIM buttons
+    if (rightEl) rightEl.innerHTML = tickers.map(t => `
+      <div style="padding:5px 10px; cursor:pointer;
+                  border-bottom:1px solid #0a1a0a; font-family:monospace; font-size:12px;
+                  display:flex; justify-content:space-between; align-items:center;"
+           onmouseover="this.style.background='#0a2a0a'"
+           onmouseout="this.style.background=''">
+        <span style="color:#00ff88;">${t}</span>
+        <span onclick="launchSim('${t}')"
+              style="background:#0a2a0a; border:1px solid #00ff88; color:#00ff88;
+                     font-size:10px; padding:1px 6px; cursor:pointer;">+SIM</span>
       </div>`).join('');
   } catch(e) {
-    el.innerHTML = `<div style="padding:8px; color:#664444;">Error: ${e.message}</div>`;
+    if (leftEl) leftEl.innerHTML = `<div style="padding:8px; color:#664444;">${e.message}</div>`;
+    if (rightEl) rightEl.innerHTML = `<div style="padding:8px; color:#664444;">${e.message}</div>`;
   }
 }
 
@@ -2051,6 +2073,11 @@ async function loadSimHistory() {
   }
 }
 
+function loadFundamentals(ticker) {
+  // Placeholder — shows ticker name in MiroShark title bar for now
+  document.getElementById('miroshark-panel-title').textContent = `📊 EDGAR DATA — ${ticker}`;
+}
+
 async function launchSim(ticker) {
   document.getElementById('miroshark-panel-title').textContent = `✏ MIROSHARK — ${ticker} (loading...)`;
   try {
@@ -2061,6 +2088,10 @@ async function launchSim(ticker) {
       return;
     }
     document.getElementById('miroshark-frame').src = data.url;
+    const f = document.getElementById('miroshark-frame');
+    f.style.pointerEvents = 'all';
+    f.style.zIndex = '1';
+    f.parentElement.style.pointerEvents = 'all';
     document.getElementById('miroshark-panel-title').textContent = `✏ MIROSHARK — ${ticker} (prompt ready)`;
   } catch(e) {
     document.getElementById('miroshark-panel-title').textContent = `✏ MIROSHARK — FAILED: ${e.message}`;
