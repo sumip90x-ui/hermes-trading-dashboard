@@ -859,8 +859,14 @@ socket.on('hermes_proactive', d => {
 });
 
 socket.on('trades_executed_batch', d => {
-  // Hermes just placed real orders — refresh all live data immediately
-  setTimeout(() => { fetchAccount(); fetchOHLC(); }, 1500);
+  // Hermes just placed real orders — wait for Alpaca to settle then refresh
+  // Debounce: cancel any pending refresh and reschedule
+  if (window._tradeRefreshTimer) clearTimeout(window._tradeRefreshTimer);
+  window._tradeRefreshTimer = setTimeout(() => {
+    fetchAccount();
+    fetchOHLC();
+    window._tradeRefreshTimer = null;
+  }, 3000);  // 3s wait for Alpaca settlement
 });
 
 socket.on('pullback_trade', d => {
@@ -1028,7 +1034,8 @@ function fetchOHLC() {
       _chartMonitor = new HermesChartMonitor();
       setInterval(() => _chartMonitor.check(), 60 * 1000);
     }
-    buildIntradayChart(d.intraday, d.ath_zone, d.ath);
+    // Pass current live equity to chart so Y range includes it even if bars lag
+    buildIntradayChart(d.intraday, d.ath_zone, d.ath, _lastEquity);
     updateATHDist(d);
     updatePhasePanel();
   });
@@ -1052,7 +1059,7 @@ function updateATHDist(d) {
   }
 }
 
-function buildIntradayChart(bars, athZone, ath) {
+function buildIntradayChart(bars, athZone, ath, liveEquity) {
   if (!bars || !bars.length) return;
   const ctx = document.getElementById('intradayChart').getContext('2d');
   const labels = bars.map(b => new Date(b.t));
@@ -1138,11 +1145,20 @@ function buildIntradayChart(bars, athZone, ath) {
         y: { grid:{color:'#1c2128'}, ticks:{color:'#8b949e',
              callback:v=>'$'+v.toLocaleString()},
              min: (function() {
-               const allVals = values.concat(ma5vals.filter(v=>v!=null), ma20vals.filter(v=>v!=null));
+               const allVals = values.concat(
+                 ma5vals.filter(v=>v!=null),
+                 ma20vals.filter(v=>v!=null),
+                 liveEquity ? [liveEquity] : []
+               );
                return Math.floor(allVals.reduce((a,b)=>Math.min(a,b), Infinity) - 2);
              })(),
              max: (function() {
-               const allVals = values.concat(ma5vals.filter(v=>v!=null), ma20vals.filter(v=>v!=null), ath ? [ath] : []);
+               const allVals = values.concat(
+                 ma5vals.filter(v=>v!=null),
+                 ma20vals.filter(v=>v!=null),
+                 ath ? [ath] : [],
+                 liveEquity ? [liveEquity] : []
+               );
                return Math.ceil(allVals.reduce((a,b)=>Math.max(a,b), -Infinity) + 2);
              })()
            }
