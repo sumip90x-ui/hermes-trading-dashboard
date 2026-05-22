@@ -209,6 +209,10 @@
         <div class="val" id="day_pl">—</div>
         <div class="lbl">DAY P/L</div>
       </div>
+      <div class="metric">
+        <div class="val" id="cash_val" style="color:var(--gold)">—</div>
+        <div class="lbl">CASH</div>
+      </div>
       <button class="ath-badge waiting" id="ath_badge" onclick="badgeClick()" title="Click for Hermes analysis">ATH WATCH</button>
       <button class="btn-muted" style="padding:4px 12px;font-size:11px;margin-left:8px" onclick="saveSessionNote()" id="save-note-btn" title="Save today's session note to Trading Vault">📝 Save Note</button>
       <button class="btn-muted" style="padding:4px 12px;font-size:11px" onclick="location.reload(true)" title="Hard refresh — reloads page and clears cache">🔄 Refresh</button>
@@ -246,6 +250,21 @@
       <div class="metric2">
         <div class="val2" id="checkpoint_pct_val" style="color:var(--muted)">0.00%</div>
         <div class="lbl2">VARIATION</div>
+      </div>
+      <div style="width:1px;height:28px;background:var(--border);margin:0 4px"></div>
+      <!-- Profit Basket: DIA+QQQ+VOO+SGOL vs True Profit -->
+      <div class="metric2 big" id="basket-widget" title="Profit basket: DIA+QQQ+VOO+SGOL should equal true profit. Each = 25%.">
+        <div style="display:flex;align-items:baseline;gap:4px">
+          <div class="val2" id="basket_total_val" style="color:var(--muted)">—</div>
+          <div style="font-size:9px;color:var(--muted)" id="basket_status_label">of $—</div>
+        </div>
+        <div class="lbl2">📦 BASKET</div>
+      </div>
+      <div class="metric2">
+        <div style="display:flex;gap:3px;align-items:center" id="basket_bars">
+          <div style="font-size:9px;color:var(--muted);font-family:monospace" id="basket_detail">DIA — QQQ — VOO — SGOL</div>
+        </div>
+        <div class="lbl2">TARGET $<span id="basket_target_each">—</span> EACH</div>
       </div>
     </div>
   </div>
@@ -833,6 +852,8 @@ window.onload = () => {
   }).catch(()=>{});
   setInterval(fetchAccount, 30000);
   setInterval(fetchTrigger, 60000);
+  setInterval(fetchProfitBasket, 60000);
+  fetchProfitBasket();
 };
 
 // ── Account ───────────────────────────────────────────────────────────────
@@ -852,6 +873,13 @@ function fetchAccount() {
     if (pl) {
       pl.textContent = (d.day_pl>=0?'+':'') + '$'+d.day_pl.toFixed(2);
       pl.className   = 'val ' + (d.day_pl>=0?'green':'red');
+    }
+
+    // Row 1 — cash
+    const cashEl = document.getElementById('cash_val');
+    if (cashEl) {
+      cashEl.textContent = '$' + d.cash.toFixed(2);
+      cashEl.style.color = d.cash < 5 ? 'var(--red)' : d.cash < 20 ? 'var(--gold)' : 'var(--green)';
     }
 
     // Row 2
@@ -2146,6 +2174,58 @@ async function launchSim(ticker) {
   } catch(e) {
     document.getElementById('miroshark-panel-title').textContent = `✏ MIROSHARK — FAILED: ${e.message}`;
   }
+}
+
+// ── Profit Basket ──────────────────────────────────────────────────────────
+function fetchProfitBasket() {
+  fetch('/api/profit_basket').then(r=>r.json()).then(d => {
+    const totalEl   = document.getElementById('basket_total_val');
+    const statusEl  = document.getElementById('basket_status_label');
+    const detailEl  = document.getElementById('basket_detail');
+    const targetEl  = document.getElementById('basket_target_each');
+    if (!totalEl) return;
+
+    const total      = d.basket_total || 0;
+    const profit     = d.true_profit  || 0;
+    const targetEach = d.target_each  || 0;
+    const signal     = d.signal       || '';
+    const b          = d.basket       || {};
+
+    // Total basket value
+    totalEl.textContent = '$' + total.toFixed(2);
+    totalEl.style.color = signal === 'OVER' ? 'var(--gold)'
+                        : signal === 'UNDER' ? 'var(--red)'
+                        : signal === 'BALANCED' ? 'var(--green)'
+                        : 'var(--muted)';
+
+    statusEl.textContent = `of $${profit.toFixed(2)} profit`;
+
+    // Target each
+    if (targetEl) targetEl.textContent = targetEach.toFixed(2);
+
+    // Per-position detail
+    if (detailEl) {
+      const parts = ['DIA','QQQ','VOO','SGOL'].map(sym => {
+        const mv = (b[sym] || {}).mv || 0;
+        const pct = targetEach > 0 ? Math.round(mv / targetEach * 100) : 0;
+        const color = pct >= 90 ? '#3fb950' : pct >= 50 ? '#d4a017' : '#f85149';
+        return `<span style="color:${color}">${sym} $${mv.toFixed(0)}</span>`;
+      });
+      detailEl.innerHTML = parts.join(' · ');
+    }
+
+    // Show buy suggestion in widget title if UNDER
+    const widget = document.getElementById('basket-widget');
+    if (widget) {
+      if (signal === 'UNDER' && d.buy_candidate) {
+        widget.title = `ADD $${d.buy_amount.toFixed(2)} to ${d.buy_candidate} to rebalance`;
+      } else if (signal === 'OVER') {
+        widget.title = `Basket over target — harvest stocks, not basket`;
+      } else {
+        widget.title = `Profit basket balanced — DIA+QQQ+VOO+SGOL = $${total.toFixed(2)}`;
+      }
+    }
+  }).catch(()=>{});
 }
 </script>
 </body>

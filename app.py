@@ -2175,6 +2175,55 @@ def fundamentals_html(ticker):
     except Exception as e:
         return f'<div style="padding:12px;color:#664444;font-family:monospace;">Error: {html_mod.escape(str(e))}</div>', 500
 
+@app.route('/api/profit_basket')
+def api_profit_basket():
+    """Profit basket: DIA+QQQ+VOO+SGOL positions vs true profit target."""
+    BASKET = ['DIA', 'QQQ', 'VOO', 'SGOL']
+    PRINCIPAL = 1154.00
+    positions = alpaca('/v2/positions')
+    acct = alpaca('/v2/account')
+    equity = float(acct.get('equity', 0))
+    true_profit = round(equity - PRINCIPAL, 2)
+    target_each = round(true_profit / 4, 2) if true_profit > 0 else 0
+
+    basket = {}
+    for p in positions:
+        sym = p['symbol']
+        if sym in BASKET:
+            mv = float(p.get('market_value', 0))
+            upl = float(p.get('unrealized_pl', 0))
+            basket[sym] = {'mv': round(mv, 2), 'upl': round(upl, 2)}
+
+    total = sum(v['mv'] for v in basket.values())
+    # Determine rebalance signal
+    if true_profit <= 0:
+        signal = 'NO_PROFIT'
+    elif total >= true_profit * 1.1:
+        signal = 'OVER'   # basket > 110% of profit — no add
+    elif total < true_profit * 0.9:
+        signal = 'UNDER'  # basket < 90% of profit — add to laggard
+    else:
+        signal = 'BALANCED'
+
+    # Which needs most buying (furthest below target_each)
+    buy_candidate = None
+    if signal == 'UNDER' and target_each > 0:
+        gaps = {sym: target_each - basket.get(sym, {}).get('mv', 0) for sym in BASKET}
+        buy_candidate = max(gaps, key=gaps.get)
+        buy_amount = round(max(gaps[buy_candidate], 0), 2)
+    else:
+        buy_amount = 0
+
+    return jsonify({
+        'true_profit':    true_profit,
+        'target_each':    target_each,
+        'basket':         {sym: basket.get(sym, {'mv': 0.0, 'upl': 0.0}) for sym in BASKET},
+        'basket_total':   round(total, 2),
+        'signal':         signal,
+        'buy_candidate':  buy_candidate,
+        'buy_amount':     buy_amount,
+    })
+
 # ── Launch ────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
