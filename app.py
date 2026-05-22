@@ -2034,9 +2034,20 @@ def fundamentals_html(ticker):
         def cell(v, max_len=55):
             if v is None or (isinstance(v, float) and math.isnan(v)):
                 return ''
+            # Format raw decimals that look like percentages (0.0 - 1.0 range, metric contains %)
             s = str(v).strip()
             if not s or s == 'nan':
                 return ''
+            # Convert small float to percentage if it looks like a ratio
+            if isinstance(v, float) and 0 < abs(v) < 1.5 and v != v.__round__(0):
+                try:
+                    # Only format as % if value looks like a ratio (e.g. 0.72 = 72%)
+                    if abs(v) <= 1.0:
+                        s = f'{v*100:.1f}%'
+                    else:
+                        s = f'{v:.4f}'
+                except Exception:
+                    pass
             if len(s) > max_len:
                 s = s[:max_len] + '…'
             return html_mod.escape(s)
