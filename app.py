@@ -1882,6 +1882,88 @@ def _parse_fidelity_quick() -> dict:
         fid[sym]['is_mf']      = sym in mf
     return dict(fid)
 
+MIROSHARK_BASE = 'http://localhost:5001'
+EDGAR_BASE     = os.path.expanduser('~/Documents/EDGAR/companies')
+
+@app.route('/api/research/seed_url/<ticker>')
+def serve_seed_file(ticker):
+    ticker = ticker.upper()
+    path = os.path.join(EDGAR_BASE, ticker, f'{ticker}_seed.md')
+    if not os.path.exists(path):
+        return jsonify({'error': 'Seed file not found'}), 404
+    with open(path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    from flask import Response
+    return Response(content, mimetype='text/plain',
+                    headers={'Access-Control-Allow-Origin': '*'})
+
+@app.route('/api/research/launch-sim/<ticker>')
+def launch_sim(ticker):
+    ticker = ticker.upper()
+    try:
+        r = requests.post(f'{MIROSHARK_BASE}/api/simulation/ask-stock',
+                          json={'ticker': ticker}, timeout=30)
+        data = r.json()
+        sim_req = (data.get('data') or {}).get('simulation_requirement', '') or data.get('simulation_requirement', '')
+        seed_url = f'http://localhost:6060/api/research/seed_url/{ticker}'
+        import urllib.parse
+        scenario_param = urllib.parse.quote(sim_req[:500])
+        url_param = urllib.parse.quote(seed_url)
+        miroshark_url = f'http://localhost:5001/?scenario={scenario_param}&url={url_param}'
+        return jsonify({'url': miroshark_url, 'scenario': sim_req})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 502
+
+@app.route('/api/research/seeds')
+def research_seeds():
+    seeds = []
+    if os.path.exists(EDGAR_BASE):
+        for d in sorted(os.listdir(EDGAR_BASE)):
+            full = os.path.join(EDGAR_BASE, d)
+            if os.path.isdir(full):
+                seed = os.path.join(full, f'{d}_seed.md')
+                if os.path.exists(seed):
+                    stat = os.stat(seed)
+                    seeds.append({'ticker': d, 'size': stat.st_size, 'modified': stat.st_mtime})
+    seeds.sort(key=lambda x: x['modified'], reverse=True)
+    return jsonify({'success': True, 'seeds': seeds})
+
+@app.route('/api/research/reports')
+def research_reports():
+    reports = []
+    rdir = os.path.expanduser('~/Documents/MiroShark/backend/uploads/reports')
+    if os.path.exists(rdir):
+        for d in sorted(os.listdir(rdir)):
+            full = os.path.join(rdir, d)
+            rpt = os.path.join(full, 'full_report.md')
+            if os.path.isdir(full) and os.path.exists(rpt):
+                content_start = open(rpt, encoding='utf-8', errors='ignore').read()[:300]
+                ticker = ''
+                for line in content_start.split('\n'):
+                    if 'Investment Analysis' in line and '—' in line:
+                        ticker = line.split('—')[-1].strip().split()[0]
+                        break
+                stat = os.stat(rpt)
+                reports.append({'report_id': d, 'ticker': ticker, 'modified': stat.st_mtime})
+    reports.sort(key=lambda x: x['modified'], reverse=True)
+    return jsonify({'success': True, 'reports': reports})
+
+@app.route('/api/research/report/<report_id>')
+def research_report(report_id):
+    rpt = os.path.expanduser(f'~/Documents/MiroShark/backend/uploads/reports/{report_id}/full_report.md')
+    if not os.path.exists(rpt):
+        return jsonify({'success': False, 'error': 'Report not found'}), 404
+    return jsonify({'success': True, 'report_id': report_id, 'content': open(rpt, encoding='utf-8', errors='ignore').read()})
+
+@app.route('/api/research/edgar-tickers')
+def research_edgar_tickers():
+    tickers = []
+    if os.path.exists(EDGAR_BASE):
+        for d in sorted(os.listdir(EDGAR_BASE)):
+            if os.path.isdir(os.path.join(EDGAR_BASE, d)) and os.path.exists(os.path.join(EDGAR_BASE, d, 'fundamentals.xlsx')):
+                tickers.append(d)
+    return jsonify({'success': True, 'tickers': tickers})
+
 # ── Launch ────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
