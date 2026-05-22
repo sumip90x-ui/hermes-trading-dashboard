@@ -2297,6 +2297,136 @@ def _macro_updater():
         _fetch_macro_signal()
         time.sleep(300)
 
+@app.route('/api/macro_advisory')
+def api_macro_advisory():
+    """Generate macro-aligned buy suggestions based on ORACLE composite signal."""
+    BASKET   = ['DIA', 'QQQ', 'VOO', 'SGOL']
+    PRINCIPAL = 1154.00
+    try:
+        acct      = alpaca('/v2/account')
+        positions = alpaca('/v2/positions')
+        equity    = float(acct.get('equity', 0))
+        cash      = float(acct.get('cash', 0))
+        true_profit = round(equity - PRINCIPAL, 2)
+        target_each = round(true_profit / 4, 2) if true_profit > 0 else 0
+
+        macro = _MACRO_CACHE
+        quadrant = macro.get('quadrant', 'NEUTRAL')
+        harvest_pct = macro.get('harvest_pct', 10.0)
+
+        # Build position lookup
+        pos_by_sym = {p['symbol']: p for p in positions}
+
+        suggestions = []
+
+        # ── 1. Basket rebalance (DIA/QQQ/VOO only — not SGOL in CHEAP) ──────
+        basket_suggest = []
+        for sym in ['DIA', 'QQQ', 'VOO']:
+            mv = float(pos_by_sym.get(sym, {}).get('market_value', 0))
+            gap = target_each - mv
+            if gap > 1.10:
+                buy_amt = round(min(gap, cash * 0.2), 2)  # max 20% of cash
+                if buy_amt >= 1.10:
+                    basket_suggest.append({
+                        'sym': sym, 'buy': buy_amt,
+                        'reason': f'Basket gap ${gap:.2f} below target ${target_each:.2f}',
+                        'type': 'basket', 'priority': gap,
+                    })
+        # Add SGOL only in FLIGHT quadrant
+        if quadrant == 'FLIGHT':
+            mv = float(pos_by_sym.get('SGOL', {}).get('market_value', 0))
+            gap = target_each - mv
+            if gap > 1.10:
+                basket_suggest.append({
+                    'sym': 'SGOL', 'buy': round(min(gap, cash * 0.15), 2),
+                    'reason': f'Flight to safety — add gold (gap ${gap:.2f})',
+                    'type': 'basket', 'priority': gap + 100,
+                })
+        basket_suggest.sort(key=lambda x: -x['priority'])
+        suggestions.extend(basket_suggest[:3])
+
+        # ── 2. DCA candidates from positions ─────────────────────────────────
+        # Load Fidelity conviction data
+        fid = {}
+        from pathlib import Path
+        csv_path = Path.home() / 'portfolio.csv'
+        if csv_path.exists():
+            try: fid = _parse_fidelity_quick()
+            except Exception: pass
+
+        # Load EDGAR cache for quality filter
+        edgar_cache = {}
+        if EDGAR_CACHE.exists():
+            try:
+                import json as _j
+                edgar_cache = _j.loads(EDGAR_CACHE.read_text())
+            except Exception: pass
+
+        dca_candidates = []
+        protected = {'SGOL','GLD','VOO','QQQ','DIA','GLL','PSQ','SH','VIXY'}
+        for p in positions:
+            sym = p['symbol']
+            if sym in protected: continue
+            uplpc = float(p.get('unrealized_plpc', 0)) * 100
+            mv    = float(p.get('market_value', 0))
+            if uplpc > -2.0 or mv < 0.005: continue  # only meaningful losers
+
+            fd     = fid.get(sym, {})
+            accts  = fd.get('acct_count', 0)
+            ec     = edgar_cache.get(sym, {})
+            escore = ec.get('score', None)
+
+            # Skip low conviction in OVERHEATED (not the time to add weak hands)
+            if quadrant == 'OVERHEATED' and accts < 3: continue
+
+            # Score = conviction × magnitude × EDGAR quality
+            score = (accts * 2) + abs(uplpc) + (escore or 0) * 0.5
+            buy_amt = max(round(min(abs(uplpc) * 0.3, 5.0), 2), 1.10)
+
+            dca_candidates.append({
+                'sym': sym, 'buy': buy_amt,
+                'reason': f'Down {uplpc:.1f}% | {accts} Fidelity accts' +
+                          (f' | EDGAR {escore}/18' if escore else ''),
+                'type': 'dca', 'priority': score,
+                'uplpc': round(uplpc, 1), 'accts': accts,
+            })
+
+        dca_candidates.sort(key=lambda x: -x['priority'])
+
+        # In CHEAP: take top 5 DCA. In OVERHEATED: none. Others: top 3.
+        dca_limit = 5 if quadrant == 'CHEAP' else 0 if quadrant == 'OVERHEATED' else 3
+        suggestions.extend(dca_candidates[:dca_limit])
+
+        # ── 3. Cap total spend to available cash ──────────────────────────────
+        total_suggested = sum(s['buy'] for s in suggestions)
+        if total_suggested > cash * 0.8:
+            scale = (cash * 0.8) / total_suggested
+            for s in suggestions:
+                s['buy'] = max(round(s['buy'] * scale, 2), 1.10)
+
+        # ── 4. Macro rule summary ─────────────────────────────────────────────
+        rules = {
+            'OVERHEATED': 'Harvest gainers at 8%+. Minimal new buys. Raise cash.',
+            'RISK-ON':    'Let winners run to 12%+. Add selectively on dips.',
+            'CHEAP':      'Accumulate aggressively. Hold until 15%+. Dips = opportunity.',
+            'FLIGHT':     'Hold SGOL (do not harvest). Add gold. Harvest stocks at 10%+.',
+            'NEUTRAL':    'Normal rules apply. Harvest at 10%+.',
+        }
+
+        return jsonify({
+            'quadrant':    quadrant,
+            'signal':      macro.get('signal', ''),
+            'harvest_pct': harvest_pct,
+            'equity_rank': macro.get('equity_rank'),
+            'hard_rank':   macro.get('hard_rank'),
+            'rule':        rules.get(quadrant, ''),
+            'cash':        round(cash, 2),
+            'suggestions': suggestions,
+            'updated_at':  macro.get('updated_at'),
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/macro_signal')
 def api_macro_signal():
     return jsonify(_MACRO_CACHE)
