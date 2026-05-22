@@ -76,7 +76,13 @@ def alpaca_post(path, payload):
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    resp = render_template('index.html')
+    from flask import make_response
+    r = make_response(resp)
+    r.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    r.headers['Pragma'] = 'no-cache'
+    r.headers['Expires'] = '0'
+    return r
 
 @app.route('/api/account')
 def api_account():
@@ -1983,6 +1989,142 @@ def fundamentals(ticker):
         )
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route('/api/research/fundamentals-html/<ticker>')
+def fundamentals_html(ticker):
+    import math, html as html_mod
+    import pandas as pd
+    ticker = ticker.upper()
+    path = os.path.join(EDGAR_BASE, ticker, f"{ticker}_fundamentals.xlsx")
+    if not os.path.exists(path):
+        return f'<div style="padding:12px;color:#664444;font-family:monospace;">No file for {ticker}</div>', 404
+
+    try:
+        df = pd.read_excel(path, header=0)
+        cols = list(df.columns)
+        # cols[0] = company name (Excel row 0 used as pandas header)
+        # df row 0 = CIK metadata; df row 1 = blank; data starts at df row 2
+        val_cols = cols[1:]
+
+        company = html_mod.escape(str(cols[0]))
+        cik_meta = ''
+        if len(df) > 0:
+            v = df.iloc[0, 0]
+            if v is not None and not (isinstance(v, float) and math.isnan(v)):
+                cik_meta = html_mod.escape(str(v).strip())
+
+        # Find date header row (skip first 2 rows)
+        date_labels = [f'Col {i+1}' for i in range(len(val_cols))]
+        for idx, (_, row) in enumerate(df.iterrows()):
+            if idx < 2:
+                continue
+            c0 = row.iloc[0]
+            c1 = row.iloc[1] if len(row) > 1 else None
+            if (c0 is None or (isinstance(c0, float) and math.isnan(c0)) or str(c0).strip() == '') \
+               and c1 is not None and not (isinstance(c1, float) and math.isnan(c1)) \
+               and str(c1).strip() != '' and any(ch.isdigit() for ch in str(c1)):
+                date_labels = []
+                for v in row.iloc[1:]:
+                    if v is None or (isinstance(v, float) and math.isnan(v)):
+                        date_labels.append('')
+                    else:
+                        date_labels.append(str(v).strip())
+                break
+
+        def cell(v, max_len=55):
+            if v is None or (isinstance(v, float) and math.isnan(v)):
+                return ''
+            s = str(v).strip()
+            if not s or s == 'nan':
+                return ''
+            if len(s) > max_len:
+                s = s[:max_len] + '…'
+            return html_mod.escape(s)
+
+        def is_num(v):
+            if v is None or (isinstance(v, float) and math.isnan(v)):
+                return False
+            try:
+                float(str(v).replace(',', '').replace('%', ''))
+                return True
+            except (ValueError, TypeError):
+                return False
+
+        th_cells = ''.join(
+            f'<th style="background:#0a2a0a;color:#88cc88;padding:5px 12px;'
+            f'text-align:right;border-bottom:1px solid #1a3a1a;'
+            f'font-family:monospace;font-size:11px;min-width:90px;white-space:nowrap;">'
+            f'{html_mod.escape(d)}</th>'
+            for d in date_labels
+        )
+
+        rows_html = []
+        for idx, (_, row) in enumerate(df.iterrows()):
+            if idx < 2:  # skip CIK metadata row and blank row
+                continue
+            c0_raw = row.iloc[0]
+            c0_empty = (c0_raw is None or (isinstance(c0_raw, float) and math.isnan(c0_raw))
+                        or str(c0_raw).strip() == '' or str(c0_raw).strip() == 'nan')
+            vals = [row.iloc[i+1] if i+1 < len(row) else None for i in range(len(val_cols))]
+            has_vals = any(v is not None and not (isinstance(v, float) and math.isnan(v))
+                           and str(v).strip() not in ('', 'nan') for v in vals)
+
+            if c0_empty and not has_vals:
+                continue  # blank row
+            if c0_empty and has_vals:
+                continue  # date header row
+
+            metric = cell(c0_raw, max_len=200)
+            if not metric:
+                continue
+
+            if metric.startswith('PHASE') or metric.startswith('---'):
+                rows_html.append(
+                    f'<tr><td colspan="{1+len(val_cols)}" style="color:#ffaa00;'
+                    f'padding:10px 12px 3px;font-size:10px;letter-spacing:2px;'
+                    f'border-top:1px solid #1a3a1a;background:#080e08;'
+                    f'font-family:monospace;">{metric}</td></tr>'
+                )
+                continue
+
+            tds = f'<td style="color:#88cc88;padding:3px 12px;border-bottom:1px solid #0a1a0a;' \
+                  f'white-space:nowrap;font-family:monospace;font-size:11px;min-width:220px;">' \
+                  f'{metric}</td>'
+            for v in vals:
+                display = cell(v)
+                color = '#00ff88' if display and is_num(v) else '#88cc88'
+                tds += (f'<td style="color:{color};padding:3px 12px;'
+                        f'border-bottom:1px solid #0a1a0a;text-align:right;'
+                        f'white-space:nowrap;font-family:monospace;font-size:11px;'
+                        f'min-width:90px;">{display}</td>')
+            rows_html.append(f'<tr>{tds}</tr>')
+
+        html_out = f'''
+<div style="padding:3px 12px;background:#0a2a0a;border-bottom:1px solid #1a3a1a;
+            font-family:monospace;font-size:11px;color:#ffaa00;font-weight:bold;">
+  {company}
+</div>
+<div style="padding:2px 12px;background:#0a2a0a;border-bottom:1px solid #1a3a1a;
+            font-family:monospace;font-size:9px;color:#446644;">
+  {cik_meta}
+</div>
+<div style="overflow-x:auto;">
+  <table style="border-collapse:collapse;white-space:nowrap;">
+    <thead>
+      <tr>
+        <th style="background:#0a2a0a;color:#ffaa00;padding:5px 12px;text-align:left;
+                   border-bottom:1px solid #1a3a1a;font-family:monospace;
+                   font-size:11px;min-width:220px;">Metric</th>
+        {th_cells}
+      </tr>
+    </thead>
+    <tbody>{''.join(rows_html)}</tbody>
+  </table>
+</div>'''
+        return html_out, 200, {'Content-Type': 'text/html; charset=utf-8',
+                               'Cache-Control': 'no-cache'}
+    except Exception as e:
+        return f'<div style="padding:12px;color:#664444;font-family:monospace;">Error: {html_mod.escape(str(e))}</div>', 500
 
 # ── Launch ────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':

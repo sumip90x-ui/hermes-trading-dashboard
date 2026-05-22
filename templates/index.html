@@ -320,11 +320,15 @@
           </div>
 
           <!-- CENTER: MiroShark iframe -->
-          <div style="flex:1; display:flex; flex-direction:column; background:#060e06; pointer-events:all;">
+          <div style="flex:1; min-width:0; display:flex; flex-direction:column; background:#060e06; pointer-events:all;">
             <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 12px; border-bottom:1px solid #1a3a1a;">
               <span id="miroshark-panel-title" style="color:#ffaa00; font-family:monospace; font-size:10px; letter-spacing:2px;">✏ MIROSHARK</span>
-              <button onclick="document.getElementById('miroshark-frame').src='about:blank'; document.getElementById('miroshark-panel-title').textContent='✏ MIROSHARK';"
-                      style="background:none; border:1px solid #1a3a1a; color:#446644; font-family:monospace; font-size:10px; cursor:pointer; padding:2px 8px;">CLEAR</button>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <button onclick="window.location.reload()"
+                        style="background:none; border:1px solid #2a4a2a; color:#88cc88; font-family:monospace; font-size:10px; cursor:pointer; padding:2px 8px;" title="Hard reload page to pick up JS changes">⟳ RELOAD</button>
+                <button onclick="document.getElementById('miroshark-frame').src='about:blank'; document.getElementById('miroshark-panel-title').textContent='✏ MIROSHARK';"
+                        style="background:none; border:1px solid #1a3a1a; color:#446644; font-family:monospace; font-size:10px; cursor:pointer; padding:2px 8px;">CLEAR</button>
+              </div>
             </div>
             <iframe id="miroshark-frame" src="about:blank"
                     style="flex:1; width:100%; height:100%; border:none; pointer-events:all;"
@@ -1689,6 +1693,21 @@ function switchChart(view, el) {
   });
   document.querySelectorAll('.chart-tabs .tab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
+
+  // Research gets the full grid width — hide the right panel and expand both row panels
+  const rightPanel = document.querySelector('.right-panel');
+  const chartPanel = document.querySelector('.chart-panel');
+  const buyPanel   = document.querySelector('.buy-panel');
+  if (view === 'research') {
+    if (rightPanel) rightPanel.style.display = 'none';
+    if (chartPanel) chartPanel.style.gridColumn = '1 / -1';
+    if (buyPanel)   buyPanel.style.gridColumn   = '1 / -1';
+  } else {
+    if (rightPanel) rightPanel.style.display = '';
+    if (chartPanel) chartPanel.style.gridColumn = '';
+    if (buyPanel)   buyPanel.style.gridColumn   = '';
+  }
+
   if (view === 'positions') loadPositions();
   if (view === 'candles')   loadCandles();
   if (view === 'research') {
@@ -2086,100 +2105,17 @@ async function loadFundamentals(ticker) {
   if (!tableDiv) {
     tableDiv = document.createElement('div');
     tableDiv.id = 'fundamentals-table-view';
-    tableDiv.style.cssText = 'flex:1; overflow:auto; background:#060e06; display:block;';
     frame.parentElement.appendChild(tableDiv);
   }
-  tableDiv.style.display = 'block';
-  tableDiv.innerHTML = '<div style="padding:12px; color:#446644; font-family:monospace;">Loading...</div>';
+  tableDiv.style.cssText = 'flex:1;overflow:auto;background:#060e06;min-width:0;width:100%;height:100%;';
+  tableDiv.innerHTML = '<div style="padding:12px;color:#446644;font-family:monospace;">Loading...</div>';
 
   try {
-    const r = await fetch(`/api/research/fundamentals/${ticker}`);
-    const rows = await r.json();
-    if (rows.error) {
-      tableDiv.innerHTML = `<div style="padding:12px; color:#664444; font-family:monospace;">Error: ${rows.error}</div>`;
-      return;
-    }
-
-    const cols = Object.keys(rows[0]);
-    const c0 = cols[0];
-    const dataCols = cols.slice(1);
-
-    const metaRow = rows[0][c0] || '';
-
-    // Find the date header row
-    let dateHeaders = dataCols.map(() => '');
-    for (const row of rows) {
-      const v0 = row[c0];
-      const v1 = row[dataCols[0]];
-      if ((!v0 || String(v0).trim() === '') && v1 && String(v1).match(/\d{4}/)) {
-        dateHeaders = dataCols.map(c => row[c] ? String(row[c]).trim() : '');
-        break;
-      }
-    }
-
-    let html = `
-      <div style="padding:6px 12px; background:#0a2a0a; border-bottom:1px solid #1a3a1a;
-                  font-family:monospace; font-size:10px; color:#446644;
-                  position:sticky; top:0; z-index:2;">
-        ${metaRow}
-      </div>
-      <div style="overflow-x:auto;">
-      <table style="border-collapse:collapse; min-width:100%; font-family:monospace; font-size:11px;">
-        <thead>
-          <tr style="position:sticky; top:28px; z-index:1;">
-            <th style="background:#0a2a0a; color:#ffaa00; padding:5px 14px; text-align:left;
-                       border-bottom:1px solid #1a3a1a; min-width:250px; white-space:nowrap;">
-              Metric</th>
-            ${dateHeaders.map(d => `
-            <th style="background:#0a2a0a; color:#88cc88; padding:5px 12px; text-align:right;
-                       border-bottom:1px solid #1a3a1a; white-space:nowrap; min-width:90px;">
-              ${d}</th>`).join('')}
-          </tr>
-        </thead>
-        <tbody>
-          ${rows.slice(2).map((row, i) => {
-            const metric = row[c0];
-            const vals = dataCols.map(c => row[c]);
-            const metricStr = metric ? String(metric).trim() : '';
-            const hasAnyVal = vals.some(v => v !== null && v !== undefined && String(v).trim() !== '');
-
-            if (!metricStr && !hasAnyVal) return '';
-            if (!metricStr && hasAnyVal) return '';
-
-            if (metricStr.startsWith('PHASE') || metricStr.startsWith('---')) {
-              return `<tr>
-                <td colspan="${1 + dataCols.length}"
-                    style="color:#ffaa00; padding:10px 14px 4px 14px;
-                           font-size:10px; letter-spacing:2px;
-                           border-top:1px solid #1a3a1a; background:#080e08;">
-                  ${metricStr}
-                </td>
-              </tr>`;
-            }
-
-            const isEven = i % 2 === 0;
-            return `<tr style="background:${isEven ? '#060e06' : '#070d07'}">
-              <td style="color:#88cc88; padding:3px 14px; border-bottom:1px solid #0a1a0a;
-                         white-space:nowrap;">${metricStr}</td>
-              ${vals.map(v => {
-                const display = (v !== null && v !== undefined && String(v).trim() !== '')
-                  ? String(v).trim() : '';
-                const isNum = display && !isNaN(display.replace(/[,%$]/g, ''));
-                return `<td style="color:${isNum ? '#00ff88' : '#88cc88'};
-                           padding:3px 12px; border-bottom:1px solid #0a1a0a;
-                           text-align:right; white-space:nowrap;">
-                  ${display}
-                </td>`;
-              }).join('')}
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>
-      </div>`;
-
+    const r = await fetch(`/api/research/fundamentals-html/${ticker}`);
+    const html = await r.text();
     tableDiv.innerHTML = html;
   } catch(e) {
-    tableDiv.innerHTML = `<div style="padding:12px; color:#664444; font-family:monospace;">Error: ${e.message}</div>`;
+    tableDiv.innerHTML = `<div style="padding:12px;color:#664444;font-family:monospace;">Error: ${e.message}</div>`;
   }
 }
 
