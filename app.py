@@ -1954,16 +1954,33 @@ def fundamentals(ticker):
     if not os.path.exists(path):
         return jsonify({"error": f"No fundamentals file found for {ticker}"}), 404
     try:
+        import math, json as json_mod
         import pandas as pd
         df = pd.read_excel(path, header=0)
         df.columns = [str(c).strip() for c in df.columns]
-        df = df.replace([float('inf'), float('-inf')], None)
-        df = df.where(pd.notnull(df), None)
         records = []
         for _, row in df.iterrows():
-            records.append({k: (v if isinstance(v, (int, float, str, type(None)))
-                           else str(v)) for k, v in row.items()})
-        return jsonify(records)
+            clean_row = {}
+            for k, v in row.items():
+                key = str(k)
+                if v is None:
+                    clean_row[key] = None
+                elif isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+                    clean_row[key] = None
+                elif isinstance(v, (bool, int, float, str)):
+                    clean_row[key] = v
+                else:
+                    try:
+                        json_mod.dumps(v)
+                        clean_row[key] = v
+                    except (TypeError, ValueError):
+                        clean_row[key] = str(v)
+            records.append(clean_row)
+        return app.response_class(
+            response=json_mod.dumps(records, ensure_ascii=False, default=str),
+            status=200,
+            mimetype='application/json'
+        )
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
