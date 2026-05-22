@@ -12,7 +12,7 @@ Run: python3 ~/trading_dashboard/app.py
 Open: http://localhost:6060
 """
 
-import os, sys, json, re, time, subprocess, threading, requests, logging
+import os, sys, json, re, time, subprocess, threading, requests, logging, glob, urllib.parse
 
 log = logging.getLogger('hermes_dashboard')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -1881,6 +1881,52 @@ def _parse_fidelity_quick() -> dict:
         fid[sym]['acct_count'] = len(fid[sym]['accts'])
         fid[sym]['is_mf']      = sym in mf
     return dict(fid)
+
+EDGAR_BASE = os.path.expanduser("~/Documents/EDGAR/companies")
+MIROSHARK_BASE = "http://localhost:5001"
+
+@app.route('/api/research/edgar-tickers')
+def edgar_tickers():
+    folders = glob.glob(os.path.join(EDGAR_BASE, "*"))
+    tickers = [os.path.basename(f) for f in folders
+               if os.path.isfile(os.path.join(f, f"{os.path.basename(f)}_seed.md"))]
+    return jsonify(sorted(tickers))
+
+@app.route('/api/research/seed_url/<ticker>')
+def serve_seed_file(ticker):
+    ticker = ticker.upper()
+    path = os.path.join(EDGAR_BASE, ticker, f"{ticker}_seed.md")
+    if not os.path.exists(path):
+        return jsonify({"error": "Seed file not found"}), 404
+    with open(path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    from flask import Response
+    return Response(content, mimetype='text/plain',
+                    headers={"Access-Control-Allow-Origin": "*"})
+
+@app.route('/api/research/launch-sim/<ticker>')
+def launch_sim(ticker):
+    ticker = ticker.upper()
+    try:
+        r = requests.post(f"{MIROSHARK_BASE}/api/simulation/ask-stock",
+                          json={"ticker": ticker}, timeout=30)
+        data = r.json()
+        sim_requirement = (data.get('data') or {}).get('simulation_requirement', '') or data.get('simulation_requirement', '')
+        seed_url = f"http://localhost:6060/api/research/seed_url/{ticker}"
+        scenario_param = urllib.parse.quote(sim_requirement[:500])
+        url_param = urllib.parse.quote(seed_url)
+        miroshark_url = f"http://localhost:5001/?scenario={scenario_param}&url={url_param}"
+        return jsonify({"url": miroshark_url, "scenario": sim_requirement})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+@app.route('/api/research/simulations')
+def simulation_history():
+    try:
+        r = requests.get(f"{MIROSHARK_BASE}/api/simulation/list", timeout=10)
+        return jsonify(r.json())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
 
 # ── Launch ────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
