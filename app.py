@@ -1005,11 +1005,24 @@ def api_chat():
         msgs   = [{'role':m['role'],'content':m['content']} for m in CHAT_HISTORY[-20:]]
         msgs[0]['content'] = ctx + '\n\n' + msgs[0]['content']
 
-        # Detect if this is a confirmation to execute a prior plan
-        confirmatory = any(w in user_msg.lower() for w in [
-            'yes', 'do it', 'go', 'execute', 'sell them', 'buy it',
-            'do the trades', 'you pick', 'just do it', 'place', 'proceed',
-            'confirm', 'ok', 'okay', 'sure', 'yep', 'yup', 'correct',
+        # Detect if this message requires tool use (trade intent OR confirmation)
+        # Direct execution: "sell $3 from X", "buy $5 SGOL", "sell the gainers"
+        # NOT a question: "what should I sell?", "which ones are gainers?"
+        user_lower = user_msg.lower().strip()
+        direct_sell = (
+            ('sell' in user_lower or 'harvest' in user_lower or 'trim' in user_lower)
+            and any(c.isdigit() for c in user_lower)  # has a dollar amount
+        )
+        direct_buy = (
+            'buy' in user_lower
+            and any(c.isdigit() for c in user_lower)
+            and not user_lower.startswith('should')
+            and '?' not in user_lower
+        )
+        confirmatory = any(w in user_lower for w in [
+            'yes', 'do it', 'go', 'sell them', 'buy it',
+            'do the trades', 'just do it', 'proceed', 'execute',
+            'confirm', 'yep', 'yup',
         ])
         # Check if prior assistant message had a trade plan
         prior_had_plan = any(
@@ -1017,8 +1030,8 @@ def api_chat():
             and m.get('role') == 'assistant'
             for m in CHAT_HISTORY[-4:]
         )
-        # Force tool use if confirming a prior plan — prevents hallucinated execution
-        force_tool = confirmatory and prior_had_plan
+        # Force tool use when executing, not when just asking
+        force_tool = direct_sell or direct_buy or (confirmatory and prior_had_plan)
 
         # Agentic loop — let Claude call tools until it's done
         trade_log = []
@@ -1068,7 +1081,7 @@ def api_chat():
 
         # Prepend trade log to reply if trades were executed
         if trade_log:
-            trade_summary = '\n'.join(f'✅ {t}' for t in trade_log)
+            trade_summary = '\n'.join(f'✅ EXECUTED: {t}' for t in trade_log)
             reply = trade_summary + ('\n\n' + reply if reply else '')
             # Emit socket event so dashboard refreshes cash/positions
             socketio.emit('trades_executed_batch', {'count': len(trade_log)})
