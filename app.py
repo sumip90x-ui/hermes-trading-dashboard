@@ -1005,17 +1005,36 @@ def api_chat():
         msgs   = [{'role':m['role'],'content':m['content']} for m in CHAT_HISTORY[-20:]]
         msgs[0]['content'] = ctx + '\n\n' + msgs[0]['content']
 
+        # Detect if this is a confirmation to execute a prior plan
+        confirmatory = any(w in user_msg.lower() for w in [
+            'yes', 'do it', 'go', 'execute', 'sell them', 'buy it',
+            'do the trades', 'you pick', 'just do it', 'place', 'proceed',
+            'confirm', 'ok', 'okay', 'sure', 'yep', 'yup', 'correct',
+        ])
+        # Check if prior assistant message had a trade plan
+        prior_had_plan = any(
+            ('sell' in m.get('content','').lower() or 'buy' in m.get('content','').lower())
+            and m.get('role') == 'assistant'
+            for m in CHAT_HISTORY[-4:]
+        )
+        # Force tool use if confirming a prior plan — prevents hallucinated execution
+        force_tool = confirmatory and prior_had_plan
+
         # Agentic loop — let Claude call tools until it's done
         trade_log = []
         max_rounds = 10  # enough for 5+ sequential tool calls (sells + buy)
         for _ in range(max_rounds):
-            resp = client.messages.create(
+            create_kwargs = dict(
                 model      = 'claude-sonnet-4-5',
                 max_tokens = 1024,
                 system     = HERMES_SYSTEM,
                 tools      = TRADE_TOOLS,
                 messages   = msgs,
             )
+            if force_tool:
+                create_kwargs['tool_choice'] = {'type': 'any'}
+                force_tool = False  # only force on first round
+            resp = client.messages.create(**create_kwargs)
 
             # Collect any tool calls
             tool_calls = [b for b in resp.content if b.type == 'tool_use']
