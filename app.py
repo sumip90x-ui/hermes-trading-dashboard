@@ -948,8 +948,12 @@ def api_chat():
             score_str = f" EDGAR:{score}/18" if score else ""
             return f"{sym} {pct:+.1f}% MV=${mv:.2f}{score_str}"
 
-        top_gainers = sorted(positions, key=lambda x: float(x.get('unrealized_plpc',0)), reverse=True)[:5]
-        top_losers  = sorted(positions, key=lambda x: float(x.get('unrealized_plpc',0)))[:5]
+        top_gainers = sorted(
+            [p for p in positions if float(p.get('market_value',0)) >= 1.10],
+            key=lambda x: float(x.get('unrealized_plpc',0)), reverse=True)[:5]
+        top_losers  = sorted(
+            [p for p in positions if float(p.get('market_value',0)) >= 1.10],
+            key=lambda x: float(x.get('unrealized_plpc',0)))[:5]
         gainers_str = ' | '.join(pos_line(p) for p in top_gainers)
         losers_str  = ' | '.join(pos_line(p) for p in top_losers)
 
@@ -1416,15 +1420,17 @@ def api_ath_decision():
             except Exception:
                 pass
 
-        # Build positions text
+        # Build positions text — exclude stub/marker positions (MV < $1.10)
+        MIN_MV = 1.10  # Alpaca min order — anything below is a leftover marker
         pos_list = []
         for p in positions:
             sym    = p['symbol']
+            mv     = float(p.get('market_value', 0))
+            if mv < MIN_MV: continue  # skip stub positions
             cur    = float(p.get('current_price', 0))
             entry  = float(p.get('avg_entry_price', 0))
             upl    = float(p.get('unrealized_pl', 0))
             uplpc  = float(p.get('unrealized_plpc', 0)) * 100
-            mv     = float(p.get('market_value', 0))
             day_chg = float(p.get('change_today', 0)) * 100
             pos_list.append({
                 'sym': sym, 'cur': round(cur,2), 'entry': round(entry,2),
@@ -2369,7 +2375,7 @@ def api_macro_advisory():
             if sym in protected: continue
             uplpc = float(p.get('unrealized_plpc', 0)) * 100
             mv    = float(p.get('market_value', 0))
-            if uplpc > -2.0 or mv < 0.005: continue  # only meaningful losers
+            if uplpc > -2.0 or mv < 1.10: continue  # only real positions
 
             fd     = fid.get(sym, {})
             accts  = fd.get('acct_count', 0)
