@@ -1060,7 +1060,10 @@ function buildIntradayChart(bars, athZone, ath) {
         x: { type:'time', time:{unit:'minute',displayFormats:{minute:'HH:mm'}},
              grid:{color:'#1c2128'}, ticks:{color:'#8b949e',maxTicksLimit:8} },
         y: { grid:{color:'#1c2128'}, ticks:{color:'#8b949e',
-             callback:v=>'$'+v.toLocaleString()} }
+             callback:v=>'$'+v.toLocaleString()},
+             min: Math.floor(Math.min(...values, ...ma5vals.filter(v=>v), ...ma20vals.filter(v=>v)) - 2),
+             max: Math.ceil(Math.max(...values, ...ma5vals.filter(v=>v), ...ma20vals.filter(v=>v), ath||0) + 2)
+           }
       }
     }
   });
