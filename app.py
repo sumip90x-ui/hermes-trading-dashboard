@@ -988,9 +988,13 @@ def api_chat():
         if chart_ctx:
             ctx = chart_ctx + "\n\n" + ctx
         ctx += (
-            "\nIMPORTANT: You have the place_order tool. When Sumith says 'yes', 'do it', 'go', "
-            "'execute', or anything confirmatory — USE THE TOOL IMMEDIATELY. Do not narrate. Do not ask again. "
-            "Place the actual orders. Then report what was done."
+            "\nCRITICAL EXECUTION RULE: You have the place_order tool and it works RIGHT NOW on live Alpaca. "
+            "When Sumith says 'yes', 'do it', 'go', 'execute', 'sell them', 'buy it', 'do the trades', "
+            "'you pick', 'just do it', or ANYTHING confirmatory after you proposed a trade plan — "
+            "CALL place_order IMMEDIATELY for every trade in the plan. Do NOT ask again. Do NOT narrate first. "
+            "Place the orders THEN report what was executed. "
+            "If the last assistant message proposed specific sells and buys and Sumith says anything like "
+            "'do it' or 'execute' — those are the orders to place RIGHT NOW."
         )
     except Exception as e:
         ctx = f"[LIVE CONTEXT ERROR: {e}]"
@@ -1003,7 +1007,7 @@ def api_chat():
 
         # Agentic loop — let Claude call tools until it's done
         trade_log = []
-        max_rounds = 6
+        max_rounds = 10  # enough for 5+ sequential tool calls (sells + buy)
         for _ in range(max_rounds):
             resp = client.messages.create(
                 model      = 'claude-sonnet-4-5',
