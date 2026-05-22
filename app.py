@@ -1912,10 +1912,22 @@ def launch_sim(ticker):
                           json={"ticker": ticker}, timeout=30)
         data = r.json()
         sim_requirement = (data.get('data') or {}).get('simulation_requirement', '') or data.get('simulation_requirement', '')
-        seed_url = f"http://localhost:6060/api/research/seed_url/{ticker}"
-        scenario_param = urllib.parse.quote(sim_requirement[:500])
-        url_param = urllib.parse.quote(seed_url)
-        miroshark_url = f"http://localhost:5001/?scenario={scenario_param}&url={url_param}"
+        seed_document = (data.get('data') or {}).get('seed_document', '') or data.get('seed_document', '')
+
+        # Write preset template file for MiroShark to auto-load
+        template = {
+            "simulation_requirement": sim_requirement,
+            "seed_document": seed_document
+        }
+        template_dir = os.path.expanduser(
+            "~/Documents/MiroShark/backend/app/preset_templates"
+        )
+        os.makedirs(template_dir, exist_ok=True)
+        template_path = os.path.join(template_dir, f"hermes_{ticker.lower()}.json")
+        with open(template_path, 'w', encoding='utf-8') as f:
+            json.dump(template, f)
+
+        miroshark_url = f"http://localhost:5001/?template=hermes_{ticker.lower()}"
         return jsonify({"url": miroshark_url, "scenario": sim_requirement})
     except Exception as e:
         return jsonify({"error": str(e)}), 502
