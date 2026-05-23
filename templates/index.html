@@ -190,6 +190,48 @@
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* ── Portfolio Tab ──────────────────────────────────────────────────── */
+  .port-hdr { display:flex; align-items:center; justify-content:space-between; padding-bottom:10px; border-bottom:1px solid var(--border); margin-bottom:14px; flex-wrap:wrap; gap:10px; }
+  .port-title { font-size:15px; font-weight:600; color:var(--gold); }
+  .port-meta { font-size:11px; color:var(--muted); margin-top:3px; }
+  .port-upload-btn { display:flex; align-items:center; gap:6px; padding:0 14px; height:32px; font-size:12px; border:1px solid var(--border); border-radius:6px; background:var(--panel); color:var(--text); cursor:pointer; white-space:nowrap; }
+  .port-upload-btn:hover { border-color:var(--gold); color:var(--gold); }
+
+  .port-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); gap:8px; margin-bottom:12px; }
+  .port-card { background:var(--panel); border:1px solid var(--border); border-radius:6px; padding:8px 12px; }
+  .port-card-lbl { font-size:10px; color:var(--muted); margin-bottom:3px; text-transform:uppercase; letter-spacing:.5px; }
+  .port-card-val { font-size:17px; font-weight:600; color:var(--text); }
+
+  .port-snap-bar { background:var(--panel); border:1px solid var(--border); border-radius:6px; padding:7px 12px; margin-bottom:10px; font-size:11px; color:var(--muted); line-height:1.7; }
+  .port-snap-bar strong { color:var(--text); }
+  .port-diff-pos { color:var(--green); font-weight:600; }
+  .port-diff-neg { color:#ff4444; font-weight:600; }
+
+  .port-controls { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; align-items:center; }
+  .port-controls input[type=text], .port-controls select { height:30px; font-size:11px; padding:0 8px; border:1px solid var(--border); border-radius:5px; background:var(--panel); color:var(--text); }
+  .port-controls input[type=text] { flex:1; min-width:150px; }
+  .port-ctrl-btn { height:30px; padding:0 12px; font-size:11px; border:1px solid var(--border); border-radius:5px; background:var(--panel); color:var(--text); cursor:pointer; }
+  .port-ctrl-btn:hover { border-color:var(--gold); color:var(--gold); }
+
+  .port-tbl-wrap { overflow-x:auto; border:1px solid var(--border); border-radius:6px; margin-bottom:8px; }
+  .port-tbl { width:100%; border-collapse:collapse; font-size:11px; table-layout:fixed; }
+  .port-tbl th { background:var(--panel); font-weight:600; font-size:10px; color:var(--muted); padding:7px 8px; text-align:right; border-bottom:1px solid var(--border); cursor:pointer; user-select:none; white-space:nowrap; text-transform:uppercase; letter-spacing:.4px; }
+  .port-tbl th:first-child, .port-tbl th:nth-child(2) { text-align:left; }
+  .port-tbl th.psort-asc::after { content:" ↑"; }
+  .port-tbl th.psort-desc::after { content:" ↓"; }
+  .port-tbl td { padding:6px 8px; border-bottom:1px solid var(--border); text-align:right; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; }
+  .port-tbl td:first-child, .port-tbl td:nth-child(2) { text-align:left; }
+  .port-tbl tr:last-child td { border-bottom:none; }
+  .port-tbl tr:hover td { background:var(--panel); }
+  .port-empty-row td { text-align:center !important; padding:2.5rem; color:var(--muted); }
+  .port-gl-pos { color:var(--green); }
+  .port-gl-neg { color:#ff4444; }
+
+  .port-pager { display:flex; align-items:center; gap:8px; justify-content:flex-end; margin-top:4px; font-size:11px; color:var(--muted); }
+  .port-pager-btn { height:26px; padding:0 10px; font-size:11px; border:1px solid var(--border); border-radius:5px; background:var(--panel); color:var(--text); cursor:pointer; }
+  .port-pager-btn:hover { border-color:var(--gold); }
+  .port-pager-btn:disabled { opacity:.4; cursor:default; }
 </style>
 </head>
 <body>
@@ -322,6 +364,7 @@
       <div class="tab" onclick="switchChart('candles',this)">Candles</div>
       <div class="tab" onclick="switchChart('positions',this)">Positions</div>
       <div class="tab" id="tab-research" onclick="switchChart('research',this)">Research</div>
+      <div class="tab" id="tab-portfolio" onclick="switchChart('portfolio',this)">📊 Portfolio</div>
     </div>
     <div class="chart-body">
       <!-- Intraday equity curve -->
@@ -415,6 +458,92 @@
 
         </div>
       </div>
+
+      <!-- ══════════════════════════════════════════════════════════════ -->
+      <!-- PORTFOLIO TAB — Fidelity CSV aggregator (read-only)          -->
+      <!-- ══════════════════════════════════════════════════════════════ -->
+      <div id="view-portfolio" style="display:none; height:calc(100vh - 180px); overflow-y:auto; overflow-x:hidden; padding:16px; background:var(--bg); color:var(--text);">
+
+        <!-- Header row -->
+        <div class="port-hdr">
+          <div class="port-hdr-left">
+            <div class="port-title">📊 Portfolio aggregator</div>
+            <div class="port-meta" id="port-meta-line">Upload a Fidelity CSV to begin (File → Positions → Download)</div>
+          </div>
+          <label class="port-upload-btn">
+            <span id="port-file-label">Load CSV</span>
+            <input type="file" id="port-csv-input" accept=".csv" style="display:none">
+          </label>
+        </div>
+
+        <!-- 6 summary cards -->
+        <div class="port-cards">
+          <div class="port-card"><div class="port-card-lbl">Symbols</div><div class="port-card-val" id="pc-sym">—</div></div>
+          <div class="port-card"><div class="port-card-lbl">Accounts</div><div class="port-card-val" id="pc-acct">—</div></div>
+          <div class="port-card"><div class="port-card-lbl">Total value</div><div class="port-card-val" id="pc-val">—</div></div>
+          <div class="port-card"><div class="port-card-lbl">Cost basis</div><div class="port-card-val" id="pc-cost">—</div></div>
+          <div class="port-card"><div class="port-card-lbl">Total G/L</div><div class="port-card-val" id="pc-gl">—</div></div>
+          <div class="port-card"><div class="port-card-lbl">Return %</div><div class="port-card-val" id="pc-ret">—</div></div>
+        </div>
+
+        <!-- Snapshot diff bar (hidden until 2nd upload) -->
+        <div class="port-snap-bar" id="port-snap-bar" style="display:none">
+          <strong>vs previous snapshot:</strong> <span id="port-snap-detail"></span>
+        </div>
+
+        <!-- Controls -->
+        <div class="port-controls">
+          <input type="text" id="port-search" placeholder="Search symbol or description…">
+          <select id="port-sort-col">
+            <option value="Total_Value">Sort: value</option>
+            <option value="Total_GL">Sort: G/L $</option>
+            <option value="GL_Pct">Sort: return %</option>
+            <option value="Symbol">Sort: symbol A–Z</option>
+            <option value="Accounts">Sort: accounts</option>
+            <option value="Total_Qty">Sort: shares</option>
+          </select>
+          <select id="port-sort-dir">
+            <option value="desc">High → Low</option>
+            <option value="asc">Low → High</option>
+          </select>
+          <select id="port-filter-gl">
+            <option value="all">All positions</option>
+            <option value="winners">Winners only</option>
+            <option value="losers">Losers only</option>
+          </select>
+          <button class="port-ctrl-btn" id="port-export-btn">⬇ Export CSV</button>
+        </div>
+
+        <!-- Table -->
+        <div class="port-tbl-wrap">
+          <table class="port-tbl">
+            <thead>
+              <tr>
+                <th data-pcol="Symbol"      style="width:70px;text-align:left">Symbol</th>
+                <th data-pcol="Description" style="width:200px;text-align:left">Description</th>
+                <th data-pcol="Accounts"    style="width:55px">Accts</th>
+                <th data-pcol="Total_Qty"   style="width:85px">Shares</th>
+                <th data-pcol="Last_Price"  style="width:80px">Price</th>
+                <th data-pcol="Total_Value" style="width:100px">Value</th>
+                <th data-pcol="Total_Cost"  style="width:100px">Cost basis</th>
+                <th data-pcol="Total_GL"    style="width:95px">G/L $</th>
+                <th data-pcol="GL_Pct"      style="width:70px">G/L %</th>
+              </tr>
+            </thead>
+            <tbody id="port-tbl-body">
+              <tr class="port-empty-row"><td colspan="9">Upload a Fidelity CSV above to populate this table</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pager -->
+        <div class="port-pager">
+          <span id="port-pager-info"></span>
+          <button class="port-pager-btn" id="port-prev-btn" disabled>← Prev</button>
+          <button class="port-pager-btn" id="port-next-btn" disabled>Next →</button>
+        </div>
+
+      </div><!-- end view-portfolio -->
 
   </div><!-- end chart-panel -->
 
@@ -1792,18 +1921,19 @@ function _renderCandidates(cands) {
 
 // ── Tab switching ─────────────────────────────────────────────────────────
 function switchChart(view, el) {
-  ['intraday','candles','positions','research'].forEach(v => {
+  ['intraday','candles','positions','research','portfolio'].forEach(v => {
     const p = document.getElementById(`view-${v}`);
     if (p) p.style.display = v===view ? '' : 'none';
   });
   document.querySelectorAll('.chart-tabs .tab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
 
-  // Research gets the full grid width — hide the right panel and expand both row panels
+  // Research and Portfolio get the full grid width
   const rightPanel = document.querySelector('.right-panel');
   const chartPanel = document.querySelector('.chart-panel');
   const buyPanel   = document.querySelector('.buy-panel');
-  if (view === 'research') {
+  const fullWidth  = view === 'research' || view === 'portfolio';
+  if (fullWidth) {
     if (rightPanel) rightPanel.style.display = 'none';
     if (chartPanel) chartPanel.style.gridColumn = '1 / -1';
     if (buyPanel)   buyPanel.style.gridColumn   = '1 / -1';
@@ -2464,6 +2594,281 @@ function fetchProfitBasket() {
     updateBasketDisplay(total, d);
   }).catch(()=>{});
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PORTFOLIO TAB — Fidelity CSV aggregator (read-only, no Alpaca connection)
+// ══════════════════════════════════════════════════════════════════════════════
+(function() {
+  let portAllRows  = [];
+  let portFiltered = [];
+  let portPrevSnap = null;
+  let portPage     = 0;
+  let portSortCol  = 'Total_Value';
+  let portSortDir  = 'desc';
+  const PORT_PER_PAGE = 50;
+
+  // ── Parsing ────────────────────────────────────────────────────────────────
+  function portParseMoney(v) {
+    if (v == null || v === '') return null;
+    const s = String(v).trim().replace(/,/g, '');
+    const neg = /^[-−]/.test(s) || /^-\$/.test(s);
+    const digits = s.replace(/[^\d.]/g, '');
+    if (!digits) return null;
+    const n = parseFloat(digits);
+    return isNaN(n) ? null : (neg ? -n : n);
+  }
+
+  function portParseCSVLine(line) {
+    const fields = []; let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (c === '"') { inQ = !inQ; }
+      else if (c === ',' && !inQ) { fields.push(cur.trim()); cur = ''; }
+      else { cur += c; }
+    }
+    fields.push(cur.trim());
+    return fields;
+  }
+
+  function portProcessCSV(text) {
+    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+    const lines = text.split('\n').filter(l => l.trim());
+    if (lines.length < 2) return null;
+    const headers = portParseCSVLine(lines[0]);
+
+    const acctIdx  = 0;
+    const symIdx   = headers.indexOf('Symbol');
+    const descIdx  = headers.indexOf('Description');
+    const qtyIdx   = headers.indexOf('Quantity');
+    const priceIdx = headers.indexOf('Last Price');
+    const valIdx   = headers.indexOf('Current Value');
+    const costIdx  = headers.indexOf('Cost Basis Total');
+    const glIdx    = headers.indexOf('Total Gain/Loss Dollar');
+
+    const acctSet = new Set();
+    const map = {};
+
+    for (let i = 1; i < lines.length; i++) {
+      const f = portParseCSVLine(lines[i]);
+      if (f.length < 4) continue;
+      const acct = f[acctIdx] || '';
+      if (!/^[A-Z]\d+/.test(acct)) continue;
+      acctSet.add(acct);
+      const sym = symIdx >= 0 ? (f[symIdx] || '').trim() : '';
+      if (!sym || sym === 'Symbol') continue;
+      const desc  = descIdx  >= 0 ? (f[descIdx]  || '').trim() : '';
+      const qty   = portParseMoney(f[qtyIdx]);
+      const price = portParseMoney(f[priceIdx]);
+      const val   = portParseMoney(f[valIdx]);
+      const cost  = portParseMoney(f[costIdx]);
+      const gl    = portParseMoney(f[glIdx]);
+      if (!map[sym]) {
+        map[sym] = { Symbol:sym, Description:desc, acctSet:new Set(),
+                     Total_Qty:0, Last_Price:price,
+                     Total_Value:0, Total_Cost:0, Total_GL:0 };
+      }
+      const r = map[sym];
+      r.acctSet.add(acct);
+      if (qty   != null) r.Total_Qty   += qty;
+      if (val   != null) r.Total_Value += val;
+      if (cost  != null) r.Total_Cost  += cost;
+      if (gl    != null) r.Total_GL    += gl;
+      if (price != null) r.Last_Price   = price;
+    }
+
+    const rows = Object.values(map).map(r => ({
+      ...r,
+      Accounts: r.acctSet.size,
+      GL_Pct: r.Total_Cost ? r.Total_GL / r.Total_Cost * 100 : null,
+    }));
+    return { rows, totalAccounts: acctSet.size };
+  }
+
+  // ── Diff ───────────────────────────────────────────────────────────────────
+  function portBuildDiff(prev, curr) {
+    const pMap = Object.fromEntries(prev.map(r => [r.Symbol, r]));
+    const cMap = Object.fromEntries(curr.map(r => [r.Symbol, r]));
+    const added   = curr.filter(r => !pMap[r.Symbol]).map(r => r.Symbol);
+    const removed = prev.filter(r => !cMap[r.Symbol]).map(r => r.Symbol);
+    const changed = curr
+      .filter(r => pMap[r.Symbol])
+      .map(r => ({ sym: r.Symbol, diff: (r.Total_Value||0) - (pMap[r.Symbol].Total_Value||0) }))
+      .filter(x => Math.abs(x.diff) > 0.50)
+      .sort((a,b) => Math.abs(b.diff) - Math.abs(a.diff))
+      .slice(0, 5);
+    const prevTotal = prev.reduce((s,r) => s + (r.Total_Value||0), 0);
+    const currTotal = curr.reduce((s,r) => s + (r.Total_Value||0), 0);
+    return { added, removed, changed, valueDiff: currTotal - prevTotal };
+  }
+
+  // ── Formatting ─────────────────────────────────────────────────────────────
+  const pFmtD = n => {
+    if (n == null) return '—';
+    const abs = Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+    return (n < 0 ? '-$' : '$') + abs;
+  };
+  const pFmtN = n => n == null ? '—' : n.toLocaleString('en-US',{maximumFractionDigits:3});
+  const pFmtP = n => n == null ? '—' : (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+  function portRender() {
+    const q   = (document.getElementById('port-search') || {}).value || '';
+    const glf = (document.getElementById('port-filter-gl') || {}).value || 'all';
+    const ql  = q.toLowerCase();
+
+    portFiltered = portAllRows.filter(r => {
+      if (ql && !r.Symbol.toLowerCase().includes(ql) && !r.Description.toLowerCase().includes(ql)) return false;
+      if (glf === 'winners' && r.Total_GL <= 0) return false;
+      if (glf === 'losers'  && r.Total_GL >= 0) return false;
+      return true;
+    });
+
+    const mult = portSortDir === 'asc' ? 1 : -1;
+    portFiltered.sort((a,b) => {
+      const av = a[portSortCol] ?? -Infinity, bv = b[portSortCol] ?? -Infinity;
+      return typeof av === 'string' ? mult * av.localeCompare(bv) : mult * (av - bv);
+    });
+
+    const total = portFiltered.length;
+    const pages = Math.ceil(total / PORT_PER_PAGE) || 1;
+    if (portPage >= pages) portPage = pages - 1;
+    const slice = portFiltered.slice(portPage * PORT_PER_PAGE, (portPage + 1) * PORT_PER_PAGE);
+
+    const tbody = document.getElementById('port-tbl-body');
+    if (!tbody) return;
+    if (!slice.length) {
+      tbody.innerHTML = '<tr class="port-empty-row"><td colspan="9">No results match your filters</td></tr>';
+    } else {
+      tbody.innerHTML = slice.map(r => `<tr>
+        <td style="font-weight:600">${r.Symbol}</td>
+        <td style="font-size:10px;color:var(--muted)">${r.Description}</td>
+        <td>${r.Accounts}</td>
+        <td>${pFmtN(r.Total_Qty)}</td>
+        <td>${pFmtD(r.Last_Price)}</td>
+        <td style="font-weight:600">${pFmtD(r.Total_Value)}</td>
+        <td>${pFmtD(r.Total_Cost)}</td>
+        <td class="${r.Total_GL >= 0 ? 'port-gl-pos' : 'port-gl-neg'}">${pFmtD(r.Total_GL)}</td>
+        <td class="${r.GL_Pct  >= 0 ? 'port-gl-pos' : 'port-gl-neg'}">${pFmtP(r.GL_Pct)}</td>
+      </tr>`).join('');
+    }
+
+    const pi = document.getElementById('port-pager-info');
+    const pb = document.getElementById('port-prev-btn');
+    const nb = document.getElementById('port-next-btn');
+    if (pi) pi.textContent = total ? `${portPage*PORT_PER_PAGE+1}–${Math.min((portPage+1)*PORT_PER_PAGE,total)} of ${total} symbols` : '';
+    if (pb) pb.disabled = portPage === 0;
+    if (nb) nb.disabled = portPage >= pages - 1;
+
+    document.querySelectorAll('.port-tbl th[data-pcol]').forEach(th => {
+      th.classList.remove('psort-asc','psort-desc');
+      if (th.dataset.pcol === portSortCol) th.classList.add(portSortDir === 'asc' ? 'psort-asc' : 'psort-desc');
+    });
+  }
+
+  function portUpdateSummary(rows, totalAccounts) {
+    const tv  = rows.reduce((s,r) => s + (r.Total_Value||0), 0);
+    const tc  = rows.reduce((s,r) => s + (r.Total_Cost ||0), 0);
+    const tgl = rows.reduce((s,r) => s + (r.Total_GL   ||0), 0);
+    const ret = tc ? tgl / tc * 100 : null;
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    const cls = (id, v) => { const el = document.getElementById(id); if (el) el.className = 'port-card-val ' + (v >= 0 ? 'port-gl-pos' : 'port-gl-neg'); };
+    set('pc-sym',  rows.length);
+    set('pc-acct', totalAccounts);
+    set('pc-val',  pFmtD(tv));
+    set('pc-cost', pFmtD(tc));
+    set('pc-gl',   pFmtD(tgl));  cls('pc-gl',  tgl);
+    set('pc-ret',  pFmtP(ret));  cls('pc-ret', ret || 0);
+  }
+
+  function portShowDiff(diff) {
+    const bar = document.getElementById('port-snap-bar');
+    if (!bar) return;
+    bar.style.display = 'block';
+    let html = `<span class="${diff.valueDiff >= 0 ? 'port-diff-pos' : 'port-diff-neg'}">Portfolio ${diff.valueDiff >= 0 ? '+' : ''}${pFmtD(diff.valueDiff)}</span>`;
+    if (diff.added.length)
+      html += ` &nbsp;·&nbsp; <span class="port-diff-pos">+${diff.added.length} opened: ${diff.added.slice(0,5).join(', ')}${diff.added.length>5?'…':''}</span>`;
+    if (diff.removed.length)
+      html += ` &nbsp;·&nbsp; <span class="port-diff-neg">−${diff.removed.length} closed: ${diff.removed.slice(0,5).join(', ')}${diff.removed.length>5?'…':''}</span>`;
+    if (diff.changed.length)
+      html += ` &nbsp;·&nbsp; Top movers: ${diff.changed.map(c=>`${c.sym} ${c.diff>=0?'+':''}${pFmtD(c.diff)}`).join(', ')}`;
+    const det = document.getElementById('port-snap-detail');
+    if (det) det.innerHTML = html;
+  }
+
+  // ── Event wiring ───────────────────────────────────────────────────────────
+  window.addEventListener('DOMContentLoaded', function() {
+    const csvInput = document.getElementById('port-csv-input');
+    if (csvInput) {
+      csvInput.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        const lbl = document.getElementById('port-file-label');
+        if (lbl) lbl.textContent = file.name;
+        const reader = new FileReader();
+        reader.onload = function(ev) {
+          const result = portProcessCSV(ev.target.result);
+          const meta = document.getElementById('port-meta-line');
+          if (!result || !result.rows.length) {
+            if (meta) meta.textContent = 'Could not parse CSV — check Fidelity export format.';
+            return;
+          }
+          if (portPrevSnap) portShowDiff(portBuildDiff(portPrevSnap, result.rows));
+          portPrevSnap = result.rows.map(r => ({ ...r }));
+          portAllRows  = result.rows;
+          portPage     = 0;
+          const ts = new Date().toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+          if (meta) meta.textContent = `${file.name}  ·  loaded ${ts}  ·  ${result.rows.length} symbols across ${result.totalAccounts} accounts`;
+          portUpdateSummary(result.rows, result.totalAccounts);
+          portRender();
+        };
+        reader.readAsText(file, 'utf-8');
+      });
+    }
+
+    const search = document.getElementById('port-search');
+    if (search) search.addEventListener('input', () => { portPage = 0; portRender(); });
+
+    const filterGl = document.getElementById('port-filter-gl');
+    if (filterGl) filterGl.addEventListener('change', () => { portPage = 0; portRender(); });
+
+    const sortCol = document.getElementById('port-sort-col');
+    if (sortCol) sortCol.addEventListener('change', function() { portSortCol = this.value; portRender(); });
+
+    const sortDir = document.getElementById('port-sort-dir');
+    if (sortDir) sortDir.addEventListener('change', function() { portSortDir = this.value; portRender(); });
+
+    const prevBtn = document.getElementById('port-prev-btn');
+    if (prevBtn) prevBtn.addEventListener('click', () => { if (portPage > 0) { portPage--; portRender(); } });
+
+    const nextBtn = document.getElementById('port-next-btn');
+    if (nextBtn) nextBtn.addEventListener('click', () => { portPage++; portRender(); });
+
+    document.querySelectorAll('.port-tbl th[data-pcol]').forEach(th => {
+      th.addEventListener('click', function() {
+        if (portSortCol === this.dataset.pcol) { portSortDir = portSortDir === 'desc' ? 'asc' : 'desc'; }
+        else { portSortCol = this.dataset.pcol; portSortDir = 'desc'; }
+        const sc = document.getElementById('port-sort-col');
+        const sd = document.getElementById('port-sort-dir');
+        if (sc) sc.value = portSortCol;
+        if (sd) sd.value = portSortDir;
+        portRender();
+      });
+    });
+
+    const exportBtn = document.getElementById('port-export-btn');
+    if (exportBtn) exportBtn.addEventListener('click', function() {
+      if (!portFiltered.length) return;
+      const cols = ['Symbol','Description','Accounts','Total_Qty','Last_Price','Total_Value','Total_Cost','Total_GL','GL_Pct'];
+      const csvLines = [cols.join(','), ...portFiltered.map(r =>
+        cols.map(c => { const v = r[c]; return typeof v === 'string' && v.includes(',') ? `"${v}"` : (v ?? ''); }).join(',')
+      )];
+      const a = document.createElement('a');
+      a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csvLines.join('\n'));
+      a.download = 'fidelity_aggregated.csv';
+      a.click();
+    });
+  });
+})();
 </script>
 </body>
 </html>
