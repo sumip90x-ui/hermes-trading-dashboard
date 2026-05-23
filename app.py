@@ -2230,7 +2230,7 @@ def _proactive_brain():
     """Every 5 minutes, Hermes scans conditions and pushes an unsolicited observation if warranted."""
     time.sleep(60)  # wait 1 min after startup before first check
     last_spoken = 0
-    MIN_INTERVAL = 300  # minimum 5 min between proactive messages
+    MIN_INTERVAL = 600  # minimum 10 min between proactive messages
 
     TRIGGERS = [
         # (condition_fn, prompt_fn) — evaluated in order, first match fires
@@ -2319,20 +2319,24 @@ def _proactive_brain():
                 time.sleep(30)
                 continue
 
-            # Call Claude with the proactive prompt
+            # Call Claude with the proactive prompt — keep it short and plain
             try:
                 import anthropic as ant
                 client = ant.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY', ''))
                 resp = client.messages.create(
                     model='claude-sonnet-4-5',
-                    max_tokens=300,
-                    system=HERMES_SYSTEM,
+                    max_tokens=80,
+                    system=(
+                        "You are Hermes, Sumith's trading assistant. "
+                        "Reply in ONE short plain-text sentence, no markdown, no bullet points, no headers. "
+                        "Just a brief heads-up. End with a yes/no question at most."
+                    ),
                     messages=[{'role':'user','content':
-                        f"[PROACTIVE CHECK — {datetime.now().strftime('%H:%M')}]\n{prompt}"}],
+                        f"[PROACTIVE — {datetime.now().strftime('%H:%M')}]\n{prompt}"}],
                 )
                 msg = resp.content[0].text
             except ImportError:
-                msg = f"⚠ Hermes proactive: {prompt[:200]}"
+                msg = f"Heads up: {prompt[:120]}"
             except Exception:
                 time.sleep(60)
                 continue
