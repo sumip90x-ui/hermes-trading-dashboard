@@ -2931,6 +2931,60 @@ def simulation_history():
     except Exception as e:
         return jsonify({"error": str(e)}), 502
 
+@app.route('/api/research/reports')
+def research_reports():
+    """
+    GET /api/research/reports
+    Reads full_report.md files directly from MiroShark uploads/reports/ — works
+    whether MiroShark is running or not. Returns list sorted newest first.
+    Falls back to empty list gracefully if folder doesn't exist.
+    """
+    reports_dir = Path.home() / 'Documents' / 'MiroShark' / 'backend' / 'uploads' / 'reports'
+    results = []
+    if not reports_dir.exists():
+        return jsonify([])
+    for rd in reports_dir.iterdir():
+        full = rd / 'full_report.md'
+        if not full.exists():
+            continue
+        try:
+            text = full.read_text(encoding='utf-8', errors='replace')
+            # Extract ticker from first line: "# ORACLE Investment Analysis — TICKER"
+            import re as _re
+            tm = _re.search(r'ORACLE Investment Analysis\s*[—-]\s*([A-Z0-9.\-]{1,8})', text[:200])
+            ticker = tm.group(1).strip() if tm else rd.name[:12]
+            # Extract date
+            dm = _re.search(r'\*\*Date:\*\*\s*(.+?)(?:\n|\r)', text[:300])
+            date_str = dm.group(1).strip() if dm else ''
+            size_kb  = full.stat().st_size // 1024
+            results.append({
+                'report_id': rd.name,
+                'ticker':    ticker,
+                'date':      date_str,
+                'size_kb':   size_kb,
+                'preview':   text[:120].replace('\n', ' ').strip(),
+            })
+        except Exception:
+            continue
+    # Sort newest first by folder mtime
+    results.sort(key=lambda x: Path(reports_dir / x['report_id']).stat().st_mtime, reverse=True)
+    return jsonify(results)
+
+@app.route('/api/research/report_content/<report_id>')
+def research_report_content(report_id):
+    """Serve full_report.md content for a specific report ID."""
+    # Sanitise — only allow safe chars
+    import re as _re
+    if not _re.match(r'^[a-zA-Z0-9_\-]+$', report_id):
+        return jsonify({'error': 'invalid report_id'}), 400
+    path = Path.home() / 'Documents' / 'MiroShark' / 'backend' / 'uploads' / 'reports' / report_id / 'full_report.md'
+    if not path.exists():
+        return jsonify({'error': 'report not found'}), 404
+    from flask import Response
+    return Response(path.read_text(encoding='utf-8', errors='replace'),
+                    mimetype='text/plain',
+                    headers={'Access-Control-Allow-Origin': '*'})
+
 @app.route('/api/research/fundamentals/<ticker>')
 def fundamentals(ticker):
     ticker = ticker.upper()
