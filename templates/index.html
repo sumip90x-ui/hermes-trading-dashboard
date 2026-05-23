@@ -1614,38 +1614,36 @@ function buildIntradayChart(bars, athZone, ath, liveEquity) {
                 borderColor:'rgba(63,185,80,0.4)', borderWidth:1, borderDash:[3,3],
                 label:{content:'TRIGGER', display:true, position:'end', color:'#3fb950', font:{size:10}}
               },
-              hiPoint: {
-                type: 'point',
-                xValue: labels[hiIdx],
-                yValue: hiVal,
-                radius: 5,
-                backgroundColor: '#3fb950',
-                borderColor: '#3fb950',
+              hiLine: {
+                type: 'line',
+                yMin: hiVal, yMax: hiVal,
+                borderColor: 'rgba(63,185,80,0.5)',
+                borderWidth: 1,
+                borderDash: [2, 4],
                 label: {
-                  content: 'H $' + hiVal.toFixed(2),
+                  content: 'H  $' + hiVal.toFixed(2),
                   display: true,
-                  position: 'top',
+                  position: 'start',
                   color: '#3fb950',
-                  font: { size: 10, weight: 'bold' },
-                  backgroundColor: 'rgba(13,17,23,0.85)',
-                  padding: 3
+                  font: { size: 11, weight: 'bold', family: 'monospace' },
+                  backgroundColor: 'rgba(13,17,23,0.0)',
+                  padding: { top: 2, bottom: 2, left: 4, right: 4 }
                 }
               },
-              loPoint: {
-                type: 'point',
-                xValue: labels[loIdx],
-                yValue: loVal,
-                radius: 5,
-                backgroundColor: '#f85149',
-                borderColor: '#f85149',
+              loLine: {
+                type: 'line',
+                yMin: loVal, yMax: loVal,
+                borderColor: 'rgba(248,81,73,0.5)',
+                borderWidth: 1,
+                borderDash: [2, 4],
                 label: {
-                  content: 'L $' + loVal.toFixed(2),
+                  content: 'L  $' + loVal.toFixed(2),
                   display: true,
-                  position: 'bottom',
+                  position: 'start',
                   color: '#f85149',
-                  font: { size: 10, weight: 'bold' },
-                  backgroundColor: 'rgba(13,17,23,0.85)',
-                  padding: 3
+                  font: { size: 11, weight: 'bold', family: 'monospace' },
+                  backgroundColor: 'rgba(13,17,23,0.0)',
+                  padding: { top: 2, bottom: 2, left: 4, right: 4 }
                 }
               }
             }
