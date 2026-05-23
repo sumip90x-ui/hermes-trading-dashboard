@@ -146,6 +146,25 @@
                              color:#666; border:1px solid #444; border-radius:4px; cursor:pointer; }
   #intel-modal .im-cancel:hover { background:#222; color:#aaa; }
   #intel-modal .im-empty { text-align:center; color:#666; padding:16px 0; font-size:13px; }
+
+  /* Priority Research cards */
+  .pq-card { background:#0d1117; border:1px solid var(--border); border-radius:6px;
+             padding:9px 12px; display:flex; align-items:center; gap:8px; }
+  .pq-card.has-excel  { border-left:3px solid #f5a623; }
+  .pq-card.needs-dl   { border-left:3px solid #ff6666; }
+  .pq-card.done       { border-left:3px solid var(--green); opacity:.7; }
+  .pq-card.running    { border-left:3px solid #88ccff; }
+  .pq-sym  { font-weight:700; font-size:13px; width:54px; flex-shrink:0; }
+  .pq-meta { flex:1; font-size:10px; color:var(--muted); line-height:1.5; }
+  .pq-status { font-size:10px; min-width:80px; text-align:right; flex-shrink:0; }
+  .pq-btns { display:flex; gap:4px; flex-shrink:0; }
+  .pq-btn-edgar { padding:3px 8px; font-size:10px; font-weight:700; background:transparent;
+                  color:#f5a623; border:1px solid #f5a623; border-radius:3px; cursor:pointer; }
+  .pq-btn-edgar:hover { background:#f5a62322; }
+  .pq-btn-edgar:disabled { opacity:.4; cursor:default; }
+  .pq-btn-sim { padding:3px 8px; font-size:10px; font-weight:700; background:transparent;
+                color:var(--green); border:1px solid var(--green); border-radius:3px; cursor:pointer; }
+  .pq-btn-sim:hover { background:#00ff8822; }
   .br-sym  { font-weight: 700; font-size: 13px; width: 58px; }
   .br-amt  { color: var(--green); font-size: 13px; font-weight: 600; width: 56px; }
   .br-accts { color: var(--muted); font-size: 11px; width: 46px; }
@@ -405,6 +424,7 @@
       <div class="tab" onclick="switchChart('positions',this)">Positions</div>
       <div class="tab" id="tab-research" onclick="switchChart('research',this)">Research</div>
       <div class="tab" id="tab-portfolio" onclick="switchChart('portfolio',this)">📊 Portfolio</div>
+      <div class="tab" id="tab-priority" onclick="switchChart('priority',this)">🎯 Priority Research</div>
     </div>
     <div class="chart-body">
       <!-- Intraday equity curve -->
@@ -634,6 +654,60 @@
         </div>
 
       </div><!-- end view-portfolio -->
+
+      <!-- ══════════════════════════════════════════════════════════ -->
+      <!-- PRIORITY RESEARCH TAB                                      -->
+      <!-- ══════════════════════════════════════════════════════════ -->
+      <div id="view-priority" style="display:none; height:calc(100vh - 180px); overflow:hidden; flex-direction:column; background:var(--bg);">
+
+        <!-- Header bar -->
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--border);flex-shrink:0;background:#0d1117;">
+          <div>
+            <span style="font-size:14px;font-weight:700;color:#f5a623;">🎯 Priority Research Queue</span>
+            <span id="pq-counter" style="font-size:11px;color:var(--muted);margin-left:12px;"></span>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn-muted" onclick="loadPriorityQueue()" style="font-size:11px;padding:3px 10px;">↻ Refresh</button>
+            <button class="btn-muted" id="pq-run-all-edgar" onclick="runAllEdgar()" style="font-size:11px;padding:3px 10px;border-color:#f5a623;color:#f5a623;">⚡ Run All EDGAR</button>
+          </div>
+        </div>
+
+        <!-- Two-column layout: cards left, MiroShark iframe right -->
+        <div style="display:flex;flex:1;overflow:hidden;">
+
+          <!-- Left: scrollable card grid -->
+          <div style="width:420px;flex-shrink:0;overflow-y:auto;padding:12px;border-right:1px solid var(--border);">
+
+            <!-- Needs scoring section -->
+            <div style="font-size:10px;font-weight:700;color:#f5a623;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;">
+              ✓ EDGAR Excel ready — needs scoring
+            </div>
+            <div id="pq-scoring-cards" style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px;">
+              <div style="color:var(--muted);font-size:11px;padding:8px;">Loading...</div>
+            </div>
+
+            <!-- Needs download section -->
+            <div style="font-size:10px;font-weight:700;color:#ff6666;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;">
+              ⬇ Needs full EDGAR download + MiroShark sim
+            </div>
+            <div id="pq-download-cards" style="display:flex;flex-direction:column;gap:6px;">
+              <div style="color:var(--muted);font-size:11px;padding:8px;">Loading...</div>
+            </div>
+
+          </div>
+
+          <!-- Right: MiroShark iframe -->
+          <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+            <div style="font-size:10px;color:var(--muted);padding:6px 12px;border-bottom:1px solid var(--border);flex-shrink:0;background:#0d1117;">
+              <span id="pq-sim-title">🔬 MiroShark — click ▶ SIM on any card to launch</span>
+            </div>
+            <iframe id="pq-miroshark-frame" src="about:blank"
+              style="flex:1;width:100%;border:none;background:#0d1117;"
+              allow="same-origin"></iframe>
+          </div>
+
+        </div>
+      </div><!-- end view-priority -->
 
   </div><!-- end chart-panel -->
 
@@ -2199,9 +2273,15 @@ function _renderCandidates(cands) {
 
 // ── Tab switching ─────────────────────────────────────────────────────────
 function switchChart(view, el) {
-  ['intraday','candles','positions','research','portfolio'].forEach(v => {
+  ['intraday','candles','positions','research','portfolio','priority'].forEach(v => {
     const p = document.getElementById(`view-${v}`);
-    if (p) p.style.display = v===view ? '' : 'none';
+    if (p) {
+      if (v === view) {
+        p.style.display = (v === 'research' || v === 'priority') ? 'flex' : '';
+      } else {
+        p.style.display = 'none';
+      }
+    }
   });
   document.querySelectorAll('.chart-tabs .tab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
@@ -2210,7 +2290,7 @@ function switchChart(view, el) {
   const rightPanel = document.querySelector('.right-panel');
   const chartPanel = document.querySelector('.chart-panel');
   const buyPanel   = document.querySelector('.buy-panel');
-  const fullWidth  = view === 'research' || view === 'portfolio';
+  const fullWidth  = view === 'research' || view === 'portfolio' || view === 'priority';
   if (fullWidth) {
     if (rightPanel) rightPanel.style.display = 'none';
     if (chartPanel) chartPanel.style.gridColumn = '1 / -1';
@@ -2229,6 +2309,7 @@ function switchChart(view, el) {
   }
   if (view === 'portfolio') loadBacktest();
   if (view === 'portfolio') loadEdgarQueue();
+  if (view === 'priority')  loadPriorityQueue();
 }
 
 function switchPanel(panel, el) {
@@ -3248,6 +3329,145 @@ function loadEdgarQueue() {
       renderChips('edgar-needs-download', data.needs_download, '#ff6666', 'All signal symbols have Excel files');
     })
     .catch(() => {});
+}
+
+// ── Priority Research Tab ────────────────────────────────────────────────────
+const _pqStatus = {};   // sym → {state: 'idle'|'running'|'done'|'error', score, msg}
+let _pqEdgarQueue = []; // current needs-scoring list for Run All
+
+function loadPriorityQueue() {
+  fetch('/api/intelligence/edgar_queue')
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) return;
+      _pqEdgarQueue = data.needs_scoring.concat(data.needs_download);
+      const counter = document.getElementById('pq-counter');
+      if (counter) counter.textContent =
+        `${data.total_scored}/${data.total_excel} scored — ${data.needs_scoring.length} ready to score, ${data.needs_download.length} need download`;
+      _renderPqCards('pq-scoring-cards',  data.needs_scoring,  'has-excel');
+      _renderPqCards('pq-download-cards', data.needs_download, 'needs-dl');
+    })
+    .catch(() => {});
+}
+
+function _renderPqCards(containerId, items, cardClass) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  if (!items || !items.length) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:6px;">None — all done ✓</div>';
+    return;
+  }
+  el.innerHTML = items.map(item => {
+    const st      = _pqStatus[item.sym] || {};
+    const state   = st.state || 'idle';
+    const done    = state === 'done';
+    const running = state === 'running';
+    const cls     = done ? 'done' : running ? 'running' : cardClass;
+    const dirCol  = item.direction === 'PULLBACK'     ? 'var(--green)'
+                  : item.direction === 'ACCELERATING' ? '#f5a623'
+                  : item.direction === 'RECOVERING'   ? '#88ccff' : 'var(--muted)';
+    const statusText = state === 'done'    ? `<span style="color:var(--green);">✓ scored ${st.score}/18</span>`
+                     : state === 'running' ? `<span style="color:#88ccff;">⟳ running…</span>`
+                     : state === 'error'   ? `<span style="color:#ff6666;">✗ ${st.msg||'error'}</span>`
+                     : '';
+    const deployStr = item.deploy > 0 ? `$${item.deploy.toFixed(2)} deploy` : '';
+    const dirStr    = item.direction && item.direction !== 'no recent signal'
+      ? `<span style="color:${dirCol};">${item.direction}</span>` : '';
+    const acctStr   = item.accts > 0 ? `${item.accts} accts` : '';
+    return `<div class="pq-card ${cls}" id="pq-card-${item.sym}">
+      <div class="pq-sym">${item.sym}</div>
+      <div class="pq-meta">${[dirStr,deployStr,acctStr].filter(Boolean).join(' · ')}</div>
+      <div class="pq-status">${statusText}</div>
+      <div class="pq-btns">
+        <button class="pq-btn-edgar" id="pq-edgar-btn-${item.sym}"
+          onclick="pqRunEdgar('${item.sym}')"
+          ${running||done?'disabled':''}>
+          ${done ? '✓' : '⚡ EDGAR'}
+        </button>
+        <button class="pq-btn-sim" onclick="pqLaunchSim('${item.sym}')">▶ SIM</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function pqRunEdgar(sym) {
+  _pqStatus[sym] = { state: 'running' };
+  const card = document.getElementById(`pq-card-${sym}`);
+  if (card) {
+    card.className = card.className.replace(/has-excel|needs-dl|done|idle/g,'').trim() + ' running';
+    const btn = document.getElementById(`pq-edgar-btn-${sym}`);
+    if (btn) { btn.disabled = true; btn.textContent = '⟳ running…'; }
+    const st = card.querySelector('.pq-status');
+    if (st) st.innerHTML = '<span style="color:#88ccff;">⟳ running…</span>';
+  }
+  fetch('/api/run_edgar', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ticker: sym})})
+  .then(r => r.json())
+  .then(() => {
+    // result comes via socket 'edgar_result' event — handled below
+  })
+  .catch(e => {
+    _pqStatus[sym] = { state: 'error', msg: e.message };
+    const card2 = document.getElementById(`pq-card-${sym}`);
+    if (card2) {
+      const st = card2.querySelector('.pq-status');
+      if (st) st.innerHTML = `<span style="color:#ff6666;">✗ failed</span>`;
+      const btn = document.getElementById(`pq-edgar-btn-${sym}`);
+      if (btn) { btn.disabled = false; btn.textContent = '⚡ EDGAR'; }
+    }
+  });
+}
+
+// Wire into existing SocketIO edgar_result event
+if (typeof socket !== 'undefined') {
+  socket.on('edgar_result', function(data) {
+    const sym = data.ticker;
+    if (!sym) return;
+    if (data.error) {
+      _pqStatus[sym] = { state: 'error', msg: data.error };
+    } else {
+      _pqStatus[sym] = { state: 'done', score: data.score };
+      // Invalidate intelligence brief cache
+      fetch('/api/intelligence/brief?force=1').catch(()=>{});
+    }
+    // Re-render cards
+    loadPriorityQueue();
+  });
+}
+
+async function pqLaunchSim(ticker) {
+  document.getElementById('pq-sim-title').textContent = `🔬 MiroShark — ${ticker} (loading…)`;
+  try {
+    const r    = await fetch(`/api/research/launch-sim/${ticker}`);
+    const data = await r.json();
+    if (data.error) {
+      document.getElementById('pq-sim-title').textContent = `🔬 ERROR: ${data.error}`;
+      return;
+    }
+    document.getElementById('pq-miroshark-frame').src = data.url;
+    document.getElementById('pq-sim-title').textContent = `🔬 MiroShark — ${ticker} (prompt ready)`;
+  } catch(e) {
+    document.getElementById('pq-sim-title').textContent = `🔬 FAILED: ${e.message}`;
+  }
+}
+
+let _pqRunAllIdx = 0;
+function runAllEdgar() {
+  if (!_pqEdgarQueue.length) return;
+  _pqRunAllIdx = 0;
+  const btn = document.getElementById('pq-run-all-edgar');
+  if (btn) btn.disabled = true;
+  function next() {
+    if (_pqRunAllIdx >= _pqEdgarQueue.length) {
+      if (btn) { btn.disabled = false; }
+      return;
+    }
+    const sym = _pqEdgarQueue[_pqRunAllIdx++].sym;
+    pqRunEdgar(sym);
+    // Stagger by 5 seconds to avoid hammering the pipeline
+    setTimeout(next, 5000);
+  }
+  next();
 }
 </script>
         <div id="intel-modal-overlay" onclick="closeIntelModal(event)">
