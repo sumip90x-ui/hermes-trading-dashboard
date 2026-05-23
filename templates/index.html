@@ -2597,6 +2597,7 @@ function switchPanel(panel, el) {
   if (panel === 'buys')    loadCandidates();
   if (panel === 'candle')  { fetchTrigger(); fetchHouseMoney(); fetchStopTiers(); }
   if (panel === 'journey') loadJourney();
+  if (window._mktLoadOnSwitch) window._mktLoadOnSwitch(panel);
 }
 
 // ── Journey / 100-Envelope Challenge ─────────────────────────────────────
@@ -4369,17 +4370,16 @@ function launchMiroShark() {
     });
   }
 
-  // Auto-load when tab is clicked
-  const origSwitchPanel = window.switchPanel;
-  window.switchPanel = function(panel, el) {
-    origSwitchPanel(panel, el);
+  // Auto-load when tab is clicked — hook directly, no wrapper needed
+  // (IIFE wrapper pattern breaks onclick tab references)
+  window._mktLoadOnSwitch = function(panel) {
     if (panel === 'markets' && !_mktLoaded) {
       _mktLoaded = true;
       loadMarkets();
     }
   };
 
-  // Refresh every 60s when tab is visible
+  // Refresh every 60s when markets tab is visible
   setInterval(() => {
     const mkPanel = document.getElementById('panel-markets');
     if (mkPanel && mkPanel.style.display !== 'none') loadMarkets();
