@@ -20,6 +20,7 @@ import re
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
+from collections import defaultdict
 
 import pandas as pd
 
@@ -686,4 +687,310 @@ def get_summary() -> dict:
         "date_range":      {"earliest": counts["earliest"], "latest": counts["latest"]},
         "symbols_tracked": counts["symbols_tracked"],
         "top_signals":     top_signals,
+    }
+
+
+# ── Intelligence layer — buy signals, hot streaks, backtest ──────────────────
+
+def get_buy_list_signals(limit: int = 20) -> list[dict]:
+    """
+    Return top Fidelity deviation BUY signals formatted for the dashboard BUY LIST.
+
+    Field names match the existing buy list shape (sym, buy, source, reason,
+    accts, edgar_score, is_mf, combined) so _renderBuyBar works without modification.
+
+    Score mapping (conviction_multiplier → combined):
+      0.50 → 5   1 account — experimental
+      0.75 → 8   2-5 accounts — early conviction
+      1.00 → 12  6-15 accounts — established
+      1.25 → 16  16+ accounts — core holding
+    """
+    init_db()
+    score_map = {0.50: 5, 0.75: 8, 1.00: 12, 1.25: 16}
+
+    with get_conn() as conn:
+        # Find the most recent snapshot that actually has BUY deviations
+        # (last few uploads may be identical CSVs with 0 deviations)
+        latest = conn.execute("""
+            SELECT DISTINCT curr_snapshot_id AS snapshot_id
+            FROM deviations
+            WHERE signal = 'BUY'
+              AND symbol NOT LIKE '%**%'
+            ORDER BY calculated_at DESC
+            LIMIT 1
+        """).fetchone()
+
+        if not latest:
+            return []
+        latest_id = latest["snapshot_id"]
+
+        rows = conn.execute("""
+            SELECT
+                d.symbol,
+                d.deploy_amount,
+                d.accounts,
+                d.direction,
+                d.budget_ceiling,
+                d.gl_delta,
+                d.conviction_multiplier,
+                s.description
+            FROM deviations d
+            JOIN snapshots s
+                ON s.symbol      = d.symbol
+               AND s.snapshot_id = d.curr_snapshot_id
+            WHERE d.curr_snapshot_id = ?
+              AND d.signal = 'BUY'
+              AND d.deploy_amount >= 1.10
+              AND d.symbol NOT LIKE '%**%'
+            ORDER BY d.deploy_amount DESC
+            LIMIT ?
+        """, (latest_id, limit)).fetchall()
+
+    results = []
+    for r in rows:
+        cm     = r["conviction_multiplier"]
+        cm_key = min(score_map.keys(), key=lambda k: abs(k - cm))
+        score  = score_map[cm_key]
+        results.append({
+            "sym":                   r["symbol"],
+            "buy":                   round(r["deploy_amount"], 2),
+            "source":                "fid-dev",
+            "reason":                r["direction"],
+            "accts":                 r["accounts"],
+            "edgar_score":           None,
+            "is_mf":                 False,
+            "combined":              score,
+            "budget_ceiling":        round(r["budget_ceiling"], 2),
+            "gl_delta":              round(r["gl_delta"], 2),
+            "conviction_multiplier": cm,
+            "description":           r["description"] or "",
+        })
+    return results
+
+
+def get_hot_streaks(min_streak: int = 3) -> list[dict]:
+    """
+    Return tickers with an ACTIVE BUY signal streak through the most recent snapshot.
+
+    ACTIVE = streak must include the most recent snapshot.
+    If a symbol had BUY in snaps 1-5 but NOT snap 6 (latest), streak=0, excluded.
+    """
+    init_db()
+
+    with get_conn() as conn:
+        all_snaps = [
+            row["snapshot_id"]
+            for row in conn.execute("""
+                SELECT snapshot_id
+                FROM snapshots
+                GROUP BY snapshot_id
+                ORDER BY MAX(snapshot_date) ASC
+            """).fetchall()
+        ]
+        if len(all_snaps) < 2:
+            return []
+
+        latest_snap_id = all_snaps[-1]
+
+        # If the latest snapshot has no BUY deviations (identical CSV re-upload),
+        # walk back to find the most recent one that does
+        buy_snap_check = conn.execute("""
+            SELECT DISTINCT curr_snapshot_id
+            FROM deviations
+            WHERE signal = 'BUY' AND symbol NOT LIKE '%**%'
+            ORDER BY calculated_at DESC
+            LIMIT 1
+        """).fetchone()
+        if buy_snap_check:
+            latest_snap_id = buy_snap_check["curr_snapshot_id"]
+
+        buy_rows = conn.execute("""
+            SELECT symbol, curr_snapshot_id, deploy_amount, direction, accounts
+            FROM deviations
+            WHERE signal = 'BUY'
+              AND symbol NOT LIKE '%**%'
+        """).fetchall()
+
+    # Build lookup: symbol → {snap_id: {deploy, direction, accounts}}
+    buy_lookup: dict = {}
+    for r in buy_rows:
+        sym = r["symbol"]
+        sid = r["curr_snapshot_id"]
+        if sym not in buy_lookup:
+            buy_lookup[sym] = {}
+        buy_lookup[sym][sid] = {
+            "deploy":    r["deploy_amount"],
+            "direction": r["direction"],
+            "accounts":  r["accounts"],
+        }
+
+    results = []
+    for symbol, snap_signals in buy_lookup.items():
+        # Must have a BUY in the most recent snapshot to qualify
+        if latest_snap_id not in snap_signals:
+            continue
+        # Walk backwards counting unbroken streak
+        streak = 0
+        for snap_id in reversed(all_snaps):
+            if snap_id in snap_signals:
+                streak += 1
+            else:
+                break
+        if streak < min_streak:
+            continue
+        latest = snap_signals[latest_snap_id]
+        results.append({
+            "symbol":                symbol,
+            "streak_length":         streak,
+            "latest_deploy_amount":  round(latest["deploy"], 2),
+            "latest_direction":      latest["direction"],
+            "accounts":              latest["accounts"],
+            "total_snapshots_as_buy":len(snap_signals),
+        })
+
+    results.sort(key=lambda x: (-x["streak_length"], -x["latest_deploy_amount"]))
+    return results
+
+
+def backtest_signals() -> dict:
+    """
+    Backtest all historical BUY signals against subsequent snapshot outcomes.
+
+    WIN = G/L moved in predicted direction:
+      RECOVERING / PULLBACK      → outcome_gl_delta > 0
+      DETERIORATING / ACCELERATING → outcome_gl_delta < 0
+    LOSS = opposite.
+    EXCLUDE = no subsequent snapshot exists for that symbol.
+
+    Confidence: HIGH >65% + >=20 signals, MEDIUM 50-65% or <20, LOW <50%.
+    """
+    init_db()
+
+    with get_conn() as conn:
+        signals = conn.execute("""
+            SELECT
+                d.symbol,
+                d.curr_snapshot_id,
+                d.direction,
+                d.deploy_amount,
+                d.curr_gl,
+                s.snapshot_date AS curr_date
+            FROM deviations d
+            JOIN snapshots s
+                ON s.snapshot_id = d.curr_snapshot_id
+               AND s.symbol      = d.symbol
+            WHERE d.signal = 'BUY'
+              AND d.symbol NOT LIKE '%**%'
+        """).fetchall()
+
+        all_snap_rows = conn.execute("""
+            SELECT symbol, snapshot_date, total_gl
+            FROM snapshots
+            ORDER BY symbol, snapshot_date ASC
+        """).fetchall()
+
+    # Per-symbol timeline: symbol → [(date, gl), ...]
+    timelines: dict = defaultdict(list)
+    for r in all_snap_rows:
+        timelines[r["symbol"]].append((r["snapshot_date"], r["total_gl"]))
+
+    EXPECT_IMPROVEMENT   = {"RECOVERING", "PULLBACK"}
+    EXPECT_DETERIORATION = {"DETERIORATING", "ACCELERATING"}
+
+    direction_stats: dict = {}
+    for direction in ("RECOVERING", "PULLBACK", "DETERIORATING", "ACCELERATING"):
+        direction_stats[direction] = {
+            "direction":      direction,
+            "total_signals":  0,
+            "wins":           0,
+            "losses":         0,
+            "excluded":       0,
+            "deploy_amounts": [],
+            "outcome_deltas": [],
+        }
+
+    for sig in signals:
+        sym       = sig["symbol"]
+        curr_date = sig["curr_date"]
+        curr_gl   = sig["curr_gl"]
+        direction = sig["direction"]
+        deploy    = sig["deploy_amount"]
+        if direction not in direction_stats:
+            continue  # skip STABLE
+        ds = direction_stats[direction]
+        ds["total_signals"] += 1
+        ds["deploy_amounts"].append(deploy)
+
+        # Find next snapshot for this symbol after curr_date
+        next_gl = None
+        for (snap_date, snap_gl) in timelines.get(sym, []):
+            if snap_date > curr_date:
+                next_gl = snap_gl
+                break
+
+        if next_gl is None:
+            ds["excluded"] += 1
+            continue
+
+        outcome_delta = next_gl - (curr_gl or 0.0)
+        ds["outcome_deltas"].append(outcome_delta)
+
+        if direction in EXPECT_IMPROVEMENT:
+            if outcome_delta > 0:
+                ds["wins"] += 1
+            else:
+                ds["losses"] += 1
+        else:
+            if outcome_delta < 0:
+                ds["wins"] += 1
+            else:
+                ds["losses"] += 1
+
+    by_direction = []
+    total_wins = total_losses = total_excluded = total_signals = 0
+
+    for direction, ds in direction_stats.items():
+        countable   = ds["wins"] + ds["losses"]
+        win_rate    = (ds["wins"] / countable * 100) if countable > 0 else 0.0
+        avg_deploy  = (sum(ds["deploy_amounts"]) / len(ds["deploy_amounts"])
+                       if ds["deploy_amounts"] else 0.0)
+        avg_outcome = (sum(ds["outcome_deltas"]) / len(ds["outcome_deltas"])
+                       if ds["outcome_deltas"] else 0.0)
+        by_direction.append({
+            "direction":         direction,
+            "total_signals":     ds["total_signals"],
+            "wins":              ds["wins"],
+            "losses":            ds["losses"],
+            "excluded":          ds["excluded"],
+            "win_rate_pct":      round(win_rate, 1),
+            "avg_deploy_amount": round(avg_deploy, 2),
+            "avg_outcome_delta": round(avg_outcome, 2),
+        })
+        total_signals  += ds["total_signals"]
+        total_wins     += ds["wins"]
+        total_losses   += ds["losses"]
+        total_excluded += ds["excluded"]
+
+    countable_total = total_wins + total_losses
+    overall_rate    = (total_wins / countable_total * 100) if countable_total > 0 else 0.0
+
+    if overall_rate > 65 and countable_total >= 20:
+        confidence = "HIGH"
+    elif overall_rate >= 50 and countable_total >= 20:
+        confidence = "MEDIUM"
+    elif countable_total < 20:
+        confidence = "MEDIUM"
+    else:
+        confidence = "LOW"
+
+    return {
+        "by_direction": by_direction,
+        "overall": {
+            "total_signals":        total_signals,
+            "total_wins":           total_wins,
+            "total_losses":         total_losses,
+            "total_excluded":       total_excluded,
+            "overall_win_rate_pct": round(overall_rate, 1),
+            "confidence_rating":    confidence,
+        },
     }

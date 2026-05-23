@@ -114,6 +114,32 @@ def route_ingest():
 
 app.register_blueprint(portfolio_bp)
 
+# ── Fidelity intelligence routes (/api/fidelity/*) ───────────────────────────
+# Read-only. Do not touch Alpaca, SGOL, or bot logic.
+
+@app.route('/api/fidelity/buy_signals')
+def api_fidelity_buy_signals():
+    try:
+        return jsonify(fidelity_db.get_buy_list_signals(limit=20))
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
+@app.route('/api/fidelity/hot_streaks')
+def api_fidelity_hot_streaks():
+    try:
+        min_streak = int(request.args.get('min_streak', 3))
+        streaks    = fidelity_db.get_hot_streaks(min_streak=min_streak)
+        return jsonify({'min_streak': min_streak, 'count': len(streaks), 'streaks': streaks})
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
+@app.route('/api/fidelity/backtest')
+def api_fidelity_backtest():
+    try:
+        return jsonify(fidelity_db.backtest_signals())
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
 # ── Alpaca helpers — use Session so eventlet doesn't deadlock ─────────────────
 import urllib3
 _session = requests.Session()

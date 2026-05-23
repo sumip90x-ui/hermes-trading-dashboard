@@ -107,6 +107,13 @@
   .buy-row.mf-row  { border-left: 3px solid var(--gold);  }
   .buy-row.gap-row { border-left: 3px solid var(--green); }
   .buy-row.hi-row  { border-left: 3px solid var(--blue);  }
+  .buy-row.fid-row { border-left: 3px solid #f5a623; }
+  .fid-badge { display:inline-block; font-size:9px; font-weight:700; padding:1px 5px;
+               border-radius:3px; margin-left:4px; background:#f5a62322; color:#f5a623;
+               border:1px solid #f5a62366; vertical-align:middle; }
+  .streak-badge { display:inline-block; font-size:9px; font-weight:700; padding:1px 5px;
+                  border-radius:3px; margin-left:4px; background:#f5a62333; color:#f5a623;
+                  border:1px solid #f5a623; vertical-align:middle; }
   .br-sym  { font-weight: 700; font-size: 13px; width: 58px; }
   .br-amt  { color: var(--green); font-size: 13px; font-weight: 600; width: 56px; }
   .br-accts { color: var(--muted); font-size: 11px; width: 46px; }
@@ -544,6 +551,30 @@
           <button class="port-pager-btn" id="port-next-btn" disabled>Next →</button>
         </div>
 
+        <!-- ── Backtest Results — read-only signal validation ── -->
+        <div id="backtest-panel" style="margin-top:1.5rem;">
+          <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.08em;margin-bottom:.5rem;text-transform:uppercase;">Backtest Results</div>
+          <table style="width:100%;border-collapse:collapse;font-size:12px;color:var(--text);">
+            <thead>
+              <tr style="border-bottom:1px solid #333;">
+                <th style="text-align:left;padding:4px 8px;color:var(--muted);font-weight:500;">Direction</th>
+                <th style="text-align:right;padding:4px 8px;color:var(--muted);font-weight:500;">Signals</th>
+                <th style="text-align:right;padding:4px 8px;color:var(--muted);font-weight:500;">Win Rate</th>
+                <th style="text-align:right;padding:4px 8px;color:var(--muted);font-weight:500;">Avg Deploy</th>
+                <th style="text-align:right;padding:4px 8px;color:var(--muted);font-weight:500;">Avg Outcome</th>
+              </tr>
+            </thead>
+            <tbody id="backtest-tbody">
+              <tr><td colspan="5" style="padding:8px;color:var(--muted);text-align:center;">Loading…</td></tr>
+            </tbody>
+          </table>
+          <div id="backtest-summary" style="margin-top:1rem;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <div id="backtest-rate"       style="font-size:24px;font-weight:700;"></div>
+            <div id="backtest-confidence" style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:4px;"></div>
+            <div id="backtest-footnote"   style="font-size:10px;color:var(--muted);"></div>
+          </div>
+        </div>
+
       </div><!-- end view-portfolio -->
 
   </div><!-- end chart-panel -->
@@ -563,6 +594,9 @@
         <button class="btn-green" style="padding:3px 12px;font-size:11px;font-weight:700" onclick="buyAll()">⚡ BUY ALL</button>
         <button class="btn-muted" style="padding:2px 8px;font-size:10px" onclick="refreshBuyBar()">↻ Refresh</button>
         <button class="btn-muted" style="padding:2px 8px;font-size:10px;color:var(--red)" onclick="clearBuyBar()">✕ Clear</button>
+        <button class="btn-muted" id="fid-toggle" onclick="toggleFidSignals()"
+                title="Fidelity signals ON — click to hide"
+                style="padding:2px 8px;font-size:10px;border:1px solid #f5a623;color:#f5a623;">FID</button>
       </div>
       <!-- sell-side controls -->
       <div id="bs-ctrl-sell" style="display:none;align-items:center;gap:8px;">
@@ -1563,23 +1597,66 @@ function _persistDismissed() {
   });
 }
 
+// ── Fidelity signal state ──────────────────────────────────────────────────
+let _fidSignalsOn        = true;
+let _fidSignals          = [];
+let _hotStreaks           = {};
+let _lastEdgarCandidates = [];
+
+function toggleFidSignals() {
+  _fidSignalsOn = !_fidSignalsOn;
+  const btn = document.getElementById('fid-toggle');
+  if (btn) {
+    btn.style.opacity = _fidSignalsOn ? '1' : '0.4';
+    btn.title = _fidSignalsOn ? 'Fidelity signals ON — click to hide' : 'Fidelity signals OFF — click to show';
+  }
+  _mergAndRender(_lastEdgarCandidates);
+}
+
+function _mergAndRender(edgarCandidates) {
+  _lastEdgarCandidates = edgarCandidates || [];
+  let combined = [..._lastEdgarCandidates];
+  if (_fidSignalsOn && _fidSignals.length > 0) {
+    combined = combined.concat(_fidSignals);
+  }
+  combined.sort((a, b) => (b.buy || 0) - (a.buy || 0));
+  _renderBuyBar(combined);
+  _renderCandidates(combined);
+}
+
 function loadCandidates() {
   document.getElementById('candidates-body').innerHTML = '<tr><td colspan="7" style="color:var(--muted);text-align:center">Loading...</td></tr>';
-  fetch('/api/buy_candidates').then(r=>r.json()).then(d => {
-    if (d.error) {
-      document.getElementById('candidates-body').innerHTML = `<tr><td colspan="7" style="color:var(--red)">${d.error}</td></tr>`;
-      return;
+  const edgarFetch  = fetch('/api/buy_candidates').then(r => r.json()).catch(() => []);
+  const fidFetch    = fetch('/api/fidelity/buy_signals').then(r => r.json()).catch(() => []);
+  const streakFetch = fetch('/api/fidelity/hot_streaks?min_streak=2').then(r => r.json()).catch(() => ({ streaks: [] }));
+
+  Promise.all([edgarFetch, fidFetch, streakFetch]).then(([edgar, fid, streakData]) => {
+    _hotStreaks = {};
+    if (streakData && streakData.streaks) {
+      streakData.streaks.forEach(s => { _hotStreaks[s.symbol] = s.streak_length; });
     }
-    _renderCandidates(d);
-    _renderBuyBar(d);
+    _fidSignals = Array.isArray(fid) ? fid : [];
+    const edgarList = Array.isArray(edgar) ? edgar : [];
+    if (edgar && edgar.error) {
+      document.getElementById('candidates-body').innerHTML = `<tr><td colspan="7" style="color:var(--red)">${edgar.error}</td></tr>`;
+    }
+    _mergAndRender(edgarList);
   });
 }
 
 function refreshBuyBar() {
   document.getElementById('buy-bar-status').textContent = 'Refreshing...';
-  fetch('/api/buy_candidates').then(r=>r.json()).then(d => {
-    if (!d.error) { _renderBuyBar(d); _renderCandidates(d); }
-    else document.getElementById('buy-bar-status').textContent = d.error;
+  const edgarFetch  = fetch('/api/buy_candidates').then(r => r.json()).catch(() => []);
+  const fidFetch    = fetch('/api/fidelity/buy_signals').then(r => r.json()).catch(() => []);
+  const streakFetch = fetch('/api/fidelity/hot_streaks?min_streak=2').then(r => r.json()).catch(() => ({ streaks: [] }));
+  Promise.all([edgarFetch, fidFetch, streakFetch]).then(([edgar, fid, streakData]) => {
+    _hotStreaks = {};
+    if (streakData && streakData.streaks) {
+      streakData.streaks.forEach(s => { _hotStreaks[s.symbol] = s.streak_length; });
+    }
+    _fidSignals = Array.isArray(fid) ? fid : [];
+    if (edgar && !edgar.error) _mergAndRender(Array.isArray(edgar) ? edgar : []);
+    else document.getElementById('buy-bar-status').textContent = edgar.error || 'Error';
   });
 }
 
@@ -1715,7 +1792,10 @@ function _renderBuyBar(cands) {
   }
   document.getElementById('buy-bar-status').textContent = `${visible.length} candidates`;
   scroll.innerHTML = visible.map(c => {
-    const rowClass = c.is_mf ? 'mf-row' : c.source==='gap' ? 'gap-row' : c.source==='hi_conv' ? 'hi-row' : '';
+    const rowClass = c.is_mf ? 'mf-row' : c.source==='gap' ? 'gap-row' : c.source==='hi_conv' ? 'hi-row' : c.source==='fid-dev' ? 'fid-row' : '';
+    const streakLen   = (_hotStreaks && _hotStreaks[c.sym]) || 0;
+    const streakBadge = streakLen >= 2 ? `<span class="streak-badge">STREAK-${streakLen}</span>` : '';
+    const typeBadge   = c.source === 'fid-dev' ? `<span class="fid-badge">FID</span>` : '';
     const typeLabel = c.is_mf      ? `<span style="color:var(--gold)">★ MF</span>`
                     : c.source==='gap'     ? `<span style="color:var(--green)">↓ gap</span>`
                     : c.source==='hi_conv' ? `<span style="color:var(--blue)">hi✓</span>`
@@ -1727,7 +1807,7 @@ function _renderBuyBar(cands) {
       <div class="br-sym">${c.sym}</div>
       <div class="br-amt">$${c.buy.toFixed(2)}</div>
       <div class="br-accts">${c.accts} accts</div>
-      <div class="br-type">${typeLabel}</div>
+      <div class="br-type">${typeLabel}${typeBadge}${streakBadge}</div>
       <div class="br-reason">${c.reason||''}</div>
       <div class="br-edgar">${edgar}</div>
       <button class="br-buy" onclick="buyFromCard('${c.sym}',${c.buy})">BUY</button>
@@ -1950,6 +2030,7 @@ function switchChart(view, el) {
     loadEdgarTickers();
     loadSimHistory();
   }
+  if (view === 'portfolio') loadBacktest();
 }
 
 function switchPanel(panel, el) {
@@ -2882,6 +2963,50 @@ function fetchProfitBasket() {
     });
   });
 })();
+
+// ── Portfolio backtest ─────────────────────────────────────────────────────
+function loadBacktest() {
+  fetch('/api/fidelity/backtest')
+    .then(r => r.json())
+    .then(data => {
+      if (!data || data.error) return;
+      const tbody = document.getElementById('backtest-tbody');
+      if (!tbody) return;
+      const dirOrder = ['PULLBACK','RECOVERING','ACCELERATING','DETERIORATING'];
+      const byDir = {};
+      (data.by_direction || []).forEach(d => { byDir[d.direction] = d; });
+      tbody.innerHTML = dirOrder.map(dir => {
+        const d = byDir[dir];
+        if (!d) return '';
+        const wr    = d.win_rate_pct || 0;
+        const wrCol = wr > 65 ? 'var(--green)' : wr >= 50 ? '#f5a623' : '#ff4444';
+        const sign  = d.avg_outcome_delta >= 0 ? '+' : '';
+        const outCol = d.avg_outcome_delta >= 0 ? 'var(--green)' : '#ff4444';
+        return `<tr style="border-bottom:1px solid #1e1e1e;">
+          <td style="padding:5px 8px;">${dir}</td>
+          <td style="padding:5px 8px;text-align:right;">${d.total_signals}</td>
+          <td style="padding:5px 8px;text-align:right;color:${wrCol};font-weight:600;">${wr}%</td>
+          <td style="padding:5px 8px;text-align:right;">$${d.avg_deploy_amount.toFixed(2)}</td>
+          <td style="padding:5px 8px;text-align:right;color:${outCol};">${sign}$${Math.abs(d.avg_outcome_delta).toFixed(2)}</td>
+        </tr>`;
+      }).join('');
+      const ov  = data.overall || {};
+      const ovWr = ov.overall_win_rate_pct || 0;
+      const conf = ov.confidence_rating || 'LOW';
+      const confColors = { HIGH:'var(--green)', MEDIUM:'#f5a623', LOW:'#ff4444' };
+      const col = confColors[conf];
+      const rateEl = document.getElementById('backtest-rate');
+      const confEl = document.getElementById('backtest-confidence');
+      const noteEl = document.getElementById('backtest-footnote');
+      if (rateEl) { rateEl.textContent = ovWr + '% win rate'; rateEl.style.color = ovWr > 65 ? 'var(--green)' : ovWr >= 50 ? '#f5a623' : '#ff4444'; }
+      if (confEl) { confEl.textContent = conf; confEl.style.background = col+'22'; confEl.style.color = col; confEl.style.border = '1px solid '+col; }
+      if (noteEl) { const counted = (ov.total_wins||0)+(ov.total_losses||0); noteEl.textContent = 'Based on '+counted+' signals ('+(ov.total_excluded||0)+' excluded — no follow-up snapshot)'; }
+    })
+    .catch(() => {
+      const tbody = document.getElementById('backtest-tbody');
+      if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="padding:8px;color:#ff4444;text-align:center;">Backtest unavailable</td></tr>';
+    });
+}
 </script>
 </body>
 </html>
