@@ -715,6 +715,26 @@
               <div style="color:var(--muted);font-size:11px;padding:8px;">Loading...</div>
             </div>
 
+            <!-- Fidelity unresearched symbols -->
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:14px;margin-bottom:6px;">
+              <div style="font-size:10px;font-weight:700;color:#88ccff;letter-spacing:.08em;text-transform:uppercase;">
+                📊 From Fidelity portfolio — no EDGAR yet
+              </div>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <select id="pq-fid-sort"
+                  onchange="loadFidelityUnresearched()"
+                  style="background:#0a1a0a;border:1px solid #2a4a2a;color:#88cc88;
+                         font-family:monospace;font-size:9px;padding:1px 4px;border-radius:2px;">
+                  <option value="gl_dollar">$ Loss → Gain</option>
+                  <option value="gl_pct">% Loss → Gain</option>
+                </select>
+                <span id="pq-fid-count" style="font-size:10px;color:var(--muted);"></span>
+              </div>
+            </div>
+            <div id="pq-fid-cards" style="display:flex;flex-direction:column;gap:4px;">
+              <div style="color:var(--muted);font-size:11px;padding:8px;">Loading...</div>
+            </div>
+
           </div>
 
           <!-- Right: MiroShark iframe -->
@@ -3458,6 +3478,64 @@ function loadPriorityQueue() {
       _renderPqCards('pq-download-cards', data.needs_download, 'needs-dl');
     })
     .catch(() => {});
+  loadFidelityUnresearched();
+}
+
+function loadFidelityUnresearched() {
+  const sortEl = document.getElementById('pq-fid-sort');
+  const sort   = sortEl ? sortEl.value : 'gl_dollar';
+  const el     = document.getElementById('pq-fid-cards');
+  const cntEl  = document.getElementById('pq-fid-count');
+  if (el) el.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:8px;">Loading...</div>';
+
+  fetch(`/api/intelligence/fidelity_unresearched?sort=${sort}`)
+    .then(r => r.json())
+    .then(data => {
+      if (!el) return;
+      if (data.error) {
+        el.innerHTML = `<div style="color:#ff6666;font-size:11px;padding:8px;">${data.error}</div>`;
+        return;
+      }
+      const syms = data.symbols || [];
+      if (cntEl) cntEl.textContent = `${syms.length} remaining`;
+      if (!syms.length) {
+        el.innerHTML = '<div style="color:var(--green);font-size:11px;padding:8px;">All Fidelity symbols researched ✓</div>';
+        return;
+      }
+      el.innerHTML = syms.map(item => {
+        const st      = _pqStatus[item.sym] || {};
+        const state   = st.state || 'idle';
+        const done    = state === 'done';
+        const running = state === 'running';
+        const glCol   = item.total_gl < 0 ? '#ff6666' : '#00ff88';
+        const glSign  = item.total_gl >= 0 ? '+' : '';
+        const pctSign = item.gl_pct   >= 0 ? '+' : '';
+        const statusText = state === 'done'    ? `<span style="color:#00ff88;">✓ ${st.score}/18</span>`
+                         : state === 'running' ? `<span style="color:#88ccff;">⟳</span>`
+                         : state === 'error'   ? `<span style="color:#ff6666;">✗</span>`
+                         : '';
+        return `<div class="pq-card" id="pq-card-${item.sym}"
+                     style="border-left:3px solid #88ccff;${done?'opacity:.6':''}">
+          <div class="pq-sym" style="color:#88ccff;">${item.sym}</div>
+          <div class="pq-meta" style="font-size:9px;">
+            <span style="color:${glCol};">${glSign}$${Math.abs(item.total_gl).toFixed(0)} (${pctSign}${item.gl_pct.toFixed(1)}%)</span>
+            &nbsp;·&nbsp; $${item.total_value.toFixed(0)} &nbsp;·&nbsp; ${item.accounts}accts
+          </div>
+          <div class="pq-status">${statusText}</div>
+          <div class="pq-btns">
+            <button class="pq-btn-edgar" id="pq-edgar-btn-${item.sym}"
+              onclick="pqRunEdgar('${item.sym}')"
+              ${running||done?'disabled':''}>
+              ${done ? '✓' : '⚡ EDGAR'}
+            </button>
+            <button class="pq-btn-sim" onclick="pqLaunchSim('${item.sym}')">▶ SIM</button>
+          </div>
+        </div>`;
+      }).join('');
+    })
+    .catch(e => {
+      if (el) el.innerHTML = `<div style="color:#ff6666;font-size:11px;padding:8px;">Error: ${e.message}</div>`;
+    });
 }
 
 function _renderPqCards(containerId, items, cardClass) {

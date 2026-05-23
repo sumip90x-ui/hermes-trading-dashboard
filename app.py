@@ -589,6 +589,88 @@ def api_intelligence_edgar_queue():
         return jsonify({'error': str(exc)}), 500
 
 # ── Alpaca helpers — use Session so eventlet doesn't deadlock ─────────────────
+
+@app.route('/api/intelligence/fidelity_unresearched')
+def api_fidelity_unresearched():
+    """
+    GET /api/intelligence/fidelity_unresearched?sort=gl_dollar|gl_pct (default gl_dollar)
+    Returns symbols from the latest Fidelity snapshot that do NOT yet have
+    an EDGAR fundamentals Excel file. Sorted by total_gl ascending (biggest
+    dollar losses first) so the highest-priority accumulation candidates appear
+    at the top. Excludes ETFs, money markets, marker positions (<$1.10 MV).
+    """
+    EDGAR_EXCL = {
+        'DIA','SPY','QQQ','VOO','IVV','VTI','IWM','IWF','IWD',
+        'SMH','VGT','XLK','XLF','XLE','XLV','XLI','XLU','XLP','XLY','XLB',
+        'SOXX','ARKK','ARKG','ARKW','ARKF','ARKX',
+        'SCHD','VYM','DVY','SDY','HDV',
+        'GLD','SGOL','IAU','SLV','PPLT','PALL','GLL','UGL','USO','UCO','SCO',
+        'PDBC','DJP','CPER','UUP','UDN',
+        'TLT','IEF','SHY','AGG','BND','HYG','LQD','TIP',
+        'EFA','EEM','VEA','VWO','IEMG','ACWI','IDV',
+        'TQQQ','SQQQ','SPXL','SPXS','UVXY','SVXY','VXX',
+        'GDX','GDXJ','SIL','REMX','BITO',
+    }
+    sort_by = request.args.get('sort', 'gl_dollar')
+    try:
+        edgar_dir = Path.home() / 'Documents' / 'EDGAR' / 'companies'
+        has_excel = set()
+        if edgar_dir.exists():
+            has_excel = {d.name for d in edgar_dir.iterdir()
+                         if (d / f'{d.name}_fundamentals.xlsx').exists()}
+
+        import sqlite3 as _sqlite3
+        db_path = Path.home() / 'Documents' / 'Trading Vault' / 'Fidelity_History' / 'portfolio_history.db'
+        if not db_path.exists():
+            return jsonify({'error': 'Fidelity DB not found — upload a CSV first', 'symbols': []}), 404
+
+        conn = _sqlite3.connect(str(db_path))
+        conn.row_factory = _sqlite3.Row
+
+        latest = conn.execute("""
+            SELECT snapshot_id FROM snapshots
+            GROUP BY snapshot_id ORDER BY MAX(snapshot_date) DESC LIMIT 1
+        """).fetchone()
+        if not latest:
+            conn.close()
+            return jsonify({'error': 'No snapshots in DB', 'symbols': []}), 404
+
+        rows = conn.execute("""
+            SELECT symbol, description, total_gl, gl_pct, total_value, accounts
+            FROM snapshots WHERE snapshot_id=?
+        """, (latest['snapshot_id'],)).fetchall()
+        conn.close()
+
+        results = []
+        for r in rows:
+            sym = r['symbol']
+            if not sym or '**' in sym: continue
+            if sym in EDGAR_EXCL: continue
+            if (r['total_value'] or 0) < 1.10: continue   # skip markers
+            if sym in has_excel: continue                   # already researched
+            results.append({
+                'sym':         sym,
+                'description': r['description'] or '',
+                'total_gl':    round(r['total_gl'] or 0, 2),
+                'gl_pct':      round(r['gl_pct']   or 0, 2),
+                'total_value': round(r['total_value'] or 0, 2),
+                'accounts':    r['accounts'] or 0,
+            })
+
+        # Sort: biggest dollar loss first (default), or by gl_pct
+        if sort_by == 'gl_pct':
+            results.sort(key=lambda x: x['gl_pct'])
+        else:
+            results.sort(key=lambda x: x['total_gl'])
+
+        return jsonify({
+            'count':      len(results),
+            'has_excel':  len(has_excel),
+            'sort_by':    sort_by,
+            'symbols':    results,
+        })
+    except Exception as exc:
+        return jsonify({'error': str(exc), 'symbols': []}), 500
 import urllib3
 _session = requests.Session()
 _session.headers.update({'APCA-API-KEY-ID': KEY, 'APCA-API-SECRET-KEY': SECRET})
