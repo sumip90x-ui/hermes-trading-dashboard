@@ -1291,10 +1291,22 @@ def api_run_edgar():
         result = subprocess.run(
             ['python3', script, ticker],
             capture_output=True, text=True,
-            timeout=300,   # 5 min — some tickers need more time
+            timeout=300,
             cwd=str(HOME / 'Documents' / 'EDGAR')
         )
-        if result.returncode != 0:
+        # If validation blocked output (common for defense/industrial companies misclassified as SaaS),
+        # retry with --force to override the industry margin check
+        companies_dir = HOME / 'Documents' / 'EDGAR' / 'companies' / ticker
+        md_file = companies_dir / f'{ticker}.md'
+        if not md_file.exists() and 'validation blocked' in (result.stdout + result.stderr).lower():
+            socketio.emit('edgar_progress', {'ticker': ticker, 'status': 'downloading', 'msg': f'Validation blocked — retrying {ticker} with --force...'})
+            result = subprocess.run(
+                ['python3', script, ticker, '--force'],
+                capture_output=True, text=True,
+                timeout=300,
+                cwd=str(HOME / 'Documents' / 'EDGAR')
+            )
+        if result.returncode != 0 and not md_file.exists():
             socketio.emit('edgar_result', {'ticker': ticker, 'error': result.stderr[-300:] or 'download failed'})
             return
         # Score from generated .md file
