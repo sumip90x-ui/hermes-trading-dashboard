@@ -165,6 +165,31 @@
   .pq-btn-sim { padding:3px 8px; font-size:10px; font-weight:700; background:transparent;
                 color:var(--green); border:1px solid var(--green); border-radius:3px; cursor:pointer; }
   .pq-btn-sim:hover { background:#00ff8822; }
+  .pq-btn-buy { padding:3px 8px; font-size:10px; font-weight:700; background:transparent;
+                color:#00ccff; border:1px solid #00ccff; border-radius:3px; cursor:pointer; }
+  .pq-btn-buy:hover { background:#00ccff22; }
+  /* Research buy modal */
+  #rbuy-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75);
+                  z-index:9999; align-items:center; justify-content:center; }
+  #rbuy-overlay.visible { display:flex; }
+  #rbuy-modal { background:#1a1a1a; border:1px solid #00ccff; border-radius:8px;
+                padding:22px; max-width:400px; width:90%; font-size:13px; color:#e0e0e0; }
+  #rbuy-modal h3 { margin:0 0 14px; font-size:14px; color:#00ccff; }
+  #rbuy-modal .rm-row { display:flex; justify-content:space-between; margin:5px 0;
+                        border-bottom:1px solid #2a2a2a; padding-bottom:5px; }
+  #rbuy-modal .rm-label { color:#888; font-size:11px; }
+  #rbuy-modal .rm-value { font-weight:600; font-size:12px; }
+  #rbuy-modal .rm-reasoning { margin:10px 0; font-size:11px; color:#aaa; line-height:1.5; }
+  #rbuy-modal .rm-amount { font-size:22px; font-weight:700; color:#00ccff;
+                           text-align:center; margin:12px 0 6px; }
+  #rbuy-modal .rm-btns { display:flex; gap:10px; margin-top:14px; }
+  #rbuy-modal .rm-execute { flex:1; padding:9px; font-size:13px; font-weight:700;
+                             background:#00ccff22; color:#00ccff; border:1px solid #00ccff;
+                             border-radius:4px; cursor:pointer; }
+  #rbuy-modal .rm-execute:hover { background:#00ccff44; }
+  #rbuy-modal .rm-cancel { flex:1; padding:9px; font-size:13px; background:transparent;
+                           color:#666; border:1px solid #444; border-radius:4px; cursor:pointer; }
+  #rbuy-modal .rm-cancel:hover { background:#222; color:#aaa; }
   .br-sym  { font-weight: 700; font-size: 13px; width: 58px; }
   .br-amt  { color: var(--green); font-size: 13px; font-weight: 600; width: 56px; }
   .br-accts { color: var(--muted); font-size: 11px; width: 46px; }
@@ -2781,6 +2806,11 @@ async function loadEdgarTickers() {
                      margin-right:4px;white-space:nowrap;" title="Fidelity G/L — Alpaca budget cap">${glStr}</span>` : ''}
         <span style="font-family:monospace;font-size:10px;color:${scoreCol};
                      min-width:36px;text-align:right;margin-right:4px;">${scoreStr}</span>
+        <button onclick="openRbuy('${t}')"
+                title="Suggested buy for ${t}"
+                style="background:none;border:1px solid #005577;color:#00ccff;
+                       font-family:monospace;font-size:9px;padding:1px 5px;
+                       cursor:pointer;border-radius:2px;flex-shrink:0;margin-right:2px;">$</button>
         <button onclick="edgarRefreshTicker('${t}', this)"
                 title="Re-run EDGAR pipeline for ${t}"
                 style="background:none;border:1px solid #2a4a2a;color:#446644;
@@ -3532,11 +3562,10 @@ function loadFidelityUnresearched() {
           </div>
           <div class="pq-status">${statusText}</div>
           <div class="pq-btns">
+            <button class="pq-btn-buy" onclick="openRbuy('${item.sym}')">$ BUY</button>
             <button class="pq-btn-edgar" id="pq-edgar-btn-${item.sym}"
               onclick="pqRunEdgar('${item.sym}')"
-              ${running||done?'disabled':''}>
-              ${done ? '✓' : '⚡ EDGAR'}
-            </button>
+              ${running||done?'disabled':''}>${done ? '✓' : '⚡ EDGAR'}</button>
             <button class="pq-btn-sim" onclick="pqLaunchSim('${item.sym}')">▶ SIM</button>
           </div>
         </div>`;
@@ -3666,6 +3695,71 @@ function runAllEdgar() {
   }
   next();
 }
+
+// ── Research Buy Modal ────────────────────────────────────────────────────────
+function openRbuy(sym) {
+  const overlay = document.getElementById('rbuy-overlay');
+  const content = document.getElementById('rbuy-content');
+  if (overlay) overlay.classList.add('visible');
+  if (content) content.innerHTML = '<div style="color:#888;text-align:center;padding:16px;">Loading suggestion…</div>';
+  fetch(`/api/research/buy_suggestion/${sym}`)
+    .then(r => r.json())
+    .then(data => { if (content) content.innerHTML = _rbuyRender(data); })
+    .catch(e => { if (content) content.innerHTML = `<div style="color:#ff6666;padding:8px;">${e.message}</div>`; });
+}
+function closeRbuy() {
+  const el = document.getElementById('rbuy-overlay');
+  if (el) el.classList.remove('visible');
+}
+function _rbuyRender(d) {
+  if (d.error) return `<div style="color:#ff6666;padding:8px;">${d.error}</div>`;
+  const sigCol  = d.signal_type === 'deviation' ? '#f5a623'
+                : d.signal_type === 'starter'   ? '#00ccff' : '#888';
+  const sigTxt  = d.signal_type === 'deviation' ? `🎯 DEVIATION — ${d.direction||''}`
+                : d.signal_type === 'starter'   ? '💧 STARTER (5% of ceiling)'
+                : '⚠ MINIMUM ORDER';
+  const glSign  = (d.total_gl||0) >= 0 ? '+' : '';
+  const glCol   = (d.total_gl||0) >= 0 ? '#00ff88' : '#ff6666';
+  const edgarStr = d.edgar_score !== null && d.edgar_score !== undefined
+    ? `${d.edgar_score}/18 (${d.edgar_sector})`
+    : 'not scored';
+  const edgarCol = d.edgar_score >= 12 ? '#00ff88' : d.edgar_score >= 6 ? '#f5a623' : '#ff6666';
+  const alpacaStr = d.alpaca_mv > 0
+    ? `$${d.alpaca_mv.toFixed(2)} held (${d.alpaca_pct||d.alpaca_position?.unrealized_plpc||0 >= 0 ? '+' : ''}${(d.alpaca_position?.unrealized_plpc||0).toFixed(1)}%)`
+    : 'not held in Alpaca';
+  return `
+    <div class="rm-amount">$${d.suggested_buy.toFixed(2)}</div>
+    <div style="text-align:center;font-size:11px;color:${sigCol};margin-bottom:10px;">${sigTxt}</div>
+    <div class="rm-row"><span class="rm-label">TICKER</span><span class="rm-value">${d.ticker}</span></div>
+    <div class="rm-row"><span class="rm-label">FIDELITY G/L</span>
+      <span class="rm-value" style="color:${glCol};">${glSign}$${Math.abs(d.total_gl||0).toFixed(2)} (${glSign}${(d.gl_pct||0).toFixed(1)}%)</span></div>
+    <div class="rm-row"><span class="rm-label">BUDGET CEILING</span>
+      <span class="rm-value">$${d.budget_ceiling.toFixed(2)} (abs G/L)</span></div>
+    <div class="rm-row"><span class="rm-label">FIDELITY ACCOUNTS</span>
+      <span class="rm-value">${d.accounts} accounts</span></div>
+    <div class="rm-row"><span class="rm-label">EDGAR</span>
+      <span class="rm-value" style="color:${edgarCol};">${edgarStr}</span></div>
+    <div class="rm-row"><span class="rm-label">ALPACA POSITION</span>
+      <span class="rm-value">${alpacaStr}</span></div>
+    <div class="rm-row"><span class="rm-label">CASH AVAILABLE</span>
+      <span class="rm-value">$${d.cash_available.toFixed(2)}</span></div>
+    <div class="rm-reasoning">${d.reasoning}</div>
+    <div class="rm-btns">
+      <button class="rm-execute" onclick="executeRbuy('${d.ticker}',${d.suggested_buy})">
+        ⚡ BUY ${d.ticker} $${d.suggested_buy.toFixed(2)}
+      </button>
+      <button class="rm-cancel" onclick="closeRbuy()">Cancel</button>
+    </div>`;
+}
+function executeRbuy(sym, amount) {
+  closeRbuy();
+  switchPanel('chat', document.querySelector('.rpanel-tabs .tab'));
+  const msg = `Buy ${sym} for $${amount.toFixed(2)} notional. This is a research-based position from the Fidelity signal system. Please confirm and execute now.`;
+  const inp = document.getElementById('chat-input');
+  const btn = document.getElementById('chat-send');
+  if (inp && btn) { inp.value = msg; btn.click(); }
+  else addChat('system', `⚡ Research buy queued: BUY ${sym} $${amount.toFixed(2)}`);
+}
 </script>
         <div id="intel-modal-overlay" onclick="closeIntelModal(event)">
           <div id="intel-modal">
@@ -3673,6 +3767,13 @@ function runAllEdgar() {
             <div id="intel-modal-content">
               <div class="im-empty">Loading…</div>
             </div>
+          </div>
+        </div>
+
+        <div id="rbuy-overlay" onclick="if(event.target.id==='rbuy-overlay')closeRbuy()">
+          <div id="rbuy-modal">
+            <h3>💧 Research Buy</h3>
+            <div id="rbuy-content"><div style="color:#888;text-align:center;padding:16px">Loading…</div></div>
           </div>
         </div>
         </body>

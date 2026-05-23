@@ -2606,6 +2606,142 @@ def _parse_fidelity_quick() -> dict:
 EDGAR_BASE = os.path.expanduser("~/Documents/EDGAR/companies")
 MIROSHARK_BASE = "http://localhost:5001"
 
+@app.route('/api/research/buy_suggestion/<ticker>')
+def api_research_buy_suggestion(ticker):
+    """
+    GET /api/research/buy_suggestion/NVDA
+    Returns suggested buy amount for a ticker using:
+      1. Active Fidelity deviation signal deploy_amount if exists
+      2. Otherwise 5% of abs(total_gl) as starter position
+    Also returns current Alpaca position, budget ceiling, EDGAR score.
+    Human always confirms before executing — this is suggestion only.
+    """
+    ticker = ticker.upper().strip()
+    try:
+        import sqlite3 as _sq
+
+        # ── Fidelity data ──────────────────────────────────────────────────
+        db_path = Path.home() / 'Documents' / 'Trading Vault' / 'Fidelity_History' / 'portfolio_history.db'
+        total_gl    = None
+        gl_pct      = None
+        accounts    = 0
+        deploy_amt  = None
+        direction   = None
+        signal_type = 'starter'  # 'deviation' or 'starter'
+
+        if db_path.exists():
+            conn = _sq.connect(str(db_path))
+            conn.row_factory = _sq.Row
+
+            # Latest snapshot G/L for budget ceiling
+            latest = conn.execute("""
+                SELECT snapshot_id FROM snapshots
+                GROUP BY snapshot_id ORDER BY MAX(snapshot_date) DESC LIMIT 1
+            """).fetchone()
+            if latest:
+                row = conn.execute("""
+                    SELECT total_gl, gl_pct, accounts FROM snapshots
+                    WHERE snapshot_id=? AND symbol=? LIMIT 1
+                """, (latest['snapshot_id'], ticker)).fetchone()
+                if row:
+                    total_gl = round(row['total_gl'] or 0, 2)
+                    gl_pct   = round(row['gl_pct']   or 0, 2)
+                    accounts = row['accounts'] or 0
+
+            # Most recent active deviation signal
+            dev = conn.execute("""
+                SELECT deploy_amount, direction, curr_gl, conviction_multiplier
+                FROM deviations
+                WHERE symbol=? AND signal='BUY'
+                ORDER BY calculated_at DESC LIMIT 1
+            """, (ticker,)).fetchone()
+            if dev:
+                deploy_amt  = round(dev['deploy_amount'], 2)
+                direction   = dev['direction']
+                signal_type = 'deviation'
+            conn.close()
+
+        # ── Suggested buy calculation ──────────────────────────────────────
+        budget_ceiling = abs(total_gl) if total_gl is not None else 0
+
+        if signal_type == 'deviation' and deploy_amt and deploy_amt >= 1.10:
+            suggested = deploy_amt
+            reasoning = f'Fidelity deviation signal: {direction} ({accounts} accts, ${budget_ceiling:.2f} ceiling)'
+        elif budget_ceiling >= 1.10:
+            # 5% of budget ceiling as starter toe-in position
+            suggested = round(budget_ceiling * 0.05, 2)
+            suggested = max(suggested, 1.10)
+            signal_type = 'starter'
+            reasoning = f'Starter position: 5% of ${budget_ceiling:.2f} Fidelity G/L ceiling ({accounts} accts)'
+        else:
+            suggested = 1.10
+            signal_type = 'minimum'
+            reasoning = f'Minimum order (no Fidelity G/L data or budget too small)'
+
+        # Cap at 15% of available Alpaca cash
+        try:
+            acct_data = alpaca('/v2/account')
+            cash      = float(acct_data.get('cash', 0))
+            equity    = float(acct_data.get('equity', 0))
+            cash_cap  = round(cash * 0.15, 2)
+            if suggested > cash_cap and cash_cap >= 1.10:
+                suggested = cash_cap
+                reasoning += f' (capped at 15% of ${cash:.2f} cash)'
+        except Exception:
+            cash = 0; equity = 0
+
+        suggested = max(round(suggested, 2), 1.10)
+
+        # Hard minimum check
+        if suggested < 1.10:
+            return jsonify({'error': f'Suggested amount ${suggested:.2f} below Alpaca minimum $1.10',
+                            'ticker': ticker}), 400
+
+        # ── Current Alpaca position ────────────────────────────────────────
+        alpaca_position = None
+        alpaca_mv       = 0
+        alpaca_pct      = 0
+        try:
+            positions = alpaca('/v2/positions')
+            pos = next((p for p in positions if p.get('symbol') == ticker), None)
+            if pos:
+                alpaca_mv  = round(float(pos.get('market_value', 0)), 2)
+                alpaca_pct = round(float(pos.get('unrealized_plpc', 0)) * 100, 2)
+                alpaca_position = {'market_value': alpaca_mv, 'unrealized_plpc': alpaca_pct}
+        except Exception:
+            pass
+
+        # ── EDGAR score ────────────────────────────────────────────────────
+        edgar_score = None
+        edgar_sector = ''
+        try:
+            if EDGAR_CACHE.exists():
+                ec = json.loads(EDGAR_CACHE.read_text())
+                entry = ec.get(ticker, {})
+                edgar_score  = entry.get('score', None)
+                edgar_sector = entry.get('sector', '')
+        except Exception:
+            pass
+
+        return jsonify({
+            'ticker':          ticker,
+            'suggested_buy':   suggested,
+            'signal_type':     signal_type,   # 'deviation' | 'starter' | 'minimum'
+            'reasoning':       reasoning,
+            'direction':       direction,
+            'budget_ceiling':  round(budget_ceiling, 2),
+            'total_gl':        total_gl,
+            'gl_pct':          gl_pct,
+            'accounts':        accounts,
+            'edgar_score':     edgar_score,
+            'edgar_sector':    edgar_sector,
+            'alpaca_position': alpaca_position,
+            'alpaca_mv':       alpaca_mv,
+            'cash_available':  round(cash, 2),
+        })
+    except Exception as exc:
+        return jsonify({'error': str(exc), 'ticker': ticker}), 500
+
 @app.route('/api/research/edgar-tickers')
 def edgar_tickers():
     folders = glob.glob(os.path.join(EDGAR_BASE, "*"))
