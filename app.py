@@ -2818,6 +2818,91 @@ def serve_seed_file(ticker):
     return Response(content, mimetype='text/plain',
                     headers={"Access-Control-Allow-Origin": "*"})
 
+@app.route('/api/research/create_seed', methods=['POST'])
+def api_research_create_seed():
+    """
+    POST /api/research/create_seed  {ticker: "NVDA"}
+    Creates an investment simulation seed for any ticker by calling MiroShark
+    ask-stock endpoint (EDGAR data + LLM seed generation).
+    Runs in background thread, emits progress via SocketIO events:
+      seed_progress  {ticker, status, msg}
+      seed_complete  {ticker, success, url, sim_req_preview, seed_doc_length, error}
+    Returns immediately with {status: 'started', ticker}.
+    """
+    ticker = (request.json or {}).get('ticker', '').upper().strip()
+    if not ticker:
+        return jsonify({'error': 'ticker required'}), 400
+
+    def _run():
+        socketio.emit('seed_progress', {
+            'ticker': ticker, 'status': 'starting',
+            'msg': f'Calling MiroShark ask-stock for {ticker}...'
+        })
+        try:
+            r = requests.post(
+                f"{MIROSHARK_BASE}/api/simulation/ask-stock",
+                json={'ticker': ticker},
+                timeout=120
+            )
+            data = r.json()
+            sim_req  = (data.get('data') or {}).get('simulation_requirement', '') or data.get('simulation_requirement', '')
+            seed_doc = (data.get('data') or {}).get('seed_document', '') or data.get('seed_document', '')
+
+            if not seed_doc:
+                socketio.emit('seed_complete', {
+                    'ticker': ticker, 'success': False,
+                    'error': data.get('error') or data.get('message') or 'No seed document returned'
+                })
+                return
+
+            socketio.emit('seed_progress', {
+                'ticker': ticker, 'status': 'saving',
+                'msg': f'Saving seed for {ticker} ({len(seed_doc)} chars)...'
+            })
+
+            # Save as MiroShark preset template
+            template_dir = os.path.expanduser("~/Documents/MiroShark/backend/app/preset_templates")
+            os.makedirs(template_dir, exist_ok=True)
+            tpl_path = os.path.join(template_dir, f"hermes_{ticker.lower()}.json")
+            with open(tpl_path, 'w', encoding='utf-8') as f:
+                json.dump({'simulation_requirement': sim_req, 'seed_document': seed_doc}, f)
+
+            # Also save alongside the EDGAR company files for easy access
+            edgar_dir = os.path.join(EDGAR_BASE, ticker)
+            if os.path.isdir(edgar_dir):
+                seed_path = os.path.join(edgar_dir, f"{ticker}_seed.md")
+                with open(seed_path, 'w', encoding='utf-8') as f:
+                    f.write(f"# {ticker} — Investment Seed\n\n")
+                    f.write(f"**Simulation Requirement:**\n{sim_req}\n\n---\n\n")
+                    f.write(seed_doc)
+
+            miroshark_url = f"http://localhost:5001/?template=hermes_{ticker.lower()}"
+            socketio.emit('seed_complete', {
+                'ticker':           ticker,
+                'success':          True,
+                'url':              miroshark_url,
+                'sim_req_preview':  sim_req[:150],
+                'seed_doc_length':  len(seed_doc),
+            })
+
+        except requests.exceptions.ConnectionError:
+            socketio.emit('seed_complete', {
+                'ticker': ticker, 'success': False,
+                'error': 'MiroShark not running — start it first (port 5001)'
+            })
+        except requests.exceptions.Timeout:
+            socketio.emit('seed_complete', {
+                'ticker': ticker, 'success': False,
+                'error': 'Seed creation timed out (120s) — try again'
+            })
+        except Exception as e:
+            socketio.emit('seed_complete', {
+                'ticker': ticker, 'success': False, 'error': str(e)
+            })
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({'status': 'started', 'ticker': ticker})
+
 @app.route('/api/research/launch-sim/<ticker>')
 def launch_sim(ticker):
     ticker = ticker.upper()

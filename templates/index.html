@@ -168,6 +168,10 @@
   .pq-btn-buy { padding:3px 8px; font-size:10px; font-weight:700; background:transparent;
                 color:#00ccff; border:1px solid #00ccff; border-radius:3px; cursor:pointer; }
   .pq-btn-buy:hover { background:#00ccff22; }
+  .pq-btn-seed { padding:3px 8px; font-size:10px; font-weight:700; background:transparent;
+                 color:#cc88ff; border:1px solid #cc88ff; border-radius:3px; cursor:pointer; }
+  .pq-btn-seed:hover { background:#cc88ff22; }
+  .pq-btn-seed:disabled { opacity:.4; cursor:default; }
   /* Research buy modal */
   #rbuy-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75);
                   z-index:9999; align-items:center; justify-content:center; }
@@ -519,6 +523,13 @@
                          font-family:monospace;font-size:10px;padding:3px 12px;
                          cursor:pointer;border-radius:3px;white-space:nowrap;">
             ▶ Run EDGAR
+          </button>
+          <button id="research-seed-btn" onclick="researchCreateSeed()"
+                  style="background:#1a0a2a;border:1px solid #cc88ff;color:#cc88ff;
+                         font-family:monospace;font-size:10px;padding:3px 12px;
+                         cursor:pointer;border-radius:3px;white-space:nowrap;"
+                  title="Create MiroShark investment seed (EDGAR + LLM)">
+            🌱 Create Seed
           </button>
           <span id="research-edgar-status"
                 style="font-size:10px;color:#446644;font-family:monospace;flex:1;"></span>
@@ -3566,6 +3577,8 @@ function loadFidelityUnresearched() {
             <button class="pq-btn-edgar" id="pq-edgar-btn-${item.sym}"
               onclick="pqRunEdgar('${item.sym}')"
               ${running||done?'disabled':''}>${done ? '✓' : '⚡ EDGAR'}</button>
+            <button class="pq-btn-seed" onclick="pqCreateSeed('${item.sym}')"
+              title="Create MiroShark investment seed">🌱 Seed</button>
             <button class="pq-btn-sim" onclick="pqLaunchSim('${item.sym}')">▶ SIM</button>
           </div>
         </div>`;
@@ -3610,6 +3623,9 @@ function _renderPqCards(containerId, items, cardClass) {
           ${running||done?'disabled':''}>
           ${done ? '✓' : '⚡ EDGAR'}
         </button>
+        <button class="pq-btn-seed" id="pq-seed-btn-${item.sym}"
+          onclick="pqCreateSeed('${item.sym}')"
+          title="Create MiroShark investment seed">🌱 Seed</button>
         <button class="pq-btn-sim" onclick="pqLaunchSim('${item.sym}')">▶ SIM</button>
       </div>
     </div>`;
@@ -3759,6 +3775,77 @@ function executeRbuy(sym, amount) {
   const btn = document.getElementById('chat-send');
   if (inp && btn) { inp.value = msg; btn.click(); }
   else addChat('system', `⚡ Research buy queued: BUY ${sym} $${amount.toFixed(2)}`);
+}
+
+// ── Seed Creation ─────────────────────────────────────────────────────────────
+const _seedRunning = {};   // sym → true while running
+
+function _doCreateSeed(sym, statusEl, btn) {
+  if (_seedRunning[sym]) return;
+  _seedRunning[sym] = true;
+  if (btn)     { btn.disabled = true; btn.textContent = '⟳ Seeding…'; btn.style.color = '#cc88ff'; }
+  if (statusEl){ statusEl.style.color = '#cc88ff'; statusEl.textContent = `⟳ Creating seed for ${sym}…`; }
+
+  fetch('/api/research/create_seed', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ticker: sym})
+  }).catch(e => {
+    _seedRunning[sym] = false;
+    if (btn)     { btn.disabled = false; btn.textContent = '🌱 Seed'; }
+    if (statusEl){ statusEl.style.color = '#ff6666'; statusEl.textContent = `✗ ${sym}: ${e.message}`; }
+  });
+  // Result arrives via seed_complete socket event
+  window._seedStatusEls = window._seedStatusEls || {};
+  window._seedBtns      = window._seedBtns      || {};
+  window._seedStatusEls[sym] = statusEl;
+  window._seedBtns[sym]      = btn;
+}
+
+function researchCreateSeed() {
+  const inp = document.getElementById('research-edgar-sym');
+  const sym = inp ? inp.value.trim().toUpperCase() : '';
+  if (!sym) return;
+  const statusEl = document.getElementById('research-edgar-status');
+  const btn      = document.getElementById('research-seed-btn');
+  if (inp) inp.value = '';
+  _doCreateSeed(sym, statusEl, btn);
+}
+
+function pqCreateSeed(sym) {
+  const btn = document.getElementById(`pq-seed-btn-${sym}`);
+  const statusEl = document.getElementById('research-edgar-status');
+  _doCreateSeed(sym, statusEl, btn);
+}
+
+// SocketIO seed events
+if (typeof socket !== 'undefined') {
+  socket.on('seed_progress', function(d) {
+    const sym = d.ticker;
+    const rs  = document.getElementById('research-edgar-status');
+    if (rs) { rs.style.color = '#cc88ff'; rs.textContent = `⟳ ${sym}: ${d.msg}`; }
+  });
+
+  socket.on('seed_complete', function(d) {
+    const sym = d.ticker;
+    _seedRunning[sym] = false;
+    const rs  = document.getElementById('research-edgar-status');
+    const btn = window._seedBtns && window._seedBtns[sym];
+    const pqBtn = document.getElementById(`pq-seed-btn-${sym}`);
+
+    if (d.success) {
+      if (rs) { rs.style.color = '#cc88ff'; rs.textContent = `✓ ${sym} seed created (${d.seed_doc_length} chars) — click ▶ SIM to launch`; }
+      if (btn)   { btn.textContent = '✓ Seeded'; btn.style.color = '#cc88ff'; btn.disabled = false; }
+      if (pqBtn) { pqBtn.textContent = '✓'; pqBtn.style.color = '#cc88ff'; pqBtn.disabled = false; }
+      // Auto-refresh seed tickers list in Research tab right column
+      if (typeof loadEdgarTickers === 'function') loadEdgarTickers();
+    } else {
+      const errMsg = d.error || 'failed';
+      if (rs) { rs.style.color = '#ff6666'; rs.textContent = `✗ ${sym} seed: ${errMsg}`; }
+      if (btn)   { btn.textContent = '🌱 Seed'; btn.style.color = '#cc88ff'; btn.disabled = false; }
+      if (pqBtn) { pqBtn.textContent = '🌱 Seed'; pqBtn.style.color = '#cc88ff'; pqBtn.disabled = false; }
+    }
+  });
 }
 </script>
         <div id="intel-modal-overlay" onclick="closeIntelModal(event)">
