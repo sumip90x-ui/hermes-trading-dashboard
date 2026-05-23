@@ -2566,14 +2566,19 @@ function switchChart(view, el) {
   const chartPanel = document.querySelector('.chart-panel');
   const buyPanel   = document.querySelector('.buy-panel');
   const fullWidth  = view === 'research' || view === 'portfolio' || view === 'priority';
+  const grid = document.querySelector('.grid');
   if (fullWidth) {
     if (rightPanel) rightPanel.style.display = 'none';
-    if (chartPanel) chartPanel.style.gridColumn = '1 / -1';
-    if (buyPanel)   buyPanel.style.gridColumn   = '1 / -1';
+    if (buyPanel)   buyPanel.style.display   = 'none';
+    // chart-panel stays visible — it contains the full-width views
+    // Just remove its fixed column so it spans the full grid
+    if (chartPanel) { chartPanel.style.gridColumn = '1 / -1'; chartPanel.style.gridRow = '2 / 4'; }
+    if (grid) { grid.style.gridTemplateColumns = '1fr'; grid.style.gridTemplateRows = '95px 1fr'; }
   } else {
     if (rightPanel) rightPanel.style.display = '';
-    if (chartPanel) chartPanel.style.gridColumn = '';
-    if (buyPanel)   buyPanel.style.gridColumn   = '';
+    if (buyPanel)   { buyPanel.style.display = ''; buyPanel.style.gridColumn = ''; }
+    if (chartPanel) { chartPanel.style.gridColumn = ''; chartPanel.style.gridRow = ''; }
+    if (grid) { grid.style.gridTemplateColumns = ''; grid.style.gridTemplateRows = ''; }
   }
 
   if (view === 'positions') loadPositions();
