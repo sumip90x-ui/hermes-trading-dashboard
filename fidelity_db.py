@@ -189,7 +189,8 @@ def parse_fidelity_csv(filepath: str | Path) -> list[dict]:
     df["_cost"]   = df["Percent Of Account"].apply(_parse_money)
 
     # Filter out rows where ticker is blank or a section header (not a real symbol)
-    df = df[df["_ticker"].str.match(r'^[A-Z0-9\.\-\*]+$', na=False)].copy()
+    # Also filter money market funds (end with **) — these are cash positions not stocks
+    df = df[df["_ticker"].str.match(r'^[A-Z0-9\.\-]+$', na=False)].copy()
 
     if df.empty:
         return []
@@ -613,6 +614,7 @@ def get_deviations(snapshot_id: Optional[str] = None) -> list[dict]:
             SELECT * FROM deviations
             WHERE curr_snapshot_id = ?
               AND signal = 'BUY'
+              AND symbol NOT LIKE '%**%'
             ORDER BY deploy_amount DESC
         """, (snapshot_id,)).fetchall()
 
@@ -673,6 +675,7 @@ def get_summary() -> dict:
                 SELECT * FROM deviations
                 WHERE curr_snapshot_id = ?
                   AND signal = 'BUY'
+                  AND symbol NOT LIKE '%**%'
                 ORDER BY deploy_amount DESC
                 LIMIT 10
             """, (latest_snap["snapshot_id"],)).fetchall()
