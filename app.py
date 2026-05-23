@@ -503,11 +503,29 @@ def api_intelligence_edgar_queue():
     """
     GET /api/intelligence/edgar_queue
     Returns symbols from recent Fidelity deviation signals that need EDGAR work.
-    Two buckets:
-      needs_scoring  — has Excel fundamentals file but no numeric score yet
-      needs_download — no Excel file at all, needs full EDGAR pipeline run
-    Sorted by deploy_amount descending so highest-conviction names come first.
+    ETFs, index funds, gold/commodity funds excluded — no SEC filings to analyze.
     """
+    # ETFs, index funds, leveraged funds, commodity funds — no EDGAR filings
+    EDGAR_EXCLUSIONS = {
+        # Broad market ETFs
+        'DIA','SPY','QQQ','VOO','IVV','VTI','IWM','IWF','IWD',
+        # Sector ETFs
+        'SMH','VGT','XLK','XLF','XLE','XLV','XLI','XLU','XLP','XLY','XLB',
+        'SOXX','ARKK','ARKG','ARKW','ARKF','ARKX',
+        # Dividend / factor ETFs
+        'SCHD','VYM','DVY','SDY','HDV',
+        # Gold / metals / commodities
+        'GLD','SGOL','IAU','SLV','PPLT','PALL','GLL','UGL','USO','UCO','SCO',
+        'PDBC','DJP','CPER','UUP','UDN',
+        # Bond ETFs
+        'TLT','IEF','SHY','AGG','BND','HYG','LQD','TIP',
+        # International ETFs
+        'EFA','EEM','VEA','VWO','IEMG','ACWI','IDV',
+        # Leveraged / inverse
+        'TQQQ','SQQQ','SPXL','SPXS','UVXY','SVXY','VXX',
+        # Other funds / trusts
+        'GDX','GDXJ','SIL','REMX','BITO',
+    }
     try:
         edgar_companies_dir = Path.home() / 'Documents' / 'EDGAR' / 'companies'
         excel_syms = set()
@@ -536,6 +554,8 @@ def api_intelligence_edgar_queue():
                 continue
             if sym in ('SGOL',) or '**' in sym:
                 continue
+            if sym in EDGAR_EXCLUSIONS:
+                continue
             seen.add(sym)
             entry = {
                 'sym':        sym,
@@ -544,14 +564,16 @@ def api_intelligence_edgar_queue():
                 'accts':      sig.get('accts', 0),
             }
             if sym in scored_syms:
-                continue  # already has score — skip
+                continue
             elif sym in excel_syms:
                 needs_scoring.append(entry)
             else:
                 needs_download.append(entry)
 
-        # Also include any excel files that aren't scored yet (not in current signals)
+        # Also include Excel files not yet scored (not in current signals)
         for sym in sorted(excel_syms - scored_syms - seen):
+            if sym in EDGAR_EXCLUSIONS:
+                continue
             needs_scoring.append({
                 'sym': sym, 'deploy': 0, 'direction': 'no recent signal', 'accts': 0
             })
@@ -561,7 +583,7 @@ def api_intelligence_edgar_queue():
             'needs_download': needs_download,
             'total_excel':    len(excel_syms),
             'total_scored':   len(scored_syms),
-            'total_gap':      len(excel_syms) - len(scored_syms),
+            'total_gap':      len(excel_syms - scored_syms),
         })
     except Exception as exc:
         return jsonify({'error': str(exc)}), 500
