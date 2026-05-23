@@ -1489,20 +1489,27 @@ function fetchOHLC() {
 }
 
 function updateATHDist(d) {
-  const hi = d.intraday.length ? Math.max(...d.intraday.map(b=>b.v)) : 0;
+  const hi = d.intraday.length ? d.intraday.map(b=>b.v).reduce((a,b)=>Math.max(a,b),-Infinity) : 0;
   const dist = hi - d.ath_zone;
   const el = document.getElementById('ath_dist');
   el.textContent = (dist>=0?'+':'') + '$'+dist.toFixed(2);
   el.className = 'val ' + (dist>=0 ? 'green' : 'gold');
 
   if (d.intraday.length >= 2) {
-    const lo = Math.min(...d.intraday.map(b=>b.v));
+    // Use reduce — Math.min/max(...largeArray) silently fails on 400+ element arrays
+    const vals = d.intraday.map(b=>b.v);
+    const lo   = vals.reduce((a,b)=>Math.min(a,b), Infinity);
     const range = hi - lo;
     const rel = document.getElementById('range_val');
     rel.textContent = '$'+range.toFixed(2);
     rel.className = 'val ' + (range >= 5 ? 'green' : 'muted');
-    document.getElementById('intraday_label').textContent =
-      `O:$${d.intraday[0].v.toFixed(2)} H:$${hi.toFixed(2)} L:$${lo.toFixed(2)} C:$${d.intraday[d.intraday.length-1].v.toFixed(2)} | Range: $${range.toFixed(2)}`;
+    const open  = d.intraday[0].v.toFixed(2);
+    const close = d.intraday[d.intraday.length-1].v.toFixed(2);
+    const hiStr = hi.toFixed(2);
+    const loStr = lo.toFixed(2);
+    const label = document.getElementById('intraday_label');
+    label.textContent = `O:$${open}  H:$${hiStr}  L:$${loStr}  C:$${close}  |  Range: $${range.toFixed(2)}`;
+    label.style.display = '';
   }
 }
 
