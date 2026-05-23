@@ -349,6 +349,7 @@
            onclick="openMacroAdvisory()"
            title="Click for ORACLE macro buy suggestions">⚪ NEUTRAL</div>
       <button class="btn-muted" style="padding:4px 12px;font-size:11px;margin-left:8px" onclick="saveSessionNote()" id="save-note-btn" title="Save today's session note to Trading Vault">📝 Save Note</button>
+      <button class="btn-muted" style="padding:4px 12px;font-size:11px;margin-left:4px" onclick="openReadNotes()" title="Read recent session notes from Trading Vault">📖 Read Notes</button>
       <button class="btn-muted" style="padding:4px 12px;font-size:11px" onclick="location.reload(true)" title="Hard refresh — reloads page and clears cache">🔄 Refresh</button>
     </div>
     <!-- Row 2: key metrics only -->
@@ -407,7 +408,36 @@
   </div>
 
   <!-- MACRO ADVISORY MODAL -->
-  <div id="macro-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;
+  <!-- ── Read Notes Modal ───────────────────────────────────────────── -->
+<div id="read-notes-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;
+     z-index:9999;background:rgba(0,0,0,0.75);align-items:center;justify-content:center;"
+     onclick="if(event.target===this)closeReadNotes()">
+  <div style="background:#0d1117;border:1px solid #30363d;border-radius:8px;width:760px;max-width:95vw;
+              max-height:85vh;display:flex;flex-direction:column;">
+    <div style="padding:12px 16px;border-bottom:1px solid #21262d;display:flex;align-items:center;justify-content:space-between;">
+      <span style="color:#ffd700;font-size:13px;font-weight:700;letter-spacing:1px">📖 SESSION NOTES</span>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <select id="notes-count-select" onchange="loadNotesInModal()"
+          style="background:#161b22;color:#c9d1d9;border:1px solid #30363d;border-radius:4px;padding:2px 6px;font-size:11px;">
+          <option value="3">Last 3</option>
+          <option value="5" selected>Last 5</option>
+          <option value="10">Last 10</option>
+          <option value="20">Last 20</option>
+        </select>
+        <button onclick="closeReadNotes()"
+          style="background:none;border:none;color:#8b949e;font-size:16px;cursor:pointer;line-height:1">✕</button>
+      </div>
+    </div>
+    <div id="notes-modal-body" style="overflow-y:auto;padding:12px 16px;flex:1;font-size:12px;color:#c9d1d9;line-height:1.6;">
+      <div style="color:#8b949e;text-align:center;padding:20px">Loading notes...</div>
+    </div>
+    <div style="padding:8px 16px;border-top:1px solid #21262d;font-size:11px;color:#8b949e;text-align:right">
+      Notes saved to ~/Documents/Trading Vault/02_Session_Notes/
+    </div>
+  </div>
+</div>
+
+<div id="macro-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;
        z-index:9999;background:rgba(0,0,0,0.7);align-items:center;justify-content:center;">
     <div style="background:#0d1117;border:1px solid #30363d;border-radius:8px;
                 width:520px;max-height:80vh;overflow-y:auto;padding:0;font-family:monospace;">
@@ -2537,6 +2567,47 @@ function updateHeader(d) {
 // ── Session Notes ──────────────────────────────────────────────────────────
 let _prevSessionsLoaded = false;
 let _prevSessionsContext = '';
+
+// ── Read Notes Modal ─────────────────────────────────────────────────────────
+function openReadNotes() {
+  const modal = document.getElementById('read-notes-modal');
+  modal.style.display = 'flex';
+  loadNotesInModal();
+}
+function closeReadNotes() {
+  document.getElementById('read-notes-modal').style.display = 'none';
+}
+function loadNotesInModal() {
+  const n = document.getElementById('notes-count-select').value;
+  const body = document.getElementById('notes-modal-body');
+  body.innerHTML = '<div style="color:#8b949e;text-align:center;padding:20px">Loading...</div>';
+  fetch(`/api/load_previous_sessions?n=${n}`)
+    .then(r => r.json())
+    .then(d => {
+      if (!d.sessions || d.sessions.length === 0) {
+        body.innerHTML = '<div style="color:#8b949e;text-align:center;padding:20px">No session notes found in Trading Vault.</div>';
+        return;
+      }
+      body.innerHTML = d.sessions.map(s => `
+        <div style="margin-bottom:20px;border:1px solid #21262d;border-radius:6px;overflow:hidden;">
+          <div style="background:#161b22;padding:6px 12px;color:#ffd700;font-weight:700;font-size:12px;
+                      border-bottom:1px solid #21262d;display:flex;justify-content:space-between;align-items:center;">
+            <span>📅 ${s.date}</span>
+            <span style="color:#8b949e;font-weight:400;font-size:10px">${s.content.length} chars</span>
+          </div>
+          <pre style="margin:0;padding:12px;white-space:pre-wrap;word-break:break-word;
+                      font-family:monospace;font-size:11px;color:#c9d1d9;background:#0d1117;
+                      max-height:350px;overflow-y:auto;">${escapeHtml(s.content)}</pre>
+        </div>
+      `).join('');
+    })
+    .catch(e => {
+      body.innerHTML = `<div style="color:#f85149;padding:20px">Error loading notes: ${e.message}</div>`;
+    });
+}
+function escapeHtml(text) {
+  return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
 
 function loadPreviousSessions() {
   if (_prevSessionsLoaded) return;
