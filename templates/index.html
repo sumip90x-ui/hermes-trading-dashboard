@@ -2730,23 +2730,35 @@ async function loadEdgarTickers() {
   const leftEl = document.getElementById('edgar-fundamentals-list');
   const rightEl = document.getElementById('edgar-ticker-list');
 
-  // Left column — Excel fundamentals (longer list)
+  // Left column — Excel fundamentals with scores
   try {
-    const r = await fetch('/api/research/edgar-tickers');
-    const tickers = await r.json();
-    if (leftEl) leftEl.innerHTML = tickers.map(t => `
+    const r = await fetch('/api/research/edgar-tickers-scored');
+    const items = await r.json();
+    if (leftEl) leftEl.innerHTML = items.map(item => {
+      const t     = item.sym;
+      const score = item.score;
+      const scoreStr = score !== null && score !== undefined
+        ? `${score}/18` : '—/18';
+      const scoreCol = score === null ? '#446644'
+        : score >= 12 ? '#00ff88'
+        : score >= 6  ? '#f5a623'
+        : '#ff6666';
+      return `
       <div style="display:flex;align-items:center;justify-content:space-between;
                   border-bottom:1px solid #0a1a0a;padding:3px 6px 3px 10px;"
            onmouseover="this.style.background='#0a2a0a'"
            onmouseout="this.style.background=''">
         <span style="color:#88cc88;font-family:monospace;font-size:12px;cursor:pointer;flex:1;"
               onclick="loadFundamentals('${t}')">${t}</span>
+        <span style="font-family:monospace;font-size:10px;color:${scoreCol};
+                     min-width:36px;text-align:right;margin-right:4px;">${scoreStr}</span>
         <button onclick="edgarRefreshTicker('${t}', this)"
                 title="Re-run EDGAR pipeline for ${t}"
                 style="background:none;border:1px solid #2a4a2a;color:#446644;
                        font-family:monospace;font-size:9px;padding:1px 5px;
                        cursor:pointer;border-radius:2px;flex-shrink:0;">↻</button>
-      </div>`).join('');
+      </div>`;
+    }).join('');
   } catch(e) {
     if (leftEl) leftEl.innerHTML = `<div style="padding:8px; color:#664444;">${e.message}</div>`;
   }

@@ -2531,6 +2531,29 @@ def edgar_tickers():
                if os.path.isfile(os.path.join(f, f"{os.path.basename(f)}_fundamentals.xlsx"))]
     return jsonify(sorted(tickers))
 
+@app.route('/api/research/edgar-tickers-scored')
+def edgar_tickers_scored():
+    """Returns tickers with EDGAR scores for the Research tab left column."""
+    folders = glob.glob(os.path.join(EDGAR_BASE, "*"))
+    tickers = sorted([os.path.basename(f) for f in folders
+               if os.path.isfile(os.path.join(f, f"{os.path.basename(f)}_fundamentals.xlsx"))])
+    # Load score cache
+    scores = {}
+    try:
+        if EDGAR_CACHE.exists():
+            scores = json.loads(EDGAR_CACHE.read_text())
+    except Exception:
+        pass
+    result = []
+    for t in tickers:
+        entry = scores.get(t, {})
+        result.append({
+            'sym':    t,
+            'score':  entry.get('score', None),
+            'sector': entry.get('sector', ''),
+        })
+    return jsonify(result)
+
 @app.route('/api/research/seed-tickers')
 def seed_tickers():
     folders = glob.glob(os.path.join(EDGAR_BASE, "*"))
