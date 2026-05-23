@@ -469,6 +469,7 @@
           <div class="port-hdr-left">
             <div class="port-title">📊 Portfolio aggregator</div>
             <div class="port-meta" id="port-meta-line">Upload a Fidelity CSV to begin (File → Positions → Download)</div>
+            <div class="port-meta" id="port-snap-count" style="color:var(--green);margin-top:2px"></div>
           </div>
           <label class="port-upload-btn">
             <span id="port-file-label">Load CSV</span>
@@ -2820,6 +2821,18 @@ function fetchProfitBasket() {
           if (meta) meta.textContent = `${file.name}  ·  loaded ${ts}  ·  ${result.rows.length} symbols across ${result.totalAccounts} accounts`;
           portUpdateSummary(result.rows, result.totalAccounts);
           portRender();
+          // ── silently archive to Fidelity_History ──────────────────────────
+          const fd = new FormData();
+          fd.append('file', file);
+          fetch('/api/portfolio/save_snapshot', { method: 'POST', body: fd })
+            .then(r => r.json())
+            .then(d => {
+              if (d.total_snapshots !== undefined) {
+                const snap = document.getElementById('port-snap-count');
+                if (snap) snap.textContent = `${d.total_snapshots} snapshot${d.total_snapshots===1?'':'s'} saved`;
+              }
+            })
+            .catch(() => {});
         };
         reader.readAsText(file, 'utf-8');
       });

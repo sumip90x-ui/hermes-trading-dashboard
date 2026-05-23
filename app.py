@@ -17,6 +17,7 @@ import os, sys, json, re, time, subprocess, threading, requests, logging, glob, 
 log = logging.getLogger('hermes_dashboard')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 from datetime import datetime, timezone
+import re
 from pathlib import Path
 from collections import defaultdict
 from flask import Flask, render_template, jsonify, request
@@ -41,7 +42,9 @@ HOME          = Path.home()
 REPORTS_DIR   = HOME / 'trading_reports'
 CANDLE_FILE   = REPORTS_DIR / 'candle_history.json'
 HOUSE_FILE    = REPORTS_DIR / 'house_money.json'
-JOURNEY_FILE  = HOME / 'Documents' / 'Trading Vault' / 'journey.json'
+JOURNEY_FILE      = HOME / 'Documents' / 'Trading Vault' / 'journey.json'
+FIDELITY_HISTORY  = HOME / 'Documents' / 'Trading Vault' / 'Fidelity_History'
+FIDELITY_HISTORY.mkdir(parents=True, exist_ok=True)
 EDGAR_CACHE   = REPORTS_DIR / 'edgar_score_cache.json'
 PORTFOLIO_CSV = HOME / 'portfolio.csv'
 
@@ -1550,6 +1553,33 @@ def api_upload_csv():
     dest = HOME / 'portfolio.csv'
     f.save(str(dest))
     return jsonify({'status':'saved', 'path': str(dest), 'size': dest.stat().st_size})
+
+@app.route('/api/portfolio/save_snapshot', methods=['POST'])
+def api_portfolio_save_snapshot():
+    """Save raw Fidelity CSV to Fidelity_History with timestamp filename for batch analysis."""
+    if 'file' not in request.files:
+        return jsonify({'error': 'no file'}), 400
+    f       = request.files['file']
+    ts      = datetime.now().strftime('%Y-%m-%d_%H%M%S')
+    # Use original filename date if it contains one (eg Portfolio_Positions_May-22-2026.csv)
+    orig    = f.filename or 'snapshot'
+    safe    = re.sub(r'[^\w.\-]', '_', orig)
+    fname   = f'fidelity_{ts}_{safe}'
+    dest    = FIDELITY_HISTORY / fname
+    f.save(str(dest))
+    # Also keep portfolio.csv updated as the latest
+    import shutil
+    shutil.copy2(str(dest), str(HOME / 'portfolio.csv'))
+    # Return list of all snapshots so frontend can show count
+    snaps   = sorted(FIDELITY_HISTORY.glob('fidelity_*.csv'), reverse=True)
+    return jsonify({
+        'status':    'saved',
+        'filename':  fname,
+        'path':      str(dest),
+        'size':      dest.stat().st_size,
+        'total_snapshots': len(snaps),
+        'all_snapshots':   [s.name for s in snaps[:20]]  # last 20
+    })
 
 # ── Background live updater ───────────────────────────────────────────────────
 
