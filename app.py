@@ -2605,6 +2605,39 @@ def _parse_fidelity_quick() -> dict:
 
 EDGAR_BASE = os.path.expanduser("~/Documents/EDGAR/companies")
 MIROSHARK_BASE = "http://localhost:5001"
+MIROSHARK_START_SCRIPT = str(Path.home() / 'Documents' / 'MiroShark' / 'start-miroshark.sh')
+
+@app.route('/api/research/miroshark_status')
+def api_miroshark_status():
+    """GET — check if MiroShark is running on port 5001."""
+    try:
+        r = requests.get(f"{MIROSHARK_BASE}/", timeout=3)
+        return jsonify({'running': True, 'status': 'online'})
+    except Exception:
+        return jsonify({'running': False, 'status': 'offline'})
+
+@app.route('/api/research/miroshark_start', methods=['POST'])
+def api_miroshark_start():
+    """POST — launch MiroShark in background via start-miroshark.sh."""
+    if not os.path.exists(MIROSHARK_START_SCRIPT):
+        return jsonify({'error': f'Start script not found: {MIROSHARK_START_SCRIPT}'}), 404
+    try:
+        # Check if already running
+        try:
+            requests.get(f"{MIROSHARK_BASE}/", timeout=2)
+            return jsonify({'status': 'already_running', 'msg': 'MiroShark is already online'})
+        except Exception:
+            pass
+        # Launch in background — detached so it outlives the request
+        subprocess.Popen(
+            ['bash', MIROSHARK_START_SCRIPT],
+            stdout=open(str(Path.home() / 'Documents' / 'MiroShark' / 'logs' / 'dashboard_launch.log'), 'a'),
+            stderr=subprocess.STDOUT,
+            start_new_session=True
+        )
+        return jsonify({'status': 'starting', 'msg': 'MiroShark starting — ready in ~30s'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/research/buy_suggestion/<ticker>')
 def api_research_buy_suggestion(ticker):
