@@ -182,7 +182,12 @@ def parse_fidelity_csv(filepath: str | Path) -> list[dict]:
     # Total G/L dollar is not directly available after the shift.
     # Derived as: total_gl = total_value - total_cost  (after aggregation).
 
-    df["_ticker"] = df["Account Name"].str.strip()
+    # Detect Sleeve Name format — some Fidelity exports include an extra
+    # "Sleeve Name" column that shifts the ticker to a different column.
+    if "Sleeve Name" in df.columns:
+        df["_ticker"] = df["Sleeve Name"].str.strip()
+    else:
+        df["_ticker"] = df["Account Name"].str.strip()
     df["_name"]   = df["Symbol"].str.strip()
     df["_qty"]    = df["Description"].apply(_parse_money)
     df["_price"]  = df["Quantity"].apply(_parse_money)
