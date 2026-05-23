@@ -1213,19 +1213,9 @@ class HermesChartMonitor {
     const short = alert.message.replace(/\*\*/g,'').split('.')[0]; // first sentence only
     addChat('system', short);
     updatePhasePanel();
-    if (alert.ask_hermes) {
-      const ctx = _curveAnalyzer ? _curveAnalyzer.toHermesContext() : '';
-      fetch('/api/chat', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({
-          message: alert.message + '\n\nRespond in ONE plain sentence, no markdown, no bullets. What is the single most important action right now?',
-          chart_context: ctx
-        })
-      }).then(r=>r.json()).then(d => {
-        if (d.reply) addChat('hermes', d.reply.split('\n')[0]); // first line only
-      });
-    }
+    // DO NOT auto-call /api/chat — auto-alerts are informational only.
+    // Claude gets the intelligence brief injected on every chat call which causes
+    // it to push buy signals aggressively. Ask Hermes yourself if you want input.
   }
 }
 
@@ -1307,7 +1297,7 @@ socket.on('edgar_progress', d => {
 });
 
 socket.on('hermes_proactive', d => {
-  addChat('hermes', `🤖 [${d.time}] ${d.message}`);
+  addChat('system', `[${d.time}] ${d.message}`);
   // Flash the chat tab if not already on it
   const chatTab = document.querySelector('.rpanel-tabs .tab');
   if (chatTab && !chatTab.classList.contains('active')) {

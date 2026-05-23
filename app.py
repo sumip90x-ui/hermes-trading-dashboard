@@ -2342,7 +2342,8 @@ def _proactive_brain():
                 continue
 
             socketio.emit('hermes_proactive', {'message': msg, 'time': datetime.now().strftime('%H:%M')})
-            CHAT_HISTORY.append({'role':'assistant','content':msg})
+            # Do NOT add to CHAT_HISTORY — proactive nudges are display-only,
+            # adding them poisons the chat context and causes Claude to continue the thread aggressively
             last_spoken = time.time()
 
         except Exception as e:
