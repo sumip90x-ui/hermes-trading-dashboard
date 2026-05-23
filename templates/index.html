@@ -2763,6 +2763,13 @@ async function loadEdgarTickers() {
         : score >= 12 ? '#00ff88'
         : score >= 6  ? '#f5a623'
         : '#ff6666';
+      // Fidelity G/L — this is the Alpaca budget ceiling for this ticker
+      const gl     = item.total_gl;
+      const glPct  = item.gl_pct;
+      const glStr  = gl !== null && gl !== undefined
+        ? `${gl >= 0 ? '+' : ''}$${Math.abs(gl).toFixed(0)}`
+        : '';
+      const glCol  = gl === null ? '' : gl >= 0 ? '#00ff88' : '#ff6666';
       return `
       <div style="display:flex;align-items:center;justify-content:space-between;
                   border-bottom:1px solid #0a1a0a;padding:3px 6px 3px 10px;"
@@ -2770,6 +2777,8 @@ async function loadEdgarTickers() {
            onmouseout="this.style.background=''">
         <span style="color:#88cc88;font-family:monospace;font-size:12px;cursor:pointer;flex:1;"
               onclick="loadFundamentals('${t}')">${t}</span>
+        ${glStr ? `<span style="font-family:monospace;font-size:9px;color:${glCol};
+                     margin-right:4px;white-space:nowrap;" title="Fidelity G/L — Alpaca budget cap">${glStr}</span>` : ''}
         <span style="font-family:monospace;font-size:10px;color:${scoreCol};
                      min-width:36px;text-align:right;margin-right:4px;">${scoreStr}</span>
         <button onclick="edgarRefreshTicker('${t}', this)"

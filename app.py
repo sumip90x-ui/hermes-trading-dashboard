@@ -2615,7 +2615,7 @@ def edgar_tickers():
 
 @app.route('/api/research/edgar-tickers-scored')
 def edgar_tickers_scored():
-    """Returns tickers with EDGAR scores for the Research tab left column."""
+    """Returns tickers with EDGAR scores and Fidelity G/L for the Research tab left column."""
     folders = glob.glob(os.path.join(EDGAR_BASE, "*"))
     tickers = sorted([os.path.basename(f) for f in folders
                if os.path.isfile(os.path.join(f, f"{os.path.basename(f)}_fundamentals.xlsx"))])
@@ -2626,13 +2626,40 @@ def edgar_tickers_scored():
             scores = json.loads(EDGAR_CACHE.read_text())
     except Exception:
         pass
+    # Load Fidelity G/L from latest snapshot
+    fid_gl = {}
+    try:
+        import sqlite3 as _sq
+        db_path = Path.home() / 'Documents' / 'Trading Vault' / 'Fidelity_History' / 'portfolio_history.db'
+        if db_path.exists():
+            conn = _sq.connect(str(db_path))
+            conn.row_factory = _sq.Row
+            latest = conn.execute("""
+                SELECT snapshot_id FROM snapshots
+                GROUP BY snapshot_id ORDER BY MAX(snapshot_date) DESC LIMIT 1
+            """).fetchone()
+            if latest:
+                for row in conn.execute("""
+                    SELECT symbol, total_gl, gl_pct FROM snapshots
+                    WHERE snapshot_id=?
+                """, (latest['snapshot_id'],)).fetchall():
+                    fid_gl[row['symbol']] = {
+                        'total_gl': round(row['total_gl'] or 0, 2),
+                        'gl_pct':   round(row['gl_pct']   or 0, 2),
+                    }
+            conn.close()
+    except Exception:
+        pass
     result = []
     for t in tickers:
         entry = scores.get(t, {})
+        gl    = fid_gl.get(t, {})
         result.append({
-            'sym':    t,
-            'score':  entry.get('score', None),
-            'sector': entry.get('sector', ''),
+            'sym':      t,
+            'score':    entry.get('score', None),
+            'sector':   entry.get('sector', ''),
+            'total_gl': gl.get('total_gl', None),
+            'gl_pct':   gl.get('gl_pct',   None),
         })
     return jsonify(result)
 
