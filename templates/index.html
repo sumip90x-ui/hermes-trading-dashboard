@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Hermes Trading Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.1.1/dist/chartjs-chart-financial.min.js"></script>
 <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
@@ -1149,7 +1150,7 @@ class HermesChartMonitor {
   constructor() {
     this.lastAlertPhase = null;
     this.lastAlertTime  = 0;
-    this.MIN_INTERVAL   = 5 * 60 * 1000; // 5 min
+    this.MIN_INTERVAL   = 15 * 60 * 1000; // 15 min
   }
 
   check() {
@@ -1208,18 +1209,21 @@ class HermesChartMonitor {
   }
 
   _sendAlert(alert) {
-    addChat('system', `[CHART MONITOR — ${alert.priority}] ${alert.message}`);
+    // Show a compact one-line system notice — no essay, no markdown
+    const short = alert.message.replace(/\*\*/g,'').split('.')[0]; // first sentence only
+    addChat('system', short);
     updatePhasePanel();
     if (alert.ask_hermes) {
-      // Ask Hermes to respond to this alert
-      const inp = document.getElementById('chat-in');
       const ctx = _curveAnalyzer ? _curveAnalyzer.toHermesContext() : '';
       fetch('/api/chat', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({message: alert.message + '\n\nGiven current phase (' + alert.type + '), what is the optimal response?', chart_context: ctx})
+        body: JSON.stringify({
+          message: alert.message + '\n\nRespond in ONE plain sentence, no markdown, no bullets. What is the single most important action right now?',
+          chart_context: ctx
+        })
       }).then(r=>r.json()).then(d => {
-        if (d.reply) addChat('hermes', d.reply);
+        if (d.reply) addChat('hermes', d.reply.split('\n')[0]); // first line only
       });
     }
   }
