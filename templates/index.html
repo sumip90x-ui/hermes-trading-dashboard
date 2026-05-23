@@ -150,15 +150,15 @@
 
   /* Priority Research cards */
   .pq-card { background:#0d1117; border:1px solid var(--border); border-radius:6px;
-             padding:9px 12px; display:flex; align-items:center; gap:8px; }
+             padding:8px 10px; display:flex; flex-direction:column; gap:4px; }
   .pq-card.has-excel  { border-left:3px solid #f5a623; }
   .pq-card.needs-dl   { border-left:3px solid #ff6666; }
   .pq-card.done       { border-left:3px solid var(--green); opacity:.7; }
   .pq-card.running    { border-left:3px solid #88ccff; }
-  .pq-sym  { font-weight:700; font-size:13px; width:54px; flex-shrink:0; }
-  .pq-meta { flex:1; font-size:10px; color:var(--muted); line-height:1.5; }
-  .pq-status { font-size:10px; min-width:80px; text-align:right; flex-shrink:0; }
-  .pq-btns { display:flex; gap:4px; flex-shrink:0; }
+  .pq-sym  { font-weight:700; font-size:13px; flex-shrink:0; }
+  .pq-meta { font-size:10px; color:var(--muted); line-height:1.4; }
+  .pq-status { font-size:10px; }
+  .pq-btns { display:flex; gap:4px; flex-wrap:wrap; }
   .pq-btn-edgar { padding:3px 8px; font-size:10px; font-weight:700; background:transparent;
                   color:#f5a623; border:1px solid #f5a623; border-radius:3px; cursor:pointer; }
   .pq-btn-edgar:hover { background:#f5a62322; }
@@ -320,6 +320,10 @@
   .port-pager-btn { height:26px; padding:0 10px; font-size:11px; border:1px solid var(--border); border-radius:5px; background:var(--panel); color:var(--text); cursor:pointer; }
   .port-pager-btn:hover { border-color:var(--gold); }
   .port-pager-btn:disabled { opacity:.4; cursor:default; }
+  /* ── Right panel tab labels ── */
+  .rpanel-tabs .tab { padding: 6px 8px; font-size: 11px; display:flex; flex-direction:column; align-items:center; gap:1px; }
+  .rtab-lbl { font-size: 9px; color: #3fb950; font-family: monospace; letter-spacing: .3px; }
+  .rpanel-tabs .tab.active .rtab-lbl { color: var(--blue); }
   /* ── Markets widget ── */
   .mkt-range-btn {
     background: #0a1a0a; border: 1px solid #2a4a2a; color: #446644;
@@ -802,7 +806,7 @@
         <div style="display:flex;flex:1;overflow:hidden;">
 
           <!-- Left: scrollable card grid -->
-          <div style="width:320px;flex-shrink:0;overflow-y:auto;padding:12px;border-right:1px solid var(--border);">
+          <div style="width:380px;flex-shrink:0;overflow-y:auto;padding:12px;border-right:1px solid var(--border);">
 
             <!-- Needs scoring section -->
             <div style="font-size:10px;font-weight:700;color:#f5a623;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;">
@@ -919,12 +923,12 @@
   <!-- RIGHT PANEL -->
   <div class="right-panel panel">
     <div class="rpanel-tabs">
-      <div class="tab active" onclick="switchPanel('chat',this)">💬</div>
-      <div class="tab" onclick="switchPanel('trade',this)">⚡</div>
-      <div class="tab" onclick="switchPanel('candle',this)">🕯</div>
-      <div class="tab" onclick="switchPanel('buys',this)">📋</div>
-      <div class="tab" onclick="switchPanel('journey',this)">🗺</div>
-      <div class="tab" onclick="switchPanel('markets',this)">📈</div>
+      <div class="tab active" onclick="switchPanel('chat',this)">💬 <span class="rtab-lbl">Chat</span></div>
+      <div class="tab" onclick="switchPanel('trade',this)">⚡ <span class="rtab-lbl">Trade</span></div>
+      <div class="tab" onclick="switchPanel('candle',this)">🕯 <span class="rtab-lbl">Candle</span></div>
+      <div class="tab" onclick="switchPanel('buys',this)">📋 <span class="rtab-lbl">Buys</span></div>
+      <div class="tab" onclick="switchPanel('journey',this)">🗺 <span class="rtab-lbl">Journey</span></div>
+      <div class="tab" onclick="switchPanel('markets',this)">📈 <span class="rtab-lbl">Markets</span></div>
     </div>
 
     <!-- CHAT -->
