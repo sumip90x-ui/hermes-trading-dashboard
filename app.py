@@ -497,6 +497,75 @@ def api_intelligence_brief():
     except Exception as exc:
         return jsonify({'error': str(exc), 'top_buys': [], 'sell_candidates': []}), 500
 
+
+@app.route('/api/intelligence/edgar_queue')
+def api_intelligence_edgar_queue():
+    """
+    GET /api/intelligence/edgar_queue
+    Returns symbols from recent Fidelity deviation signals that need EDGAR work.
+    Two buckets:
+      needs_scoring  — has Excel fundamentals file but no numeric score yet
+      needs_download — no Excel file at all, needs full EDGAR pipeline run
+    Sorted by deploy_amount descending so highest-conviction names come first.
+    """
+    try:
+        edgar_companies_dir = Path.home() / 'Documents' / 'EDGAR' / 'companies'
+        excel_syms = set()
+        if edgar_companies_dir.exists():
+            for sym_dir in edgar_companies_dir.iterdir():
+                xl = sym_dir / f'{sym_dir.name}_fundamentals.xlsx'
+                if xl.exists():
+                    excel_syms.add(sym_dir.name)
+
+        scored_syms = set()
+        try:
+            if EDGAR_CACHE.exists():
+                scored_syms = set(json.loads(EDGAR_CACHE.read_text()).keys())
+        except Exception:
+            pass
+
+        fid_signals = fidelity_db.get_buy_list_signals(limit=50)
+
+        needs_scoring  = []
+        needs_download = []
+        seen = set()
+
+        for sig in fid_signals:
+            sym = sig.get('sym', '')
+            if not sym or sym in seen:
+                continue
+            if sym in ('SGOL',) or '**' in sym:
+                continue
+            seen.add(sym)
+            entry = {
+                'sym':        sym,
+                'deploy':     round(sig.get('buy', 0), 2),
+                'direction':  sig.get('reason', ''),
+                'accts':      sig.get('accts', 0),
+            }
+            if sym in scored_syms:
+                continue  # already has score — skip
+            elif sym in excel_syms:
+                needs_scoring.append(entry)
+            else:
+                needs_download.append(entry)
+
+        # Also include any excel files that aren't scored yet (not in current signals)
+        for sym in sorted(excel_syms - scored_syms - seen):
+            needs_scoring.append({
+                'sym': sym, 'deploy': 0, 'direction': 'no recent signal', 'accts': 0
+            })
+
+        return jsonify({
+            'needs_scoring':  needs_scoring,
+            'needs_download': needs_download,
+            'total_excel':    len(excel_syms),
+            'total_scored':   len(scored_syms),
+            'total_gap':      len(excel_syms) - len(scored_syms),
+        })
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
 # ── Alpaca helpers — use Session so eventlet doesn't deadlock ─────────────────
 import urllib3
 _session = requests.Session()

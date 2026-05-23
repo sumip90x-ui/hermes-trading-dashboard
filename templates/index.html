@@ -608,6 +608,31 @@
           </div>
         </div>
 
+        <!-- ── EDGAR Research Queue ── -->
+        <div id="edgar-queue-panel" style="margin-top:1.5rem;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem;">
+            <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;">EDGAR Research Queue</div>
+            <span id="edgar-queue-gap" style="font-size:10px;color:#f5a623;"></span>
+          </div>
+
+          <!-- Needs scoring (has Excel, no score) -->
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em;">
+            ✓ Excel downloaded — needs scoring
+            <span style="color:#888;font-weight:400;text-transform:none;">&nbsp;(run EDGAR pipeline on these)</span>
+          </div>
+          <div id="edgar-needs-scoring" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px;">
+            <span style="color:var(--muted);font-size:11px;">Loading…</span>
+          </div>
+
+          <!-- Needs download (no Excel) -->
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em;">
+            ⬇ Needs full download + MiroShark simulation
+          </div>
+          <div id="edgar-needs-download" style="display:flex;flex-wrap:wrap;gap:5px;">
+            <span style="color:var(--muted);font-size:11px;">Loading…</span>
+          </div>
+        </div>
+
       </div><!-- end view-portfolio -->
 
   </div><!-- end chart-panel -->
@@ -2203,6 +2228,7 @@ function switchChart(view, el) {
     loadSimHistory();
   }
   if (view === 'portfolio') loadBacktest();
+  if (view === 'portfolio') loadEdgarQueue();
 }
 
 function switchPanel(panel, el) {
@@ -3178,6 +3204,50 @@ function loadBacktest() {
       const tbody = document.getElementById('backtest-tbody');
       if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="padding:8px;color:#ff4444;text-align:center;">Backtest unavailable</td></tr>';
     });
+}
+
+// ── EDGAR Research Queue ────────────────────────────────────────────────────
+function loadEdgarQueue() {
+  fetch('/api/intelligence/edgar_queue')
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) return;
+
+      const gap = document.getElementById('edgar-queue-gap');
+      if (gap) gap.textContent = `${data.total_scored}/${data.total_excel} scored — ${data.total_gap} remaining`;
+
+      function renderChips(elId, items, chipColor, hint) {
+        const el = document.getElementById(elId);
+        if (!el) return;
+        if (!items || !items.length) {
+          el.innerHTML = `<span style="color:var(--muted);font-size:11px;">${hint}</span>`;
+          return;
+        }
+        el.innerHTML = items.map(item => {
+          const deployStr = item.deploy > 0
+            ? `<span style="font-size:9px;opacity:.7;"> $${item.deploy.toFixed(0)}</span>` : '';
+          const acctStr = item.accts > 0
+            ? `<span style="font-size:9px;opacity:.6;"> ${item.accts}accts</span>` : '';
+          const dirColor = item.direction === 'PULLBACK' ? 'var(--green)'
+                         : item.direction === 'ACCELERATING' ? '#f5a623'
+                         : item.direction === 'RECOVERING' ? '#88ccff'
+                         : 'var(--muted)';
+          const dirStr = item.direction && item.direction !== 'no recent signal'
+            ? `<span style="font-size:9px;color:${dirColor};opacity:.8;"> ${item.direction}</span>` : '';
+          return `<div style="display:inline-flex;align-items:center;gap:2px;
+                       background:#1a1a1a;border:1px solid ${chipColor};
+                       border-radius:4px;padding:3px 8px;font-size:12px;
+                       font-weight:600;color:${chipColor};cursor:default;"
+                       title="${item.direction} | ${item.accts} accts | deploy $${item.deploy}">
+            ${item.sym}${deployStr}${acctStr}${dirStr}
+          </div>`;
+        }).join('');
+      }
+
+      renderChips('edgar-needs-scoring',  data.needs_scoring,  '#f5a623', 'All Excel files already scored');
+      renderChips('edgar-needs-download', data.needs_download, '#ff6666', 'All signal symbols have Excel files');
+    })
+    .catch(() => {});
 }
 </script>
         <div id="intel-modal-overlay" onclick="closeIntelModal(event)">
