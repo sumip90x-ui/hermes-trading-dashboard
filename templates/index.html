@@ -1499,8 +1499,10 @@ function updateATHDist(d) {
   const hi = d.intraday.length ? d.intraday.map(b=>b.v).reduce((a,b)=>Math.max(a,b),-Infinity) : 0;
   const dist = hi - d.ath_zone;
   const el = document.getElementById('ath_dist');
-  el.textContent = (dist>=0?'+':'') + '$'+dist.toFixed(2);
-  el.className = 'val ' + (dist>=0 ? 'green' : 'gold');
+  if (el) {
+    el.textContent = (dist>=0?'+':'') + '$'+dist.toFixed(2);
+    el.className = 'val ' + (dist>=0 ? 'green' : 'gold');
+  }
 
   if (d.intraday.length >= 2) {
     // Use reduce — Math.min/max(...largeArray) silently fails on 400+ element arrays
@@ -1508,8 +1510,7 @@ function updateATHDist(d) {
     const lo   = vals.reduce((a,b)=>Math.min(a,b), Infinity);
     const range = hi - lo;
     const rel = document.getElementById('range_val');
-    rel.textContent = '$'+range.toFixed(2);
-    rel.className = 'val ' + (range >= 5 ? 'green' : 'muted');
+    if (rel) { rel.textContent = '$'+range.toFixed(2); rel.className = 'val ' + (range >= 5 ? 'green' : 'muted'); }
     const open  = d.intraday[0].v;
     const close = d.intraday[d.intraday.length-1].v;
     // Populate OHLC bar
@@ -1543,8 +1544,8 @@ function buildIntradayChart(bars, athZone, ath, liveEquity) {
   const ma20vals = rollingMA(values, 20);
 
   // Find hi/lo bar indices for chart annotations
-  const hiIdx = values.indexOf(values.reduce((a,b,i,arr)=>b>arr[a]?i:a,0));
-  const loIdx = values.indexOf(values.reduce((a,b,i,arr)=>b<arr[a]?i:a,0));
+  let hiIdx = 0, loIdx = 0;
+  values.forEach((v,i) => { if (v > values[hiIdx]) hiIdx = i; if (v < values[loIdx]) loIdx = i; });
   const hiVal = values[hiIdx];
   const loVal = values[loIdx];
 
