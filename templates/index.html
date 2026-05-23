@@ -1712,7 +1712,9 @@ function _mergAndRender(edgarCandidates) {
           const tierClass   = 'im-tier-' + (best.confidence_tier || 'LOW');
           const streakBadge = best.streak >= 2
             ? `<span class="streak-badge" style="font-size:10px;">STREAK-${best.streak}</span>` : '';
-          const edgarStr    = best.edgar_score != null ? `${best.edgar_score}/18` : 'no data';
+          const edgarStr = best.edgar_score != null
+            ? `${best.edgar_score}/18`
+            : (best.edgar_has_data ? '✓ research file available (not yet scored)' : 'no data');
           const alreadyStr  = best.already_in_alpaca
             ? `<span style="color:#f5a623;">✓ in Alpaca ($${(best.current_alpaca_value||0).toFixed(2)})</span>`
             : '<span style="color:#666;">not held in Alpaca</span>';

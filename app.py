@@ -268,10 +268,22 @@ def _compute_brief(force: bool = False) -> dict:
 
     edgar_cache_data = {}
     edgar_cached_syms = 0
+    edgar_excel_syms  = set()
     try:
         if EDGAR_CACHE.exists():
             edgar_cache_data  = json.loads(EDGAR_CACHE.read_text())
             edgar_cached_syms = len(edgar_cache_data)
+    except Exception:
+        pass
+    # Also check EDGAR excel files — symbols with xlsx have research data even if not scored yet
+    try:
+        edgar_companies_dir = Path.home() / 'Documents' / 'EDGAR' / 'companies'
+        if edgar_companies_dir.exists():
+            for sym_dir in edgar_companies_dir.iterdir():
+                xl = sym_dir / f'{sym_dir.name}_fundamentals.xlsx'
+                if xl.exists():
+                    edgar_excel_syms.add(sym_dir.name)
+            edgar_cached_syms = max(edgar_cached_syms, len(edgar_excel_syms))
     except Exception:
         pass
 
@@ -326,6 +338,8 @@ def _compute_brief(force: bool = False) -> dict:
         conv_mult   = float(sig.get('conviction_multiplier', 1.0))
         ec          = edgar_cache_data.get(sym, {})
         edgar_score = ec.get('score', None)
+        # If no numeric score but excel file exists, note it so modal shows "EDGAR ✓ research available"
+        edgar_has_data = edgar_score is not None or sym in edgar_excel_syms
         wr          = _wr(direction)
         wr_factor   = _WIN_RATE_FACTORS.get(direction, 1.0)
 
@@ -355,6 +369,7 @@ def _compute_brief(force: bool = False) -> dict:
             'direction':             direction,
             'win_rate':              round(wr, 1),
             'edgar_score':           edgar_score,
+            'edgar_has_data':        edgar_has_data,
             'accts':                 accts,
             'streak':                streak,
             'budget_ceiling':        round(budget_ceil, 2),
@@ -374,6 +389,8 @@ def _compute_brief(force: bool = False) -> dict:
     sell_candidates = []
     for sym, pos in positions.items():
         if sym == 'SGOL':
+            continue
+        if pos['market_value'] < 1.10:   # skip marker/stub positions
             continue
         unreal_pct = pos['unrealized_plpc']
         fid_dir    = next((s.get('reason') for s in fid_signals if s.get('sym') == sym), None)
