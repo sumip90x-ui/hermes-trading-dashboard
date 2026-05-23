@@ -568,7 +568,7 @@
     </div><!-- end chart-body -->
 
       <!-- RESEARCH PANEL — sibling to view-intraday/candles/positions -->
-      <div id="view-research" style="display:none; height:calc(100vh - 180px); overflow:hidden;">
+      <div id="view-research" style="display:none; flex:1; min-height:0; overflow:hidden;">
 
         <!-- EDGAR run bar — always visible at top of Research tab -->
         <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;
@@ -648,7 +648,7 @@
       <!-- ══════════════════════════════════════════════════════════════ -->
       <!-- PORTFOLIO TAB — Fidelity CSV aggregator (read-only)          -->
       <!-- ══════════════════════════════════════════════════════════════ -->
-      <div id="view-portfolio" style="display:none; height:calc(100vh - 180px); overflow-y:auto; overflow-x:hidden; padding:16px; background:var(--bg); color:var(--text);">
+      <div id="view-portfolio" style="display:none; flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; padding:16px; background:var(--bg); color:var(--text);">
 
         <!-- Header row -->
         <div class="port-hdr">
@@ -784,7 +784,7 @@
       <!-- ══════════════════════════════════════════════════════════ -->
       <!-- PRIORITY RESEARCH TAB                                      -->
       <!-- ══════════════════════════════════════════════════════════ -->
-      <div id="view-priority" style="display:none; height:calc(100vh - 180px); overflow:hidden; flex-direction:column; background:var(--bg);">
+      <div id="view-priority" style="display:none; flex:1; min-height:0; overflow:hidden; flex-direction:column; background:var(--bg);">
 
         <!-- Header bar -->
         <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--border);flex-shrink:0;background:#0d1117;">
@@ -919,12 +919,12 @@
   <!-- RIGHT PANEL -->
   <div class="right-panel panel">
     <div class="rpanel-tabs">
-      <div class="tab active" onclick="switchPanel('chat',this)">💬 Hermes</div>
-      <div class="tab" onclick="switchPanel('trade',this)">⚡ Trade</div>
-      <div class="tab" onclick="switchPanel('candle',this)">🕯 Candle</div>
-      <div class="tab" onclick="switchPanel('buys',this)">📋 Buys</div>
-      <div class="tab" onclick="switchPanel('journey',this)">🗺 Journey</div>
-      <div class="tab" onclick="switchPanel('markets',this)">📈 Markets</div>
+      <div class="tab active" onclick="switchPanel('chat',this)">💬</div>
+      <div class="tab" onclick="switchPanel('trade',this)">⚡</div>
+      <div class="tab" onclick="switchPanel('candle',this)">🕯</div>
+      <div class="tab" onclick="switchPanel('buys',this)">📋</div>
+      <div class="tab" onclick="switchPanel('journey',this)">🗺</div>
+      <div class="tab" onclick="switchPanel('markets',this)">📈</div>
     </div>
 
     <!-- CHAT -->
@@ -2567,16 +2567,17 @@ function switchChart(view, el) {
   const buyPanel   = document.querySelector('.buy-panel');
   const fullWidth  = view === 'research' || view === 'portfolio' || view === 'priority';
   const grid = document.querySelector('.grid');
+  const chartBody = document.querySelector('.chart-body');
   if (fullWidth) {
     if (rightPanel) rightPanel.style.display = 'none';
     if (buyPanel)   buyPanel.style.display   = 'none';
-    // chart-panel stays visible — it contains the full-width views
-    // Just remove its fixed column so it spans the full grid
+    if (chartBody)  chartBody.style.display  = 'none';
     if (chartPanel) { chartPanel.style.gridColumn = '1 / -1'; chartPanel.style.gridRow = '2 / 4'; }
     if (grid) { grid.style.gridTemplateColumns = '1fr'; grid.style.gridTemplateRows = '95px 1fr'; }
   } else {
     if (rightPanel) rightPanel.style.display = '';
     if (buyPanel)   { buyPanel.style.display = ''; buyPanel.style.gridColumn = ''; }
+    if (chartBody)  chartBody.style.display  = '';
     if (chartPanel) { chartPanel.style.gridColumn = ''; chartPanel.style.gridRow = ''; }
     if (grid) { grid.style.gridTemplateColumns = ''; grid.style.gridTemplateRows = ''; }
   }
