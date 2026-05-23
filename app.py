@@ -20,7 +20,8 @@ from datetime import datetime, timezone
 import re
 from pathlib import Path
 from collections import defaultdict
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, Blueprint
+import fidelity_db
 from flask_socketio import SocketIO, emit
 
 sys.path.insert(0, str(Path.home()))
@@ -52,6 +53,66 @@ PORTFOLIO_CSV = HOME / 'portfolio.csv'
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'hermes-trading-dashboard'
 socketio = SocketIO(app, cors_allowed_origins='*', async_mode='threading')
+
+# ── Fidelity portfolio history blueprint ─────────────────────────────────────
+portfolio_bp = Blueprint('portfolio', __name__, url_prefix='/api/portfolio/history')
+
+@portfolio_bp.route('/snapshots', methods=['GET'])
+def route_snapshots():
+    try:
+        data = fidelity_db.get_snapshots()
+        return jsonify({'status':'ok','count':len(data),'snapshots':data})
+    except Exception as exc:
+        return jsonify({'status':'error','message':str(exc)}), 500
+
+@portfolio_bp.route('/deviations', methods=['GET'])
+def route_deviations():
+    try:
+        snapshot_id = request.args.get('snapshot_id') or None
+        data = fidelity_db.get_deviations(snapshot_id)
+        used_id = data[0]['curr_snapshot_id'] if data else snapshot_id
+        return jsonify({'status':'ok','snapshot_id':used_id,'count':len(data),'deviations':data})
+    except Exception as exc:
+        return jsonify({'status':'error','message':str(exc)}), 500
+
+@portfolio_bp.route('/symbol/<symbol>', methods=['GET'])
+def route_symbol_history(symbol):
+    try:
+        data = fidelity_db.get_symbol_history(symbol.upper().strip())
+        return jsonify({'status':'ok','symbol':symbol.upper(),'count':len(data),'history':data})
+    except Exception as exc:
+        return jsonify({'status':'error','message':str(exc)}), 500
+
+@portfolio_bp.route('/summary', methods=['GET'])
+def route_summary():
+    try:
+        data = fidelity_db.get_summary()
+        return jsonify({'status':'ok',**data})
+    except Exception as exc:
+        return jsonify({'status':'error','message':str(exc)}), 500
+
+@portfolio_bp.route('/ingest', methods=['POST'])
+def route_ingest():
+    if 'file' not in request.files:
+        return jsonify({'status':'error','message':'No file field'}), 400
+    f = request.files['file']
+    if not f.filename or not f.filename.lower().endswith('.csv'):
+        return jsonify({'status':'error','message':'Must be a .csv file'}), 400
+    vault = fidelity_db.VAULT_DIR
+    vault.mkdir(parents=True, exist_ok=True)
+    save_path = vault / f.filename
+    f.save(str(save_path))
+    if fidelity_db.filename_already_ingested(f.filename):
+        snaps = fidelity_db.get_snapshots()
+        existing = next((s for s in snaps if s['filename'] == f.filename), None)
+        return jsonify({'status':'duplicate','message':f'{f.filename} already ingested','snapshot':existing})
+    try:
+        result = fidelity_db.ingest_snapshot(save_path)
+        return jsonify({'status':'ok',**result})
+    except Exception as exc:
+        return jsonify({'status':'error','message':str(exc)}), 500
+
+app.register_blueprint(portfolio_bp)
 
 # ── Alpaca helpers — use Session so eventlet doesn't deadlock ─────────────────
 import urllib3
