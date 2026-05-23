@@ -495,7 +495,14 @@
           <span id="phase-detail" style="font-size:10px;color:var(--muted)"></span>
         </div>
         <canvas id="intradayChart" height="340"></canvas>
-        <div style="text-align:center;margin-top:6px;font-size:11px;color:var(--muted)" id="intraday_label">Loading...</div>
+        <div id="intraday_label" style="display:flex;gap:16px;justify-content:center;padding:3px 8px;font-size:11px;font-family:monospace;flex-shrink:0">
+          <span style="color:var(--muted)">O: <span id="il_open" style="color:#c9d1d9">—</span></span>
+          <span style="color:#3fb950">H: <span id="il_high">—</span></span>
+          <span style="color:#f85149">L: <span id="il_low">—</span></span>
+          <span style="color:var(--muted)">C: <span id="il_close" style="color:#c9d1d9">—</span></span>
+          <span style="color:var(--muted)">Rng: <span id="il_range" style="color:#d4a017">—</span></span>
+          <span style="color:var(--muted)">Bars: <span id="il_bars" style="color:#8b949e">—</span></span>
+        </div>
         <!-- HERMES SEES panel -->
         <div id="hermes-sees" style="margin:6px 0 0;background:#0d1117;border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:10px;font-family:monospace;color:var(--muted);line-height:1.6;display:none">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
@@ -1503,13 +1510,19 @@ function updateATHDist(d) {
     const rel = document.getElementById('range_val');
     rel.textContent = '$'+range.toFixed(2);
     rel.className = 'val ' + (range >= 5 ? 'green' : 'muted');
-    const open  = d.intraday[0].v.toFixed(2);
-    const close = d.intraday[d.intraday.length-1].v.toFixed(2);
-    const hiStr = hi.toFixed(2);
-    const loStr = lo.toFixed(2);
-    const label = document.getElementById('intraday_label');
-    label.textContent = `O:$${open}  H:$${hiStr}  L:$${loStr}  C:$${close}  |  Range: $${range.toFixed(2)}`;
-    label.style.display = '';
+    const open  = d.intraday[0].v;
+    const close = d.intraday[d.intraday.length-1].v;
+    // Populate OHLC bar
+    const s = v => '$' + v.toFixed(2);
+    document.getElementById('il_open').textContent  = s(open);
+    document.getElementById('il_high').textContent  = s(hi);
+    document.getElementById('il_low').textContent   = s(lo);
+    document.getElementById('il_close').textContent = s(close);
+    document.getElementById('il_range').textContent = s(range);
+    document.getElementById('il_bars').textContent  = vals.length;
+    // Color close vs open
+    const closeEl = document.getElementById('il_close');
+    closeEl.style.color = close >= open ? '#3fb950' : '#f85149';
   }
 }
 
@@ -1528,6 +1541,12 @@ function buildIntradayChart(bars, athZone, ath, liveEquity) {
   }
   const ma5vals  = rollingMA(values, 5);
   const ma20vals = rollingMA(values, 20);
+
+  // Find hi/lo bar indices for chart annotations
+  const hiIdx = values.indexOf(values.reduce((a,b,i,arr)=>b>arr[a]?i:a,0));
+  const loIdx = values.indexOf(values.reduce((a,b,i,arr)=>b<arr[a]?i:a,0));
+  const hiVal = values[hiIdx];
+  const loVal = values[loIdx];
 
   if (intradayChart) intradayChart.destroy();
   intradayChart = new Chart(ctx, {
@@ -1578,20 +1597,54 @@ function buildIntradayChart(bars, athZone, ath, liveEquity) {
           position: 'top',
           labels: { color: '#8b949e', font: {size: 10}, boxWidth: 20, padding: 8 }
         },
-        annotation: {
-          annotations: {
-            ath: {
-              type:'line', yMin:ath, yMax:ath,
-              borderColor:'rgba(212,160,23,0.6)', borderWidth:1, borderDash:[5,5],
-              label:{content:'ATH', display:true, position:'end', color:'#d4a017', font:{size:10}}
-            },
-            athZone: {
-              type:'line', yMin:athZone, yMax:athZone,
-              borderColor:'rgba(63,185,80,0.4)', borderWidth:1, borderDash:[3,3],
-              label:{content:'TRIGGER', display:true, position:'end', color:'#3fb950', font:{size:10}}
+          annotation: {
+            annotations: {
+              ath: {
+                type:'line', yMin:ath, yMax:ath,
+                borderColor:'rgba(212,160,23,0.6)', borderWidth:1, borderDash:[5,5],
+                label:{content:'ATH', display:true, position:'end', color:'#d4a017', font:{size:10}}
+              },
+              athZone: {
+                type:'line', yMin:athZone, yMax:athZone,
+                borderColor:'rgba(63,185,80,0.4)', borderWidth:1, borderDash:[3,3],
+                label:{content:'TRIGGER', display:true, position:'end', color:'#3fb950', font:{size:10}}
+              },
+              hiPoint: {
+                type: 'point',
+                xValue: labels[hiIdx],
+                yValue: hiVal,
+                radius: 5,
+                backgroundColor: '#3fb950',
+                borderColor: '#3fb950',
+                label: {
+                  content: 'H $' + hiVal.toFixed(2),
+                  display: true,
+                  position: 'top',
+                  color: '#3fb950',
+                  font: { size: 10, weight: 'bold' },
+                  backgroundColor: 'rgba(13,17,23,0.85)',
+                  padding: 3
+                }
+              },
+              loPoint: {
+                type: 'point',
+                xValue: labels[loIdx],
+                yValue: loVal,
+                radius: 5,
+                backgroundColor: '#f85149',
+                borderColor: '#f85149',
+                label: {
+                  content: 'L $' + loVal.toFixed(2),
+                  display: true,
+                  position: 'bottom',
+                  color: '#f85149',
+                  font: { size: 10, weight: 'bold' },
+                  backgroundColor: 'rgba(13,17,23,0.85)',
+                  padding: 3
+                }
+              }
             }
           }
-        }
       },
       scales: {
         x: { type:'time', time:{unit:'minute',displayFormats:{minute:'HH:mm'}},
