@@ -3465,6 +3465,59 @@ def api_macro_advisory():
 def api_macro_signal():
     return jsonify(_MACRO_CACHE)
 
+
+@app.route('/api/markets/quote')
+def api_markets_quote():
+    """
+    Proxy Yahoo Finance chart data for the Markets widget.
+    Params: sym (Yahoo symbol, URL-encoded), range, interval
+    Returns: {price, change_pct, change_amt, closes[], timestamps[]}
+
+    ⚠ COMMODITY PRICE WARNING — LLM training data is stale.
+    Gold is often hallucinated at ~$1,800-$2,100, silver at ~$22-$30.
+    All prices here are fetched LIVE from Yahoo Finance — never use LLM-suggested prices.
+    """
+    import urllib.request as _ur, json as _json
+    sym      = request.args.get('sym', '')
+    rng      = request.args.get('range', '1mo')
+    interval = request.args.get('interval', '1d')
+    if not sym:
+        return jsonify({'error': 'sym required'}), 400
+    try:
+        url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}"
+               f"?interval={interval}&range={rng}")
+        req = _ur.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with _ur.urlopen(req, timeout=10) as resp:
+            data = _json.loads(resp.read().decode())
+        result = data['chart']['result'][0]
+        meta   = result['meta']
+        closes_raw = result['indicators']['quote'][0].get('close', [])
+        closes = [c for c in closes_raw if c is not None]
+        timestamps = result.get('timestamp', [])
+
+        price      = meta.get('regularMarketPrice')
+        prev_close = meta.get('previousClose') or meta.get('chartPreviousClose')
+        change_amt = (price - prev_close) if (price and prev_close) else None
+        change_pct = (change_amt / prev_close * 100) if (change_amt and prev_close) else None
+
+        return jsonify({
+            'sym':        sym,
+            'name':       meta.get('shortName') or meta.get('symbol', sym),
+            'price':      price,
+            'prev_close': prev_close,
+            'change_amt': round(change_amt, 4) if change_amt else None,
+            'change_pct': round(change_pct, 4) if change_pct else None,
+            'closes':     [round(c, 4) for c in closes],
+            'timestamps': timestamps,
+            'currency':   meta.get('currency', 'USD'),
+            'market_state': meta.get('marketState', ''),
+            'range':      rng,
+            'interval':   interval,
+        })
+    except Exception as e:
+        log.error(f'[markets/quote] {sym}: {e}')
+        return jsonify({'error': str(e), 'sym': sym}), 500
+
 # ── Launch ────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)

@@ -320,6 +320,30 @@
   .port-pager-btn { height:26px; padding:0 10px; font-size:11px; border:1px solid var(--border); border-radius:5px; background:var(--panel); color:var(--text); cursor:pointer; }
   .port-pager-btn:hover { border-color:var(--gold); }
   .port-pager-btn:disabled { opacity:.4; cursor:default; }
+  /* ── Markets widget ── */
+  .mkt-range-btn {
+    background: #0a1a0a; border: 1px solid #2a4a2a; color: #446644;
+    font-family: monospace; font-size: 9px; padding: 2px 6px;
+    cursor: pointer; border-radius: 3px; transition: all .15s;
+  }
+  .mkt-range-btn:hover { border-color: var(--green); color: var(--green); }
+  .mkt-range-btn.active { background: #1a3a1a; border-color: var(--green); color: var(--green); font-weight:700; }
+  .mkt-card {
+    background: #0a1a0a; border: 1px solid #1a3a1a; border-radius:5px;
+    padding: 6px 8px; display:flex; flex-direction:column; gap:3px;
+  }
+  .mkt-card-header { display:flex; justify-content:space-between; align-items:center; }
+  .mkt-card-name   { font-size:10px; color:#8b949e; font-family:monospace; }
+  .mkt-card-price  { font-size:13px; font-weight:700; color:#c9d1d9; font-family:monospace; }
+  .mkt-card-chg    { font-size:10px; font-family:monospace; }
+  .mkt-card-chg.up   { color: var(--green); }
+  .mkt-card-chg.down { color: var(--red); }
+  .mkt-card-chg.flat { color: var(--muted); }
+  .mkt-sparkline   { width:100%; height:36px; }
+  .mkt-section-hdr {
+    font-size:9px; color:#446644; font-family:monospace; letter-spacing:2px;
+    padding: 4px 0 2px; border-bottom:1px solid #1a3a1a; margin-top:4px;
+  }
 </style>
 </head>
 <body>
@@ -900,6 +924,7 @@
       <div class="tab" onclick="switchPanel('candle',this)">🕯 Candle</div>
       <div class="tab" onclick="switchPanel('buys',this)">📋 Buys</div>
       <div class="tab" onclick="switchPanel('journey',this)">🗺 Journey</div>
+      <div class="tab" onclick="switchPanel('markets',this)">📈 Markets</div>
     </div>
 
     <!-- CHAT -->
@@ -1022,6 +1047,35 @@
       <!-- Envelope grid -->
       <div id="journey-grid" style="display:grid;grid-template-columns:repeat(10,1fr);gap:3px"></div>
 
+    </div>
+
+    <!-- MARKETS -->
+    <div class="rpanel-content" id="panel-markets" style="display:none;padding:8px;overflow-y:auto">
+
+      <!-- Header + time range selector -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-shrink:0">
+        <span style="font-size:11px;color:var(--gold);font-family:monospace;letter-spacing:1px">📈 MARKETS</span>
+        <div style="display:flex;gap:3px" id="mkt-range-btns">
+          <button class="mkt-range-btn active" data-range="1d"  onclick="setMktRange('1d',this)">1D</button>
+          <button class="mkt-range-btn"        data-range="5d"  onclick="setMktRange('5d',this)">5D</button>
+          <button class="mkt-range-btn"        data-range="1mo" onclick="setMktRange('1mo',this)">1M</button>
+          <button class="mkt-range-btn"        data-range="3mo" onclick="setMktRange('3mo',this)">3M</button>
+          <button class="mkt-range-btn"        data-range="6mo" onclick="setMktRange('6mo',this)">6M</button>
+          <button class="mkt-range-btn"        data-range="1y"  onclick="setMktRange('1y',this)">1Y</button>
+        </div>
+      </div>
+
+      <!-- Market status -->
+      <div id="mkt-status" style="font-size:9px;color:var(--muted);font-family:monospace;margin-bottom:6px;text-align:right"></div>
+
+      <!-- Instrument cards -->
+      <div id="mkt-cards" style="display:flex;flex-direction:column;gap:6px">
+        <div style="color:var(--muted);font-size:11px;text-align:center;padding:20px">Loading...</div>
+      </div>
+
+      <div style="font-size:9px;color:var(--muted);margin-top:8px;text-align:center;font-family:monospace">
+        Data: Yahoo Finance · Gold/Oil delayed 10 min · LLM prices are stale — always fetch live
+      </div>
     </div>
 
   </div>
@@ -2535,7 +2589,7 @@ function switchChart(view, el) {
 }
 
 function switchPanel(panel, el) {
-  ['chat','trade','candle','buys','journey'].forEach(p => {
+  ['chat','trade','candle','buys','journey','markets'].forEach(p => {
     document.getElementById(`panel-${p}`).style.display = p===panel ? '' : 'none';
   });
   document.querySelectorAll('.rpanel-tabs .tab').forEach(t => t.classList.remove('active'));
@@ -4171,6 +4225,167 @@ function launchMiroShark() {
       if (btn) { btn.textContent = '🔬 MiroShark'; btn.disabled = false; }
     });
 }
+
+// ── Markets Widget ─────────────────────────────────────────────────────────────
+(function() {
+  const INSTRUMENTS = [
+    { section: 'INDICES' },
+    { sym: '%5EDJI',  name: 'Dow Jones',   type: 'index' },
+    { sym: '%5EIXIC', name: 'Nasdaq',      type: 'index' },
+    { sym: '%5EGSPC', name: 'S&P 500',     type: 'index' },
+    { section: 'COMMODITIES' },
+    { sym: 'GC%3DF',  name: 'Gold',        type: 'commodity', unit: '/oz'  },
+    { sym: 'SI%3DF',  name: 'Silver',      type: 'commodity', unit: '/oz'  },
+    { sym: 'CL%3DF',  name: 'Crude Oil',   type: 'commodity', unit: '/bbl' },
+    { sym: 'HG%3DF',  name: 'Copper',      type: 'commodity', unit: '/lb'  },
+    { section: 'RATES & CRYPTO' },
+    { sym: '%5ETNX',  name: 'US 10Y Yield',type: 'rate',  unit: '%'   },
+    { sym: 'BTC-USD', name: 'Bitcoin',     type: 'crypto'              },
+  ];
+
+  let _mktRange  = '1mo';   // default 1 month
+  let _mktCharts = {};      // sym → Chart instance
+  let _mktLoaded = false;
+
+  window.setMktRange = function(range, btn) {
+    _mktRange = range;
+    document.querySelectorAll('.mkt-range-btn').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    loadMarkets();
+  };
+
+  window.loadMarkets = async function() {
+    const cards = document.getElementById('mkt-cards');
+    if (!cards) return;
+    cards.innerHTML = '<div style="color:var(--muted);font-size:11px;text-align:center;padding:12px">Fetching live data...</div>';
+    _mktCharts = {};
+
+    const items = [];
+    for (const inst of INSTRUMENTS) {
+      if (inst.section) { items.push({ section: inst.section }); continue; }
+      try {
+        const d = await fetchMktData(inst.sym, _mktRange);
+        items.push({ ...inst, ...d });
+      } catch(e) {
+        items.push({ ...inst, error: e.toString() });
+      }
+    }
+    renderMktCards(items);
+
+    const st = document.getElementById('mkt-status');
+    if (st) st.textContent = 'Updated ' + new Date().toLocaleTimeString();
+  };
+
+  async function fetchMktData(sym, range) {
+    // Map range to Yahoo Finance interval
+    const intervalMap = {
+      '1d': '5m', '5d': '30m', '1mo': '1d',
+      '3mo': '1d', '6mo': '1wk', '1y': '1wk'
+    };
+    const interval = intervalMap[range] || '1d';
+    const url = `/api/markets/quote?sym=${sym}&range=${range}&interval=${interval}`;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(r.statusText);
+    return await r.json();
+  }
+
+  function renderMktCards(items) {
+    const cards = document.getElementById('mkt-cards');
+    cards.innerHTML = '';
+
+    for (const item of items) {
+      if (item.section) {
+        const hdr = document.createElement('div');
+        hdr.className = 'mkt-section-hdr';
+        hdr.textContent = item.section;
+        cards.appendChild(hdr);
+        continue;
+      }
+
+      const card = document.createElement('div');
+      card.className = 'mkt-card';
+
+      const price     = item.price;
+      const chgPct    = item.change_pct;
+      const chgAmt    = item.change_amt;
+      const closes    = item.closes || [];
+      const isRate    = item.type === 'rate';
+      const unit      = item.unit || '';
+
+      const priceStr = price != null
+        ? (isRate ? price.toFixed(3) + '%' : '$' + price.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}))
+        : '—';
+
+      let chgClass = 'flat', chgStr = '—';
+      if (chgPct != null) {
+        chgClass = chgPct > 0 ? 'up' : chgPct < 0 ? 'down' : 'flat';
+        const sign = chgPct > 0 ? '+' : '';
+        const amtStr = chgAmt != null ? (isRate ? '' : ` (${sign}$${Math.abs(chgAmt).toFixed(2)})`) : '';
+        chgStr = `${sign}${chgPct.toFixed(2)}%${amtStr}`;
+      }
+
+      // Sparkline canvas id
+      const canvasId = 'mkt-spark-' + item.sym.replace(/[^a-zA-Z0-9]/g,'_');
+
+      card.innerHTML = `
+        <div class="mkt-card-header">
+          <span class="mkt-card-name">${item.name}${unit ? ' <span style="font-size:8px;color:#446644">('+unit+')</span>' : ''}</span>
+          <span class="mkt-card-chg ${chgClass}">${chgStr}</span>
+        </div>
+        <div class="mkt-card-price">${priceStr}</div>
+        ${item.error ? `<div style="font-size:9px;color:var(--red)">Error: ${item.error}</div>` : ''}
+        ${closes.length > 1 ? `<canvas id="${canvasId}" class="mkt-sparkline"></canvas>` : ''}
+      `;
+      cards.appendChild(card);
+
+      // Draw sparkline after DOM insertion
+      if (closes.length > 1) {
+        requestAnimationFrame(() => drawSparkline(canvasId, closes, chgPct));
+      }
+    }
+  }
+
+  function drawSparkline(id, closes, chgPct) {
+    const canvas = document.getElementById(id);
+    if (!canvas) return;
+    const color = chgPct > 0 ? '#3fb950' : chgPct < 0 ? '#f85149' : '#8b949e';
+    if (_mktCharts[id]) { _mktCharts[id].destroy(); }
+    _mktCharts[id] = new Chart(canvas.getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: closes.map((_,i) => i),
+        datasets: [{ data: closes, borderColor: color, borderWidth: 1.5,
+          pointRadius: 0, fill: {target:'origin', above: color+'18', below: color+'18'},
+          tension: 0.3 }]
+      },
+      options: {
+        animation: false, responsive: false,
+        plugins: { legend: {display:false}, tooltip: {enabled:false} },
+        scales: {
+          x: {display:false},
+          y: {display:false}
+        }
+      }
+    });
+  }
+
+  // Auto-load when tab is clicked
+  const origSwitchPanel = window.switchPanel;
+  window.switchPanel = function(panel, el) {
+    origSwitchPanel(panel, el);
+    if (panel === 'markets' && !_mktLoaded) {
+      _mktLoaded = true;
+      loadMarkets();
+    }
+  };
+
+  // Refresh every 60s when tab is visible
+  setInterval(() => {
+    const mkPanel = document.getElementById('panel-markets');
+    if (mkPanel && mkPanel.style.display !== 'none') loadMarkets();
+  }, 60000);
+
+})();
 </script>
         <div id="intel-modal-overlay" onclick="closeIntelModal(event)">
           <div id="intel-modal">
