@@ -114,6 +114,38 @@
   .streak-badge { display:inline-block; font-size:9px; font-weight:700; padding:1px 5px;
                   border-radius:3px; margin-left:4px; background:#f5a62333; color:#f5a623;
                   border:1px solid #f5a623; vertical-align:middle; }
+
+  #best-signal-btn { padding:4px 12px; font-size:11px; font-weight:700;
+                     background:transparent; color:#f5a623;
+                     border:1px solid #f5a623; border-radius:4px;
+                     cursor:pointer; letter-spacing:.04em; }
+  #best-signal-btn:hover   { background:#f5a62322; }
+  #best-signal-btn.loading { opacity:0.5; cursor:default; }
+  #intel-modal-overlay { display:none; position:fixed; inset:0;
+                         background:rgba(0,0,0,0.75); z-index:9999;
+                         align-items:center; justify-content:center; }
+  #intel-modal-overlay.visible { display:flex; }
+  #intel-modal { background:#1a1a1a; border:1px solid #f5a623;
+                 border-radius:8px; padding:24px; max-width:420px;
+                 width:90%; font-size:13px; color:#e0e0e0; }
+  #intel-modal h3 { margin:0 0 16px; font-size:15px; color:#f5a623; }
+  #intel-modal .im-row { display:flex; justify-content:space-between;
+                         margin:6px 0; border-bottom:1px solid #2a2a2a; padding-bottom:6px; }
+  #intel-modal .im-label { color:#888; font-size:11px; }
+  #intel-modal .im-value { font-weight:600; }
+  #intel-modal .im-reasoning { margin:12px 0; font-size:12px; color:#aaa; line-height:1.5; }
+  #intel-modal .im-tier-HIGH   { color:var(--green); }
+  #intel-modal .im-tier-MEDIUM { color:#f5a623; }
+  #intel-modal .im-tier-LOW    { color:#ff6666; }
+  #intel-modal .im-buttons { display:flex; gap:10px; margin-top:16px; }
+  #intel-modal .im-execute { flex:1; padding:10px; font-size:13px; font-weight:700;
+                              background:#f5a62322; color:#f5a623;
+                              border:1px solid #f5a623; border-radius:4px; cursor:pointer; }
+  #intel-modal .im-execute:hover { background:#f5a62344; }
+  #intel-modal .im-cancel { flex:1; padding:10px; font-size:13px; background:transparent;
+                             color:#666; border:1px solid #444; border-radius:4px; cursor:pointer; }
+  #intel-modal .im-cancel:hover { background:#222; color:#aaa; }
+  #intel-modal .im-empty { text-align:center; color:#666; padding:16px 0; font-size:13px; }
   .br-sym  { font-weight: 700; font-size: 13px; width: 58px; }
   .br-amt  { color: var(--green); font-size: 13px; font-weight: 600; width: 56px; }
   .br-accts { color: var(--muted); font-size: 11px; width: 46px; }
@@ -263,6 +295,7 @@
         <div class="lbl">CASH</div>
       </div>
       <button class="ath-badge waiting" id="ath_badge" onclick="badgeClick()" title="Click for Hermes analysis">ATH WATCH</button>
+      <button id="best-signal-btn" onclick="openBestSignal()" title="Run convergence score — show best trade now">⚡ BEST SIGNAL</button>
       <div id="macro_signal_badge" style="padding:4px 10px;font-size:11px;font-family:monospace;
            border:1px solid #333;border-radius:4px;cursor:pointer;white-space:nowrap"
            onclick="openMacroAdvisory()"
@@ -1624,7 +1657,144 @@ function _mergAndRender(edgarCandidates) {
   _renderCandidates(combined);
 }
 
-function loadCandidates() {
+        // ── Intelligence brief + BEST SIGNAL ──────────────────────────────
+
+        function openBestSignal() {
+          const btn = document.getElementById('best-signal-btn');
+          if (btn) { btn.classList.add('loading'); btn.textContent = '⚡ Loading…'; }
+          const overlay = document.getElementById('intel-modal-overlay');
+          const content = document.getElementById('intel-modal-content');
+          if (overlay) overlay.classList.add('visible');
+          if (content) content.innerHTML = '<div class="im-empty">Assembling signals…</div>';
+          fetch('/api/intelligence/brief')
+            .then(r => r.json())
+            .then(data => {
+              if (btn) { btn.classList.remove('loading'); btn.textContent = '⚡ BEST SIGNAL'; }
+              _renderIntelModal(data);
+            })
+            .catch(err => {
+              if (btn) { btn.classList.remove('loading'); btn.textContent = '⚡ BEST SIGNAL'; }
+              const c = document.getElementById('intel-modal-content');
+              if (c) c.innerHTML = '<div class="im-empty" style="color:#ff6666;">Error: ' + err.message + '</div>';
+            });
+        }
+
+        function closeIntelModal(evt) {
+          if (evt && evt.target.id !== 'intel-modal-overlay') return;
+          const el = document.getElementById('intel-modal-overlay');
+          if (el) el.classList.remove('visible');
+        }
+
+        function _renderIntelModal(data) {
+          const content = document.getElementById('intel-modal-content');
+          if (!content) return;
+          const buys   = data.top_buys || [];
+          const sells  = data.sell_candidates || [];
+          const regime = data.macro_quadrant || 'UNKNOWN';
+          const cash   = data.cash_available || 0;
+          const fresh  = data.data_freshness || {};
+
+          const best = buys.find(b => b.confidence_tier === 'HIGH')
+                    || buys.find(b => b.confidence_tier === 'MEDIUM')
+                    || buys[0] || null;
+
+          if (!best) {
+            content.innerHTML = `
+              <div class="im-empty">No high-confidence signals right now.</div>
+              <div style="margin-top:12px;font-size:11px;color:#555;">
+                Regime: ${regime} | Cash: $${cash.toFixed(2)}<br>
+                Fidelity: ${fresh.fidelity_snapshots||0} snapshots, latest ${fresh.fidelity_latest||'none'}<br>
+                ${fresh.macro_stale ? '<span style="color:#ff6666;">⚠ Macro data stale</span>' : ''}
+              </div>`;
+            return;
+          }
+
+          const tierClass   = 'im-tier-' + (best.confidence_tier || 'LOW');
+          const streakBadge = best.streak >= 2
+            ? `<span class="streak-badge" style="font-size:10px;">STREAK-${best.streak}</span>` : '';
+          const edgarStr    = best.edgar_score != null ? `${best.edgar_score}/18` : 'no data';
+          const alreadyStr  = best.already_in_alpaca
+            ? `<span style="color:#f5a623;">✓ in Alpaca ($${(best.current_alpaca_value||0).toFixed(2)})</span>`
+            : '<span style="color:#666;">not held in Alpaca</span>';
+          const sellHtml = sells.length
+            ? `<div style="margin-top:10px;padding:8px;background:#1e1e1e;border-radius:4px;font-size:11px;">
+                <span style="color:#888;">TRIM WATCH:</span> ` +
+              sells.slice(0,3).map(s => `${s.sym} +${s.unrealized_pct.toFixed(1)}%`).join(', ') +
+              `</div>` : '';
+          const warnings = [];
+          if (!fresh.fidelity_snapshots) warnings.push('⚠ No Fidelity data');
+          if (fresh.macro_stale)         warnings.push('⚠ Macro stale');
+          if (!fresh.edgar_cached_symbols) warnings.push('⚠ No EDGAR cache');
+          const warnHtml = warnings.length
+            ? `<div style="color:#ff9944;font-size:10px;margin-top:8px;">${warnings.join(' &nbsp; ')}</div>` : '';
+
+          const safeAmt = best.final_deploy.toFixed(2);
+          const safeReasoning = best.reasoning.replace(/'/g, "\\'").replace(/"/g, '\\"');
+          content.innerHTML = `
+            <div class="im-row">
+              <span class="im-label">SYMBOL</span>
+              <span class="im-value" style="font-size:16px;">${best.sym} ${streakBadge}</span>
+            </div>
+            <div class="im-row">
+              <span class="im-label">DEPLOY</span>
+              <span class="im-value" style="color:var(--green);">$${safeAmt}</span>
+            </div>
+            <div class="im-row">
+              <span class="im-label">DIRECTION</span>
+              <span class="im-value">${best.direction} &nbsp;<span class="${tierClass}">${best.confidence_tier}</span></span>
+            </div>
+            <div class="im-row">
+              <span class="im-label">WIN RATE</span>
+              <span class="im-value">${best.win_rate}% historical</span>
+            </div>
+            <div class="im-row">
+              <span class="im-label">EDGAR</span>
+              <span class="im-value">${edgarStr}</span>
+            </div>
+            <div class="im-row">
+              <span class="im-label">REGIME</span>
+              <span class="im-value">${regime} (${best.regime_multiplier}x)</span>
+            </div>
+            <div class="im-row">
+              <span class="im-label">FIDELITY</span>
+              <span class="im-value">${best.accts} accounts, ceiling $${best.budget_ceiling.toFixed(2)}</span>
+            </div>
+            <div class="im-row">
+              <span class="im-label">ALPACA</span>
+              <span class="im-value">${alreadyStr}</span>
+            </div>
+            <div class="im-reasoning">${best.reasoning}</div>
+            ${sellHtml}${warnHtml}
+            <div style="font-size:10px;color:#555;margin-top:6px;">
+              Cash: $${cash.toFixed(2)} | ${fresh.fidelity_snapshots||0} Fidelity snapshots
+            </div>
+            <div class="im-buttons">
+              <button class="im-execute"
+                onclick="executeIntelSignal('${best.sym}',${safeAmt})">
+                ⚡ EXECUTE — Buy ${best.sym} $${safeAmt}
+              </button>
+              <button class="im-cancel"
+                onclick="document.getElementById('intel-modal-overlay').classList.remove('visible')">
+                Cancel
+              </button>
+            </div>`;
+        }
+
+        function executeIntelSignal(sym, amount) {
+          document.getElementById('intel-modal-overlay').classList.remove('visible');
+          switchPanel('chat', document.querySelector('.rpanel-tabs .tab'));
+          const msg = `Execute best signal: buy ${sym} for $${amount} notional. Please confirm and execute now.`;
+          const inp = document.getElementById('chat-input');
+          const btn = document.getElementById('chat-send');
+          if (inp && btn) {
+            inp.value = msg;
+            btn.click();
+          } else {
+            addChat('system', `⚡ Best signal queued: BUY ${sym} $${amount}`);
+          }
+        }
+
+        function loadCandidates() {
   document.getElementById('candidates-body').innerHTML = '<tr><td colspan="7" style="color:var(--muted);text-align:center">Loading...</td></tr>';
   const edgarFetch  = fetch('/api/buy_candidates').then(r => r.json()).catch(() => []);
   const fidFetch    = fetch('/api/fidelity/buy_signals').then(r => r.json()).catch(() => []);
@@ -3008,5 +3178,13 @@ function loadBacktest() {
     });
 }
 </script>
-</body>
+        <div id="intel-modal-overlay" onclick="closeIntelModal(event)">
+          <div id="intel-modal">
+            <h3>⚡ Best Signal</h3>
+            <div id="intel-modal-content">
+              <div class="im-empty">Loading…</div>
+            </div>
+          </div>
+        </div>
+        </body>
 </html>

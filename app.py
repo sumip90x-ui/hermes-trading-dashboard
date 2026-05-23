@@ -18,6 +18,7 @@ log = logging.getLogger('hermes_dashboard')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 from datetime import datetime, timezone
 import re
+import time
 from pathlib import Path
 from collections import defaultdict
 from flask import Flask, render_template, jsonify, request, Blueprint
@@ -108,6 +109,8 @@ def route_ingest():
         return jsonify({'status':'duplicate','message':f'{f.filename} already ingested','snapshot':existing})
     try:
         result = fidelity_db.ingest_snapshot(save_path)
+        _brief_cache.clear()   # invalidate intelligence brief cache after new CSV
+        _brief_cache_ts = 0.0
         return jsonify({'status':'ok',**result})
     except Exception as exc:
         return jsonify({'status':'error','message':str(exc)}), 500
@@ -139,6 +142,343 @@ def api_fidelity_backtest():
         return jsonify(fidelity_db.backtest_signals())
     except Exception as exc:
         return jsonify({'error': str(exc)}), 500
+
+# ── Intelligence brief system ─────────────────────────────────────────────────
+
+_WIN_RATE_FACTORS = {
+    'PULLBACK':      1.30,
+    'ACCELERATING':  1.15,
+    'DETERIORATING': 0.90,
+    'RECOVERING':    0.80,
+    'STABLE':        1.00,
+}
+_WIN_RATES = {
+    'PULLBACK':      65.6,
+    'ACCELERATING':  58.5,
+    'DETERIORATING': 46.0,
+    'RECOVERING':    44.0,
+    'STABLE':        50.0,
+}
+_REGIME_MULTIPLIERS = {
+    'CHEAP':      1.20,
+    'RISK-ON':    1.00,
+    'FLIGHT':     0.70,
+    'OVERHEATED': 0.30,
+    'NEUTRAL':    1.00,
+}
+_HARVEST_THRESHOLDS = {
+    'CHEAP':      15.0,
+    'RISK-ON':    12.0,
+    'FLIGHT':      5.0,
+    'OVERHEATED':  8.0,
+    'NEUTRAL':    10.0,
+}
+_brief_cache: dict = {}
+_BRIEF_CACHE_TTL  = 600  # 10 minutes
+_brief_cache_ts   = 0.0
+
+
+def _edgar_bonus(base: float, edgar_score) -> float:
+    if edgar_score is None:
+        return base
+    if edgar_score >= 12:
+        return base * 1.20
+    if edgar_score >= 6:
+        return base * 1.10
+    return base
+
+
+def _confidence_tier(win_rate: float, edgar_score) -> str:
+    if win_rate > 60 and edgar_score is not None and edgar_score >= 10:
+        return 'HIGH'
+    if win_rate > 50 or (edgar_score is not None and edgar_score >= 6):
+        return 'MEDIUM'
+    return 'LOW'
+
+
+def _build_reasoning(sym, direction, win_rate, edgar_score, regime, accts):
+    parts = [f'{direction} signal ({win_rate:.0f}% hist. win rate, {accts} Fidelity accts)']
+    if edgar_score is not None:
+        parts.append(f'EDGAR {edgar_score}/18')
+    parts.append(f'regime: {regime}')
+    return f'{sym} — ' + ', '.join(parts) + '.'
+
+
+def _get_macro_data_for_brief() -> dict:
+    """Read from the global _MACRO_CACHE — updated_at is HH:MM string."""
+    try:
+        q          = _MACRO_CACHE.get('quadrant', 'NEUTRAL')
+        updated_at = _MACRO_CACHE.get('updated_at')  # HH:MM string or None
+        if updated_at:
+            try:
+                now = datetime.now()
+                h, m = map(int, updated_at.split(':'))
+                cache_dt = now.replace(hour=h, minute=m, second=0, microsecond=0)
+                age_min  = (now - cache_dt).total_seconds() / 60
+                if age_min < 0:
+                    age_min += 1440  # handle midnight wrap
+                stale = age_min > 30
+                if stale:
+                    q = 'NEUTRAL'
+            except Exception:
+                age_min, stale = 999, True
+                q = 'NEUTRAL'
+        else:
+            age_min, stale = 999, True
+            q = 'NEUTRAL'
+        return {
+            'quadrant':        q,
+            'equity_rank':     _MACRO_CACHE.get('equity_rank', 50.0),
+            'hard_asset_rank': _MACRO_CACHE.get('hard_rank', 50.0),
+            'age_minutes':     round(age_min, 1),
+            'stale':           stale,
+        }
+    except Exception:
+        return {'quadrant': 'NEUTRAL', 'equity_rank': 50.0,
+                'hard_asset_rank': 50.0, 'age_minutes': 999, 'stale': True}
+
+
+def _compute_brief(force: bool = False) -> dict:
+    global _brief_cache, _brief_cache_ts
+    now_ts = time.time()
+    if not force and _brief_cache and (now_ts - _brief_cache_ts) < _BRIEF_CACHE_TTL:
+        return _brief_cache
+
+    generated_at = datetime.now(timezone.utc).isoformat()
+
+    try:
+        fid_signals = fidelity_db.get_buy_list_signals(limit=30)
+    except Exception:
+        fid_signals = []
+
+    try:
+        streak_data = fidelity_db.get_hot_streaks(min_streak=2)
+        streak_map  = {s['symbol']: s['streak_length'] for s in streak_data}
+    except Exception:
+        streak_map = {}
+
+    try:
+        bt        = fidelity_db.backtest_signals()
+        win_rates = {r['direction']: r['win_rate_pct'] for r in bt.get('by_direction', [])}
+    except Exception:
+        win_rates = {}
+
+    def _wr(direction):
+        return win_rates.get(direction, _WIN_RATES.get(direction, 50.0))
+
+    edgar_cache_data = {}
+    edgar_cached_syms = 0
+    try:
+        if EDGAR_CACHE.exists():
+            edgar_cache_data  = json.loads(EDGAR_CACHE.read_text())
+            edgar_cached_syms = len(edgar_cache_data)
+    except Exception:
+        pass
+
+    macro        = _get_macro_data_for_brief()
+    regime       = macro['quadrant']
+    reg_mult     = _REGIME_MULTIPLIERS.get(regime, 1.0)
+    harvest_thr  = _HARVEST_THRESHOLDS.get(regime, 10.0)
+
+    try:
+        acct_raw  = alpaca('/v2/account')
+        cash      = float(acct_raw.get('cash', 0))
+        equity    = float(acct_raw.get('equity', 0)) or 1.0
+    except Exception:
+        cash, equity = 0.0, 1200.0
+
+    try:
+        positions_raw = alpaca('/v2/positions')
+        positions = {}
+        for p in positions_raw:
+            sym = p.get('symbol', '')
+            if sym:
+                positions[sym] = {
+                    'market_value':    float(p.get('market_value', 0)),
+                    'unrealized_plpc': float(p.get('unrealized_plpc', 0)) * 100,
+                    'avg_entry_price': float(p.get('avg_entry_price', 0)),
+                    'current_price':   float(p.get('current_price', 0)),
+                }
+    except Exception:
+        positions = {}
+
+    try:
+        snap_list          = fidelity_db.get_snapshots()
+        fid_snapshot_count = len(snap_list)
+        fid_latest         = snap_list[0]['snapshot_date'][:10] if snap_list else 'none'
+    except Exception:
+        fid_snapshot_count, fid_latest = 0, 'none'
+
+    budget_remaining = cash * 0.80
+    top_buys = []
+
+    for sig in fid_signals:
+        sym = sig.get('sym', '')
+        if not sym:
+            continue
+        if sym in ('SGOL', 'FZFXX', 'FZFXX**') or 'MONEY MARKET' in sym.upper():
+            continue
+
+        direction   = sig.get('reason', 'STABLE')
+        base_deploy = float(sig.get('buy', 0))
+        budget_ceil = float(sig.get('budget_ceiling', base_deploy))
+        accts       = int(sig.get('accts', 1))
+        conv_mult   = float(sig.get('conviction_multiplier', 1.0))
+        ec          = edgar_cache_data.get(sym, {})
+        edgar_score = ec.get('score', None)
+        wr          = _wr(direction)
+        wr_factor   = _WIN_RATE_FACTORS.get(direction, 1.0)
+
+        adjusted = base_deploy * wr_factor * reg_mult
+        adjusted = _edgar_bonus(adjusted, edgar_score)
+        adjusted = min(adjusted, budget_ceil)
+        adjusted = min(adjusted, budget_remaining)
+        adjusted = min(adjusted, 50.0)
+
+        if adjusted < 1.10:
+            continue
+
+        pos_data          = positions.get(sym, {})
+        already_in_alpaca = sym in positions
+        current_alpaca_val = pos_data.get('market_value') if already_in_alpaca else None
+
+        if already_in_alpaca:
+            if pos_data['market_value'] / equity * 100 > 15.0:
+                continue
+
+        streak = streak_map.get(sym, 0)
+
+        top_buys.append({
+            'sym':                   sym,
+            'final_deploy':          round(adjusted, 2),
+            'base_deploy':           round(base_deploy, 2),
+            'direction':             direction,
+            'win_rate':              round(wr, 1),
+            'edgar_score':           edgar_score,
+            'accts':                 accts,
+            'streak':                streak,
+            'budget_ceiling':        round(budget_ceil, 2),
+            'conviction_multiplier': round(conv_mult, 2),
+            'regime_multiplier':     reg_mult,
+            'confidence_tier':       _confidence_tier(wr, edgar_score),
+            'already_in_alpaca':     already_in_alpaca,
+            'current_alpaca_value':  current_alpaca_val,
+            'reasoning':             _build_reasoning(sym, direction, wr, edgar_score, regime, accts),
+        })
+        budget_remaining -= adjusted
+        if budget_remaining < 1.10:
+            break
+
+    top_buys.sort(key=lambda x: -x['final_deploy'])
+
+    sell_candidates = []
+    for sym, pos in positions.items():
+        if sym == 'SGOL':
+            continue
+        unreal_pct = pos['unrealized_plpc']
+        fid_dir    = next((s.get('reason') for s in fid_signals if s.get('sym') == sym), None)
+        rec = 'HOLD'
+        if unreal_pct > harvest_thr:
+            rec = f'TRIM — above {harvest_thr:.0f}% harvest threshold ({regime} regime)'
+        elif fid_dir == 'ACCELERATING' and unreal_pct > 5.0:
+            rec = 'TRIM — Fidelity ACCELERATING signal, consider partial profit'
+        if rec != 'HOLD':
+            sell_candidates.append({
+                'sym':               sym,
+                'alpaca_value':      round(pos['market_value'], 2),
+                'unrealized_pct':    round(unreal_pct, 2),
+                'fidelity_direction':fid_dir,
+                'recommendation':    rec,
+            })
+    sell_candidates.sort(key=lambda x: -x['unrealized_pct'])
+
+    if top_buys:
+        top3 = ', '.join(f"{b['sym']} ${b['final_deploy']:.2f} {b['direction']}" for b in top_buys[:3])
+        buys_sentence = f'Top signals: {top3}.'
+    else:
+        buys_sentence = 'No deployable signals after filters.'
+
+    sell_sentence = (
+        'Trim watch: ' + ', '.join(s['sym'] for s in sell_candidates[:3]) + '.'
+        if sell_candidates else 'No positions above harvest threshold.'
+    )
+
+    result = {
+        'generated_at':   generated_at,
+        'macro_quadrant': regime,
+        'cash_available': round(cash, 2),
+        'data_freshness': {
+            'fidelity_snapshots':   fid_snapshot_count,
+            'fidelity_latest':      fid_latest,
+            'edgar_cached_symbols': edgar_cached_syms,
+            'macro_age_minutes':    macro['age_minutes'],
+            'macro_stale':          macro['stale'],
+        },
+        'top_buys':        top_buys[:10],
+        'sell_candidates': sell_candidates,
+        'summary_text': (
+            f'Regime {regime} — {buys_sentence} '
+            f'{sell_sentence} ${cash:.2f} cash available.'
+        ),
+    }
+    _brief_cache    = result
+    _brief_cache_ts = now_ts
+    return result
+
+
+def _build_hermes_intelligence_block() -> str:
+    """≤400-char intelligence summary injected into every Hermes chat message."""
+    try:
+        brief    = _compute_brief()
+        regime   = brief.get('macro_quadrant', 'UNKNOWN')
+        cash     = brief.get('cash_available', 0.0)
+        buys     = brief.get('top_buys', [])
+        sells    = brief.get('sell_candidates', [])
+        ts       = brief.get('generated_at', '')[:16].replace('T', ' ')
+
+        buy_parts = []
+        for b in buys[:3]:
+            edgar_str = f' EDGAR {b["edgar_score"]}/18' if b['edgar_score'] else ''
+            buy_parts.append(
+                f'{b["sym"]} ${b["final_deploy"]:.2f} {b["direction"]}'
+                f' ({b["win_rate"]:.0f}%wr, {b["accts"]}accts{edgar_str})'
+            )
+
+        sell_str = (
+            ', '.join(f'{s["sym"]} +{s["unrealized_pct"]:.0f}%' for s in sells[:2])
+            if sells else 'none above threshold'
+        )
+
+        block = (
+            f'\nINTELLIGENCE BRIEF ({ts}):\n'
+            f'Regime: {regime}\n'
+            f'Top signals: {" | ".join(buy_parts) if buy_parts else "none"}\n'
+            f'Sell watch: {sell_str}\n'
+            f'Cash: ${cash:.2f}\n'
+        )
+
+        while len(block) > 400 and buy_parts:
+            buy_parts.pop()
+            block = (
+                f'\nINTELLIGENCE BRIEF ({ts}):\n'
+                f'Regime: {regime}\n'
+                f'Top signals: {" | ".join(buy_parts) if buy_parts else "none"}\n'
+                f'Sell watch: {sell_str}\n'
+                f'Cash: ${cash:.2f}\n'
+            )
+        return block
+    except Exception:
+        return '\nINTELLIGENCE BRIEF: unavailable\n'
+
+
+@app.route('/api/intelligence/brief')
+def api_intelligence_brief():
+    try:
+        force  = request.args.get('force', '0') == '1'
+        result = _compute_brief(force=force)
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({'error': str(exc), 'top_buys': [], 'sell_candidates': []}), 500
 
 # ── Alpaca helpers — use Session so eventlet doesn't deadlock ─────────────────
 import urllib3
@@ -1090,6 +1430,7 @@ def api_chat():
             "If the last assistant message proposed specific sells and buys and Sumith says anything like "
             "'do it' or 'execute' — those are the orders to place RIGHT NOW."
         )
+        ctx += _build_hermes_intelligence_block()
     except Exception as e:
         ctx = f"[LIVE CONTEXT ERROR: {e}]"
 
