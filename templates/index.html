@@ -2652,7 +2652,7 @@ function fetchProfitBasket() {
       const f = portParseCSVLine(lines[i]);
       if (f.length < 4) continue;
       const acct = f[acctIdx] || '';
-      if (!/^[A-Z]\d+/.test(acct)) continue;
+      if (!/^[A-Z0-9]/i.test(acct) || acct.length < 6) continue;
       acctSet.add(acct);
       const sym = symIdx >= 0 ? (f[symIdx] || '').trim() : '';
       if (!sym || sym === 'Symbol') continue;
