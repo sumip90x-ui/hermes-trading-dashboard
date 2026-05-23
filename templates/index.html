@@ -2277,7 +2277,7 @@ function switchChart(view, el) {
     const p = document.getElementById(`view-${v}`);
     if (p) {
       if (v === view) {
-        p.style.display = (v === 'research' || v === 'priority') ? 'flex' : '';
+        p.style.display = (v === 'priority') ? 'flex' : '';
       } else {
         p.style.display = 'none';
       }
