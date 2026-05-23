@@ -478,7 +478,28 @@
 
       <!-- RESEARCH PANEL — sibling to view-intraday/candles/positions -->
       <div id="view-research" style="display:none; height:calc(100vh - 180px); overflow:hidden;">
-        <div style="display:flex; height:100%; gap:0;">
+
+        <!-- EDGAR run bar — always visible at top of Research tab -->
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;
+                    background:#060e06;border-bottom:1px solid #1a3a1a;flex-shrink:0;">
+          <span style="font-size:10px;color:#ffaa00;font-family:monospace;letter-spacing:1px;white-space:nowrap;">⚡ EDGAR</span>
+          <input type="text" id="research-edgar-sym"
+                 placeholder="Type ticker (LDOS, BRKB, ADP...)"
+                 style="flex:1;max-width:220px;background:#0a1a0a;border:1px solid #2a4a2a;
+                        color:#88cc88;font-family:monospace;font-size:11px;padding:3px 8px;
+                        border-radius:3px;outline:none;"
+                 onkeydown="if(event.key==='Enter') researchRunEdgar()">
+          <button onclick="researchRunEdgar()"
+                  style="background:#0a2a0a;border:1px solid #00ff88;color:#00ff88;
+                         font-family:monospace;font-size:10px;padding:3px 12px;
+                         cursor:pointer;border-radius:3px;white-space:nowrap;">
+            ▶ Run EDGAR
+          </button>
+          <span id="research-edgar-status"
+                style="font-size:10px;color:#446644;font-family:monospace;flex:1;"></span>
+        </div>
+
+        <div style="display:flex; height:calc(100% - 36px); gap:0;">
 
           <!-- LEFT: EDGAR fundamentals -->
           <div style="width:160px; min-width:160px; background:#060e06; border-right:1px solid #1a3a1a; display:flex; flex-direction:column;">
@@ -1137,11 +1158,40 @@ socket.on('candle_trade_result', d => {
 
 socket.on('edgar_result', d => {
   const r = document.getElementById('edgar-result');
-  if (d.error) { r.textContent = `Error: ${d.error}`; return; }
-  r.innerHTML = `<b style="color:var(--gold)">${d.ticker}</b> Score: <b>${d.score}/18</b><br>
+  if (d.error) { if (r) r.textContent = `Error: ${d.error}`; return; }
+  if (r) r.innerHTML = `<b style="color:var(--gold)">${d.ticker}</b> Score: <b>${d.score}/18</b><br>
     GM: ${d.gm ? d.gm.toFixed(0)+'%' : 'N/A'} | NM: ${d.nm ? d.nm.toFixed(0)+'%' : 'N/A'}<br>
     <span style="color:var(--muted)">${d.reasons || ''}</span>`;
+  // Update Research tab status bar
+  const rs = document.getElementById('research-edgar-status');
+  if (rs) {
+    if (d.error) {
+      rs.style.color = '#ff6666';
+      rs.textContent = `✗ ${d.ticker}: ${d.error}`;
+    } else {
+      rs.style.color = '#00ff88';
+      rs.textContent = `✓ ${d.ticker} scored ${d.score}/18 — ${d.reasons || 'see Trade panel'}`;
+      // Refresh the left ticker list so new symbol appears
+      loadEdgarTickers();
+      // Refresh Priority Research queue if visible
+      if (typeof loadPriorityQueue === 'function') loadPriorityQueue();
+    }
+  }
   loadCandidates(); // refresh the buy list
+});
+
+socket.on('edgar_progress', d => {
+  const rs = document.getElementById('research-edgar-status');
+  if (rs) {
+    rs.style.color = '#88ccff';
+    rs.textContent = `⟳ ${d.ticker}: ${d.msg || d.status}`;
+  }
+  // Also update priority research card if visible
+  const pqSt = document.getElementById(`pq-card-${d.ticker}`);
+  if (pqSt) {
+    const st = pqSt.querySelector('.pq-status');
+    if (st) st.innerHTML = `<span style="color:#88ccff;">⟳ ${d.status}…</span>`;
+  }
 });
 
 socket.on('hermes_proactive', d => {
@@ -2196,6 +2246,23 @@ function runEdgar() {
   document.getElementById('edgar-result').textContent = `Pulling EDGAR data for ${sym}...`;
   fetch('/api/run_edgar',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({ticker:sym})});
+}
+
+function researchRunEdgar() {
+  const inp = document.getElementById('research-edgar-sym');
+  const sym = (inp ? inp.value.trim().toUpperCase() : '');
+  if (!sym) return;
+  const status = document.getElementById('research-edgar-status');
+  if (status) status.textContent = `⟳ Running EDGAR pipeline for ${sym}...`;
+  if (inp) inp.value = '';
+  fetch('/api/run_edgar', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ticker: sym})})
+  .then(r => r.json())
+  .then(d => {
+    if (d.error && status) status.textContent = `✗ ${sym}: ${d.error}`;
+    // result arrives via edgar_result socket event
+  })
+  .catch(e => { if (status) status.textContent = `✗ Error: ${e.message}`; });
 }
 
 function uploadCSV() {

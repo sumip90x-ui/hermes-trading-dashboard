@@ -1280,25 +1280,38 @@ def api_run_candle_trade():
 
 @app.route('/api/run_edgar', methods=['POST'])
 def api_run_edgar():
-    """Score a single ticker via EDGAR in background."""
-    ticker = request.json.get('ticker','').upper()
+    """Score a single ticker via EDGAR in background. Full pipeline: download + score + cache + emit."""
+    ticker = request.json.get('ticker','').upper().strip()
     if not ticker:
         return jsonify({'error': 'no ticker'}), 400
     def _run():
         script = str(HOME / 'Documents' / 'EDGAR' / 'edgar_download.py')
-        subprocess.run(['python3', script, ticker], capture_output=True,
-                       text=True, timeout=120,
-                       cwd=str(HOME / 'Documents' / 'EDGAR'))
-        # Re-score from md
+        # Emit start
+        socketio.emit('edgar_progress', {'ticker': ticker, 'status': 'downloading', 'msg': f'Downloading EDGAR data for {ticker}...'})
+        result = subprocess.run(
+            ['python3', script, ticker],
+            capture_output=True, text=True,
+            timeout=300,   # 5 min — some tickers need more time
+            cwd=str(HOME / 'Documents' / 'EDGAR')
+        )
+        if result.returncode != 0:
+            socketio.emit('edgar_result', {'ticker': ticker, 'error': result.stderr[-300:] or 'download failed'})
+            return
+        # Score from generated .md file
+        socketio.emit('edgar_progress', {'ticker': ticker, 'status': 'scoring', 'msg': f'Scoring {ticker} fundamentals...'})
         sys.path.insert(0, str(HOME))
         try:
             from portfolio_candle import score_from_md, load_edgar_cache, save_edgar_cache
-            result = score_from_md(ticker)
-            result['fetched_at'] = datetime.now().isoformat()
+            scored = score_from_md(ticker)
+            scored['fetched_at'] = datetime.now().isoformat()
             cache = load_edgar_cache()
-            cache[ticker] = result
+            cache[ticker] = scored
             save_edgar_cache(cache)
-            socketio.emit('edgar_result', {'ticker': ticker, **result})
+            # Invalidate intelligence brief cache
+            global _brief_cache, _brief_cache_ts
+            _brief_cache    = {}
+            _brief_cache_ts = 0.0
+            socketio.emit('edgar_result', {'ticker': ticker, **scored})
         except Exception as e:
             socketio.emit('edgar_result', {'ticker': ticker, 'error': str(e)})
     threading.Thread(target=_run, daemon=True).start()
