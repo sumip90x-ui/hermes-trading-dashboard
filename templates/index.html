@@ -3061,6 +3061,49 @@ function openMacroAdvisory() {
       Total: <strong style="color:#e6edf3">$${total.toFixed(2)}</strong> of $${d.cash} cash
     </div>`;
     document.getElementById('modal-suggestions').innerHTML = html;
+
+    // ── Fidelity deviation signals section ────────────────────────────────
+    // Fetch in parallel — appended below the existing suggestions
+    fetch('/api/fidelity/buy_signals')
+      .then(r => r.json())
+      .then(signals => {
+        if (!Array.isArray(signals) || !signals.length) return;
+        // Apply regime filter — skip ACCELERATING in OVERHEATED, skip all in OVERHEATED unless HIGH
+        const regimeBlock = d.quadrant === 'OVERHEATED';
+        const filtered = signals.filter(s => {
+          if (regimeBlock) return false;
+          if (d.quadrant === 'FLIGHT' && s.reason === 'PULLBACK') return true;
+          return true;
+        }).slice(0, 5);
+        if (!filtered.length) return;
+
+        let fidHtml = `<div style="padding:6px 16px 3px;font-size:10px;color:#4a9eff;
+                           letter-spacing:1px;border-top:1px solid #21262d;margin-top:4px;">
+                           📊 FIDELITY DEVIATION SIGNALS</div>`;
+        filtered.forEach(s => {
+          const dirCol = s.reason === 'PULLBACK'     ? '#3fb950'
+                       : s.reason === 'RECOVERING'   ? '#4a9eff'
+                       : s.reason === 'ACCELERATING' ? '#f5a623'
+                       : '#8b949e';
+          const tier   = s.combined >= 12 ? `<span style="color:#3fb950;font-size:9px;margin-left:4px;">HIGH</span>`
+                       : s.combined >= 8  ? `<span style="color:#f5a623;font-size:9px;margin-left:4px;">MED</span>`
+                       : '';
+          fidHtml += `<div style="display:flex;align-items:center;padding:6px 16px;
+                                  border-bottom:1px solid #161b22;gap:8px;">
+            <span style="color:#e6edf3;font-weight:700;min-width:50px;font-size:13px">${s.sym}${tier}</span>
+            <span style="color:${dirCol};font-size:11px;flex:1">${s.reason} · ${s.accts} accts</span>
+            <span style="color:#3fb950;font-weight:700;min-width:50px;text-align:right">$${s.buy.toFixed(2)}</span>
+            <button onclick="macroAdvisoryBuyOne('${s.sym}',${s.buy},this)"
+                    style="background:#0d2018;border:1px solid #4a9eff;color:#4a9eff;
+                           padding:3px 10px;font-family:monospace;font-size:11px;
+                           cursor:pointer;border-radius:3px;white-space:nowrap">BUY</button>
+          </div>`;
+        });
+
+        const el = document.getElementById('modal-suggestions');
+        if (el) el.innerHTML += fidHtml;
+      })
+      .catch(() => {});  // graceful — don't break modal if signals unavailable
   }).catch(e => {
     document.getElementById('modal-signal-bar').textContent = 'Error: ' + e.message;
   });
