@@ -2836,64 +2836,56 @@ def api_research_create_seed():
     def _run():
         socketio.emit('seed_progress', {
             'ticker': ticker, 'status': 'starting',
-            'msg': f'Calling MiroShark ask-stock for {ticker}...'
+            'msg': f'Running seed_writer for {ticker}...'
         })
         try:
-            r = requests.post(
-                f"{MIROSHARK_BASE}/api/simulation/ask-stock",
-                json={'ticker': ticker},
-                timeout=120
-            )
-            data = r.json()
-            sim_req  = (data.get('data') or {}).get('simulation_requirement', '') or data.get('simulation_requirement', '')
-            seed_doc = (data.get('data') or {}).get('seed_document', '') or data.get('seed_document', '')
+            # seed_writer.py runs standalone — no MiroShark needed.
+            # Reads EDGAR .md file, calls LLM, writes TICKER_seed.md.
+            # REQUIRES: edgar_download.py must have run first (TICKER.md must exist).
+            script    = str(Path.home() / 'Documents' / 'EDGAR' / 'seed_writer.py')
+            edgar_cwd = str(Path.home() / 'Documents' / 'EDGAR')
+            md_path   = Path.home() / 'Documents' / 'EDGAR' / 'companies' / ticker / f'{ticker}.md'
 
-            if not seed_doc:
+            if not md_path.exists():
                 socketio.emit('seed_complete', {
                     'ticker': ticker, 'success': False,
-                    'error': data.get('error') or data.get('message') or 'No seed document returned'
+                    'error': f'No EDGAR data for {ticker} — run ▶ Run EDGAR first, then create seed'
                 })
                 return
 
             socketio.emit('seed_progress', {
-                'ticker': ticker, 'status': 'saving',
-                'msg': f'Saving seed for {ticker} ({len(seed_doc)} chars)...'
+                'ticker': ticker, 'status': 'generating',
+                'msg': f'Calling LLM to generate seed for {ticker} (may take 30-60s)...'
             })
 
-            # Save as MiroShark preset template
-            template_dir = os.path.expanduser("~/Documents/MiroShark/backend/app/preset_templates")
-            os.makedirs(template_dir, exist_ok=True)
-            tpl_path = os.path.join(template_dir, f"hermes_{ticker.lower()}.json")
-            with open(tpl_path, 'w', encoding='utf-8') as f:
-                json.dump({'simulation_requirement': sim_req, 'seed_document': seed_doc}, f)
+            result = subprocess.run(
+                ['python3', script, ticker, '--force'],
+                capture_output=True, text=True,
+                timeout=180,
+                cwd=edgar_cwd,
+                env={**os.environ}
+            )
 
-            # Also save alongside the EDGAR company files for easy access
-            edgar_dir = os.path.join(EDGAR_BASE, ticker)
-            if os.path.isdir(edgar_dir):
-                seed_path = os.path.join(edgar_dir, f"{ticker}_seed.md")
-                with open(seed_path, 'w', encoding='utf-8') as f:
-                    f.write(f"# {ticker} — Investment Seed\n\n")
-                    f.write(f"**Simulation Requirement:**\n{sim_req}\n\n---\n\n")
-                    f.write(seed_doc)
+            seed_path = Path.home() / 'Documents' / 'EDGAR' / 'companies' / ticker / f'{ticker}_seed.md'
 
-            miroshark_url = f"http://localhost:5001/?template=hermes_{ticker.lower()}"
-            socketio.emit('seed_complete', {
-                'ticker':           ticker,
-                'success':          True,
-                'url':              miroshark_url,
-                'sim_req_preview':  sim_req[:150],
-                'seed_doc_length':  len(seed_doc),
-            })
+            if seed_path.exists():
+                seed_content = seed_path.read_text(encoding='utf-8')
+                socketio.emit('seed_complete', {
+                    'ticker':          ticker,
+                    'success':         True,
+                    'seed_doc_length': len(seed_content),
+                    'seed_path':       str(seed_path),
+                })
+            else:
+                err = (result.stderr or result.stdout or 'seed file not created')[-400:]
+                socketio.emit('seed_complete', {
+                    'ticker': ticker, 'success': False, 'error': err
+                })
 
-        except requests.exceptions.ConnectionError:
-            socketio.emit('seed_complete', {
-                'ticker': ticker, 'success': False,
-                'error': 'MiroShark not running — start it first (port 5001)'
-            })
-        except requests.exceptions.Timeout:
+        except subprocess.TimeoutExpired:
             socketio.emit('seed_complete', {
                 'ticker': ticker, 'success': False,
-                'error': 'Seed creation timed out (120s) — try again'
+                'error': 'Seed creation timed out (180s) — try again'
             })
         except Exception as e:
             socketio.emit('seed_complete', {
