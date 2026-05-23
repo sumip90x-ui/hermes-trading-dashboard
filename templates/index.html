@@ -1175,6 +1175,14 @@ socket.on('edgar_result', d => {
       loadEdgarTickers();
       // Refresh Priority Research queue if visible
       if (typeof loadPriorityQueue === 'function') loadPriorityQueue();
+      // Reset any refresh button for this ticker
+      if (window._edgarRefreshBtns && window._edgarRefreshBtns[d.ticker]) {
+        const b = window._edgarRefreshBtns[d.ticker];
+        b.textContent = '✓'; b.style.color = '#00ff88'; b.style.borderColor = '#00ff88';
+        b.disabled = false;
+        setTimeout(() => { b.textContent = '↻'; b.style.color = '#446644'; b.style.borderColor = '#2a4a2a'; }, 3000);
+        delete window._edgarRefreshBtns[d.ticker];
+      }
     }
   }
   loadCandidates(); // refresh the buy list
@@ -2700,6 +2708,24 @@ function clearSellBar() {
 }
 
 // ── Research Tab ──────────────────────────────────────────────────────────────
+
+function edgarRefreshTicker(sym, btn) {
+  // Turn button blue/spinning while running
+  if (btn) { btn.textContent = '⟳'; btn.style.color = '#88ccff'; btn.style.borderColor = '#88ccff'; btn.disabled = true; }
+  const status = document.getElementById('research-edgar-status');
+  if (status) { status.style.color = '#88ccff'; status.textContent = `⟳ Refreshing ${sym}...`; }
+  fetch('/api/run_edgar', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ticker: sym})})
+  .then(r => r.json())
+  .catch(() => {
+    if (btn) { btn.textContent = '✗'; btn.style.color = '#ff6666'; btn.style.borderColor = '#ff6666'; }
+  });
+  // Result handled by edgar_result socket event — resets button on completion
+  // Store btn ref so edgar_result can reset it
+  window._edgarRefreshBtns = window._edgarRefreshBtns || {};
+  window._edgarRefreshBtns[sym] = btn;
+}
+
 async function loadEdgarTickers() {
   const leftEl = document.getElementById('edgar-fundamentals-list');
   const rightEl = document.getElementById('edgar-ticker-list');
@@ -2709,12 +2735,17 @@ async function loadEdgarTickers() {
     const r = await fetch('/api/research/edgar-tickers');
     const tickers = await r.json();
     if (leftEl) leftEl.innerHTML = tickers.map(t => `
-      <div style="padding:5px 10px; cursor:pointer; color:#88cc88;
-                  border-bottom:1px solid #0a1a0a; font-family:monospace; font-size:12px;"
+      <div style="display:flex;align-items:center;justify-content:space-between;
+                  border-bottom:1px solid #0a1a0a;padding:3px 6px 3px 10px;"
            onmouseover="this.style.background='#0a2a0a'"
-           onmouseout="this.style.background=''"
-           onclick="loadFundamentals('${t}')">
-        ${t}
+           onmouseout="this.style.background=''">
+        <span style="color:#88cc88;font-family:monospace;font-size:12px;cursor:pointer;flex:1;"
+              onclick="loadFundamentals('${t}')">${t}</span>
+        <button onclick="edgarRefreshTicker('${t}', this)"
+                title="Re-run EDGAR pipeline for ${t}"
+                style="background:none;border:1px solid #2a4a2a;color:#446644;
+                       font-family:monospace;font-size:9px;padding:1px 5px;
+                       cursor:pointer;border-radius:2px;flex-shrink:0;">↻</button>
       </div>`).join('');
   } catch(e) {
     if (leftEl) leftEl.innerHTML = `<div style="padding:8px; color:#664444;">${e.message}</div>`;
