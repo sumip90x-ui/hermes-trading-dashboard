@@ -71,6 +71,17 @@ _ALLOWED_SIMPLE_KEYS = {(m['provider'], m['model']) for m in ALLOWED_SIMPLE_MODE
 
 # ── Flask app ─────────────────────────────────────────────────────────────────
 app = Flask(__name__)
+
+# ── Cache busting — force browser to always load fresh JS/CSS ─────────────
+@app.after_request
+def no_cache(response):
+    # Skip for data routes that benefit from caching (SSE streams, large JSON)
+    if request.path.startswith('/api/'):
+        return response
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
 app.config['SECRET_KEY'] = 'hermes-trading-dashboard'
 socketio = SocketIO(app, cors_allowed_origins='*', async_mode='threading')
 
