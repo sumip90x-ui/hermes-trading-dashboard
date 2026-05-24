@@ -3,6 +3,8 @@
 # Starts app.py (if not running), waits until port 6060 is ready, then opens browser
 
 set -e
+export PYTHONDONTWRITEBYTECODE=1   # never write .pyc files
+export PYTHONUNBUFFERED=1          # real-time log output
 
 # Load env vars
 if [ -f /home/sumith/.env ]; then

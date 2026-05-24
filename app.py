@@ -71,6 +71,9 @@ _ALLOWED_SIMPLE_KEYS = {(m['provider'], m['model']) for m in ALLOWED_SIMPLE_MODE
 
 # ── Flask app ─────────────────────────────────────────────────────────────────
 app = Flask(__name__)
+app.config['TEMPLATES_AUTO_RELOAD'] = True        # always reload templates from disk
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0       # never cache static files
+app.jinja_env.auto_reload = True                  # force Jinja to re-read templates every request
 
 # ── Cache busting — force browser to always load fresh JS/CSS ─────────────
 @app.after_request
@@ -3782,4 +3785,4 @@ if __name__ == '__main__':
     print("  HERMES TRADING DASHBOARD")
     print("  http://localhost:6060")
     print("="*55 + "\n")
-    socketio.run(app, host='0.0.0.0', port=6060, debug=False, allow_unsafe_werkzeug=True)
+    socketio.run(app, host='0.0.0.0', port=6060, debug=False, allow_unsafe_werkzeug=True, use_reloader=False)
