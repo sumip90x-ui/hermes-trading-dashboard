@@ -3114,50 +3114,77 @@ def simulation_history():
 def research_reports():
     """
     GET /api/research/reports
-    Reads full_report.md files directly from MiroShark uploads/reports/ — works
-    whether MiroShark is running or not. Returns list sorted newest first.
+    Reads report markdown directly from MiroShark uploads — works whether
+    MiroShark is running or not. Returns list sorted newest first.
     Falls back to empty list gracefully if folder doesn't exist.
     """
-    reports_dir = Path.home() / 'Documents' / 'MiroShark' / 'backend' / 'uploads' / 'reports'
+    uploads_dir = Path.home() / 'Documents' / 'MiroShark' / 'backend' / 'uploads'
+    reports_dir = uploads_dir / 'reports'
+    simulations_dir = uploads_dir / 'simulations'
     results = []
-    if not reports_dir.exists():
-        return jsonify([])
-    for rd in reports_dir.iterdir():
-        full = rd / 'full_report.md'
-        if not full.exists():
-            continue
+
+    def add_markdown_report(path, report_id, source, report_type, folder_name):
+        if not path.is_file():
+            return
         try:
-            text = full.read_text(encoding='utf-8', errors='replace')
-            # Extract ticker from first line: "# ORACLE Investment Analysis — TICKER"
-            import re as _re
-            tm = _re.search(r'ORACLE Investment Analysis\s*[—-]\s*([A-Z0-9.\-]{1,8})', text[:200])
-            ticker = tm.group(1).strip() if tm else rd.name[:12]
-            # Extract date
-            dm = _re.search(r'\*\*Date:\*\*\s*(.+?)(?:\n|\r)', text[:300])
-            date_str = dm.group(1).strip() if dm else ''
-            size_kb  = full.stat().st_size // 1024
+            text = path.read_text(encoding='utf-8', errors='replace')
+            if not text.strip():
+                return
+            stat = path.stat()
+            if source == 'simulation':
+                tm = re.search(r'(?:##\s*Ticker:|Multi-Round Investment Debate:)\s*\$?([A-Z0-9.\-]{1,12})', text[:500])
+                dm = re.search(r'Simulation Date:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})', text[:500])
+            else:
+                tm = re.search(r'ORACLE Investment Analysis\s*[—-]\s*([A-Z0-9.\-]{1,12})', text[:300])
+                dm = re.search(r'\*\*Date:\*\*\s*(.+?)(?:\n|\r)', text[:500])
+            ticker = tm.group(1).strip() if tm else folder_name[:12]
+            date_str = dm.group(1).strip() if dm else datetime.fromtimestamp(stat.st_mtime).isoformat(timespec='seconds')
             results.append({
-                'report_id': rd.name,
-                'ticker':    ticker,
-                'date':      date_str,
-                'size_kb':   size_kb,
-                'preview':   text[:120].replace('\n', ' ').strip(),
+                'report_id': report_id,
+                'ticker': ticker,
+                'date': date_str,
+                'size_kb': max(1, stat.st_size // 1024),
+                'preview': text[:120].replace('\n', ' ').strip(),
+                'source': source,
+                'type': report_type,
+                '_mtime': stat.st_mtime,
             })
         except Exception:
-            continue
-    # Sort newest first by folder mtime
-    results.sort(key=lambda x: Path(reports_dir / x['report_id']).stat().st_mtime, reverse=True)
+            return
+
+    if reports_dir.exists():
+        for rd in reports_dir.iterdir():
+            if rd.is_dir():
+                add_markdown_report(rd / 'full_report.md', rd.name, 'report', 'full_report', rd.name)
+
+    if simulations_dir.exists():
+        for sd in simulations_dir.iterdir():
+            if sd.is_dir():
+                add_markdown_report(sd / 'delta_report.md', f"sim__{sd.name}", 'simulation', 'delta_report', sd.name)
+
+    results.sort(key=lambda x: x['_mtime'], reverse=True)
+    for item in results:
+        item.pop('_mtime', None)
     return jsonify(results)
 
 @app.route('/api/research/report_content/<report_id>')
 def research_report_content(report_id):
-    """Serve full_report.md content for a specific report ID."""
-    # Sanitise — only allow safe chars
-    import re as _re
-    if not _re.match(r'^[a-zA-Z0-9_\-]+$', report_id):
+    """Serve full_report.md or simulation delta_report.md content for a report ID."""
+    if report_id.startswith('sim__'):
+        folder = report_id[len('sim__'):]
+        base_dir = Path.home() / 'Documents' / 'MiroShark' / 'backend' / 'uploads' / 'simulations'
+        filename = 'delta_report.md'
+    else:
+        folder = report_id
+        base_dir = Path.home() / 'Documents' / 'MiroShark' / 'backend' / 'uploads' / 'reports'
+        filename = 'full_report.md'
+
+    if not re.match(r'^[a-zA-Z0-9_.-]+$', folder):
         return jsonify({'error': 'invalid report_id'}), 400
-    path = Path.home() / 'Documents' / 'MiroShark' / 'backend' / 'uploads' / 'reports' / report_id / 'full_report.md'
-    if not path.exists():
+
+    base_resolved = base_dir.resolve()
+    path = (base_dir / folder / filename).resolve()
+    if base_resolved not in path.parents or not path.is_file():
         return jsonify({'error': 'report not found'}), 404
     from flask import Response
     return Response(path.read_text(encoding='utf-8', errors='replace'),
