@@ -14,6 +14,21 @@ Open: http://localhost:6060
 
 import os, sys, json, re, time, subprocess, threading, requests, logging, glob, urllib.parse, shutil
 
+# Load env files so keys are available regardless of how the app is launched
+def _load_env_file(path):
+    try:
+        with open(os.path.expanduser(path)) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    k, v = line.split('=', 1)
+                    if k.strip() not in os.environ:  # don't override shell env
+                        os.environ[k.strip()] = v.strip()
+    except FileNotFoundError:
+        pass
+_load_env_file('~/.env')
+_load_env_file('~/.hermes/.env')
+
 log = logging.getLogger('hermes_dashboard')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 from datetime import datetime, timezone
