@@ -12,7 +12,7 @@ Run: python3 ~/trading_dashboard/app.py
 Open: http://localhost:6060
 """
 
-import os, sys, json, re, time, subprocess, threading, requests, logging, glob, urllib.parse
+import os, sys, json, re, time, subprocess, threading, requests, logging, glob, urllib.parse, shutil
 
 log = logging.getLogger('hermes_dashboard')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -3156,6 +3156,41 @@ def research_reports():
     for item in results:
         item.pop('_mtime', None)
     return jsonify(results)
+
+@app.route('/api/research/delete_report/<report_id>', methods=['POST'])
+def research_delete_report(report_id):
+    """
+    Soft-delete a polished report by moving its whole report folder into
+    reports_deleted. Never permanently deletes report data.
+    """
+    if not re.fullmatch(r'[A-Za-z0-9_.-]+', report_id or ''):
+        return jsonify({'error': 'invalid report_id'}), 400
+
+    reports_dir = Path.home() / 'Documents' / 'MiroShark' / 'backend' / 'uploads' / 'reports'
+    deleted_dir = Path.home() / 'Documents' / 'MiroShark' / 'backend' / 'uploads' / 'reports_deleted'
+    reports_resolved = reports_dir.resolve()
+
+    report_dir = (reports_dir / report_id).resolve()
+    if report_dir.parent != reports_resolved or not report_dir.is_dir() or report_dir.name != report_id:
+        return jsonify({'error': 'report not found'}), 404
+
+    full_report = report_dir / 'full_report.md'
+    if not full_report.is_file():
+        return jsonify({'error': 'full_report.md not found'}), 404
+
+    try:
+        deleted_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        target = deleted_dir / f'{stamp}__{report_id}'
+        suffix = 1
+        while target.exists():
+            target = deleted_dir / f'{stamp}__{report_id}_{suffix}'
+            suffix += 1
+        shutil.move(str(report_dir), str(target))
+        return jsonify({'success': True, 'deleted_to': str(target)})
+    except Exception as e:
+        log.exception('Failed to soft-delete report %s', report_id)
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/research/report_content/<report_id>')
 def research_report_content(report_id):

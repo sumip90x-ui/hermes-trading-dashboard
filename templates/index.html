@@ -3123,6 +3123,8 @@ async function loadEdgarTickers() {
   }
 }
 
+let currentViewedReportId = null;
+
 async function loadSimHistory() {
   const el = document.getElementById('sim-history-list');
   if (!el) return;
@@ -3139,9 +3141,18 @@ async function loadSimHistory() {
       <div style="padding:5px 10px; cursor:pointer; border-bottom:1px solid #0a1a0a;"
            onmouseover="this.style.background='#0a2a0a'"
            onmouseout="this.style.background=''"
-           onclick="viewReport('${s.report_id}','${s.ticker}','${label}')">
-        <div style="color:#ff4444; font-family:monospace; font-size:12px; font-weight:700;">${s.ticker}</div>
-        <div style="color:#446644; font-family:monospace; font-size:10px;">${label} · ${s.date.slice(0,16)} · ${s.size_kb}KB</div>
+           onclick='viewReport(${JSON.stringify(s.report_id)},${JSON.stringify(s.ticker)},${JSON.stringify(label)})'>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="flex:1;min-width:0;">
+            <div style="color:#ff4444; font-family:monospace; font-size:12px; font-weight:700;">${s.ticker}</div>
+            <div style="color:#446644; font-family:monospace; font-size:10px;">${label} · ${s.date.slice(0,16)} · ${s.size_kb}KB</div>
+          </div>
+          <button onclick='deleteReport(event,${JSON.stringify(s.report_id)},${JSON.stringify(s.ticker)})'
+                  title="Archive report"
+                  style="background:#180808;border:1px solid #552222;color:#ff7777;
+                         font-family:monospace;font-size:10px;padding:2px 6px;
+                         cursor:pointer;line-height:1.2;">DEL</button>
+        </div>
       </div>`;
     }).join('');
   } catch(e) {
@@ -3149,7 +3160,28 @@ async function loadSimHistory() {
   }
 }
 
+async function deleteReport(event, reportId, ticker) {
+  event.stopPropagation();
+  if (!confirm(`Delete report ${ticker}? This archives it so it can be recovered.`)) return;
+  try {
+    const r = await fetch(`/api/research/delete_report/${encodeURIComponent(reportId)}`, { method: 'POST' });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || !data.success) throw new Error(data.error || 'Delete failed');
+    if (currentViewedReportId === reportId) {
+      currentViewedReportId = null;
+      const tableDiv = document.getElementById('fundamentals-table-view');
+      if (tableDiv) {
+        tableDiv.innerHTML = '<div style="padding:12px;color:#446644;font-family:monospace;">Report archived.</div>';
+      }
+    }
+    await loadSimHistory();
+  } catch(e) {
+    alert(`Could not delete report: ${e.message}`);
+  }
+}
+
 async function viewReport(reportId, ticker, reportLabel = 'ORACLE Report') {
+  currentViewedReportId = reportId;
   document.getElementById('miroshark-panel-title').textContent = `📋 ${reportLabel.toUpperCase()} — ${ticker}`;
   const frame = document.getElementById('miroshark-frame');
   frame.style.display = 'none';
