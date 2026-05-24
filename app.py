@@ -3138,8 +3138,9 @@ def research_reports():
                 tm = re.search(r'ORACLE Investment Analysis\s*[—-]\s*([A-Z0-9.\-]{1,12})', text[:300])
                 dm = re.search(r'\*\*Date:\*\*\s*(.+?)(?:\n|\r)', text[:500])
             ticker = tm.group(1).strip() if tm else folder_name[:12]
-            date_str = dm.group(1).strip() if dm else datetime.fromtimestamp(stat.st_mtime).isoformat(timespec='seconds')
-            results.append({
+            mtime_str = datetime.fromtimestamp(stat.st_mtime).isoformat(timespec='seconds')
+            date_str = mtime_str if source == 'simulation' else (dm.group(1).strip() if dm else mtime_str)
+            report = {
                 'report_id': report_id,
                 'ticker': ticker,
                 'date': date_str,
@@ -3148,7 +3149,10 @@ def research_reports():
                 'source': source,
                 'type': report_type,
                 '_mtime': stat.st_mtime,
-            })
+            }
+            if source == 'simulation' and dm:
+                report['simulation_date'] = dm.group(1).strip()
+            results.append(report)
         except Exception:
             return
 
