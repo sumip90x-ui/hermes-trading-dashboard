@@ -49,6 +49,24 @@ FIDELITY_HISTORY  = HOME / 'Documents' / 'Trading Vault' / 'Fidelity_History'
 FIDELITY_HISTORY.mkdir(parents=True, exist_ok=True)
 EDGAR_CACHE   = REPORTS_DIR / 'edgar_score_cache.json'
 PORTFOLIO_CSV = HOME / 'portfolio.csv'
+AI_CONFIG_FILE = Path(__file__).with_name('ai_config.json')
+
+DEFAULT_AI_CONFIG = {
+    'simple_provider': 'openrouter',
+    'simple_model':    'openai/gpt-4.1-mini',
+    'quality_provider':'anthropic',
+    'quality_model':   'claude-sonnet-4-5',
+    'trade_provider':  'anthropic',
+    'trade_model':     'claude-sonnet-4-5',
+}
+
+ALLOWED_SIMPLE_MODELS = [
+    {'provider': 'anthropic',  'model': 'claude-sonnet-4-5',      'label': 'Claude Sonnet 4.5'},
+    {'provider': 'openrouter', 'model': 'openai/gpt-4.1-mini',    'label': 'GPT-4.1 Mini'},
+    {'provider': 'openrouter', 'model': 'openai/gpt-5-mini',      'label': 'GPT-5 Mini'},
+    {'provider': 'openrouter', 'model': 'openai/gpt-4o-mini',     'label': 'GPT-4o Mini'},
+]
+_ALLOWED_SIMPLE_KEYS = {(m['provider'], m['model']) for m in ALLOWED_SIMPLE_MODELS}
 
 # ── Flask app ─────────────────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -692,6 +710,146 @@ def alpaca_post(path, payload):
     except Exception as e:
         return {'error': str(e)}
 
+
+# ── Paid AI routing (simple switch; quality/trade remain Claude) ──────────────
+
+def _validated_ai_config(raw=None):
+    cfg = dict(DEFAULT_AI_CONFIG)
+    if isinstance(raw, dict):
+        cfg.update({k: raw.get(k, v) for k, v in DEFAULT_AI_CONFIG.items()})
+    if (cfg['simple_provider'], cfg['simple_model']) not in _ALLOWED_SIMPLE_KEYS:
+        cfg['simple_provider'] = DEFAULT_AI_CONFIG['simple_provider']
+        cfg['simple_model'] = DEFAULT_AI_CONFIG['simple_model']
+    # Hard safety lock: UI/config file can never change final/trade model paths.
+    cfg['quality_provider'] = 'anthropic'
+    cfg['quality_model'] = 'claude-sonnet-4-5'
+    cfg['trade_provider'] = 'anthropic'
+    cfg['trade_model'] = 'claude-sonnet-4-5'
+    return cfg
+
+
+def load_ai_config():
+    try:
+        raw = json.loads(AI_CONFIG_FILE.read_text()) if AI_CONFIG_FILE.exists() else {}
+    except Exception:
+        raw = {}
+    cfg = _validated_ai_config(raw)
+    if not AI_CONFIG_FILE.exists() or raw != cfg:
+        try:
+            AI_CONFIG_FILE.write_text(json.dumps(cfg, indent=2) + '\n')
+        except Exception as exc:
+            log.warning(f'[AI CONFIG] could not persist defaults: {exc}')
+    return cfg
+
+
+def save_ai_config(update):
+    provider = (update or {}).get('simple_provider')
+    model = (update or {}).get('simple_model')
+    if (provider, model) not in _ALLOWED_SIMPLE_KEYS:
+        raise ValueError(f'simple model not allowed: {provider}/{model}')
+    cfg = load_ai_config()
+    cfg['simple_provider'] = provider
+    cfg['simple_model'] = model
+    cfg = _validated_ai_config(cfg)
+    AI_CONFIG_FILE.write_text(json.dumps(cfg, indent=2) + '\n')
+    return cfg
+
+
+def _extract_anthropic_text(resp):
+    return ''.join(getattr(b, 'text', '') for b in getattr(resp, 'content', []) if getattr(b, 'type', 'text') == 'text')
+
+
+def _call_anthropic_text(prompt, system, max_tokens, model='claude-sonnet-4-5'):
+    try:
+        import anthropic as ant
+        client = ant.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY', ''))
+        resp = client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=[{'role': 'user', 'content': prompt}],
+        )
+        return _extract_anthropic_text(resp).strip()
+    except ImportError:
+        # Fallback to Hermes venv without putting API keys in command-line args.
+        HERMES_PY = '/home/sumith/.hermes/hermes-agent/venv/bin/python3'
+        payload = {'prompt': prompt, 'system': system, 'model': model, 'max_tokens': int(max_tokens)}
+        inline = (
+            "import anthropic, json, os, sys\n"
+            "payload = json.loads(sys.stdin.read())\n"
+            "client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY', ''))\n"
+            "resp = client.messages.create(\n"
+            "    model=payload['model'], max_tokens=int(payload['max_tokens']),\n"
+            "    system=payload['system'],\n"
+            "    messages=[{'role':'user','content':payload['prompt']}]\n"
+            ")\n"
+            "print(resp.content[0].text)\n"
+        )
+        result = subprocess.run(
+            [HERMES_PY, '-c', inline],
+            input=json.dumps(payload), capture_output=True, text=True, timeout=90,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or 'Anthropic venv fallback failed')
+        return result.stdout.strip()
+
+
+def _call_openrouter_text(prompt, system, max_tokens, model):
+    api_key = os.environ.get('OPENROUTER_API_KEY', '')
+    if not api_key:
+        raise RuntimeError('OPENROUTER_API_KEY is not configured')
+    resp = requests.post(
+        'https://openrouter.ai/api/v1/chat/completions',
+        headers={
+            'Authorization': f'Bearer {api_key}',
+            'Content-Type': 'application/json',
+            'HTTP-Referer': 'http://localhost:6060',
+            'X-Title': 'Hermes Trading Dashboard',
+        },
+        json={
+            'model': model,
+            'messages': [
+                {'role': 'system', 'content': system or 'You are Hermes, Sumith\'s trading dashboard assistant.'},
+                {'role': 'user', 'content': prompt},
+            ],
+            'max_tokens': int(max_tokens),
+        },
+        timeout=(5, 60),
+    )
+    if resp.status_code >= 400:
+        detail = ''
+        try:
+            detail = resp.json().get('error', {}).get('message') or resp.text[:200]
+        except Exception:
+            detail = resp.text[:200]
+        raise RuntimeError(f'OpenRouter request failed ({resp.status_code}): {detail}')
+    data = resp.json()
+    return data.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
+
+
+def call_simple_ai(prompt, system='', max_tokens=500):
+    cfg = load_ai_config()
+    provider, model = cfg['simple_provider'], cfg['simple_model']
+    if provider == 'openrouter':
+        try:
+            return _call_openrouter_text(prompt, system, max_tokens, model)
+        except Exception as exc:
+            log.warning(f'[AI SIMPLE] OpenRouter unavailable, safe Claude fallback: {exc}')
+            return _call_anthropic_text(prompt, system, max_tokens, model='claude-sonnet-4-5')
+    if provider == 'anthropic':
+        return _call_anthropic_text(prompt, system, max_tokens, model='claude-sonnet-4-5')
+    raise ValueError(f'Unsupported simple AI provider: {provider}')
+
+
+def call_quality_ai(prompt, system='', max_tokens=1200):
+    """Final/high-quality reports stay locked to Claude Sonnet."""
+    return _call_anthropic_text(prompt, system, max_tokens, model='claude-sonnet-4-5')
+
+
+def get_trade_ai_config():
+    """Trade execution/tool paths stay locked to Claude Sonnet + Anthropic tools."""
+    return {'provider': 'anthropic', 'model': 'claude-sonnet-4-5'}
+
 # ── API Routes ────────────────────────────────────────────────────────────────
 
 @app.route('/')
@@ -703,6 +861,60 @@ def index():
     r.headers['Pragma'] = 'no-cache'
     r.headers['Expires'] = '0'
     return r
+
+
+@app.route('/api/ai/config', methods=['GET'])
+def api_ai_config():
+    """Return paid simple-model switch config. Trade/final quality paths are read-only Claude."""
+    cfg = load_ai_config()
+    current = next(
+        (m for m in ALLOWED_SIMPLE_MODELS if m['provider'] == cfg['simple_provider'] and m['model'] == cfg['simple_model']),
+        ALLOWED_SIMPLE_MODELS[1],
+    )
+    return jsonify({
+        'config': cfg,
+        'current_label': current['label'],
+        'options': ALLOWED_SIMPLE_MODELS,
+        'safety': 'Simple tasks can switch between paid Claude/OpenAI models. Trades, tool-calling, ATH decisions, and final reports stay locked to Claude Sonnet.',
+    })
+
+
+@app.route('/api/ai/config', methods=['POST'])
+def api_ai_config_update():
+    """Update only simple_provider/simple_model. Ignore/re-lock quality and trade mutations."""
+    try:
+        cfg = save_ai_config(request.json or {})
+        current = next(
+            (m for m in ALLOWED_SIMPLE_MODELS if m['provider'] == cfg['simple_provider'] and m['model'] == cfg['simple_model']),
+            ALLOWED_SIMPLE_MODELS[1],
+        )
+        return jsonify({'status': 'ok', 'config': cfg, 'current_label': current['label']})
+    except ValueError as exc:
+        return jsonify({'status': 'error', 'error': str(exc)}), 400
+    except Exception as exc:
+        return jsonify({'status': 'error', 'error': str(exc)}), 500
+
+
+@app.route('/api/ai/test', methods=['POST'])
+def api_ai_test():
+    """Non-trading smoke test for selected simple model. Never exposes API keys."""
+    try:
+        cfg = load_ai_config()
+        prompt = 'Reply in one short sentence: simple model switch is working.'
+        text = call_simple_ai(
+            prompt,
+            system='You are a dashboard smoke-test assistant. No trading advice. One sentence only.',
+            max_tokens=80,
+        )
+        return jsonify({
+            'status': 'ok',
+            'provider': cfg['simple_provider'],
+            'model': cfg['simple_model'],
+            'reply': text,
+        })
+    except Exception as exc:
+        return jsonify({'status': 'error', 'error': str(exc)}), 500
+
 
 @app.route('/api/account')
 def api_account():
@@ -1070,36 +1282,14 @@ Lead with what to BUY TODAY with exact dollar amounts. Flag anything that needs 
 Be decisive — Sumith acts on what you say."""
 
     try:
-        import anthropic as ant
-        client = ant.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY', ''))
-        resp   = client.messages.create(
-            model      = 'claude-sonnet-4-5',
-            max_tokens = 1500,
-            system     = "You are Hermes, a decisive trading AI. Be concise, specific, use real numbers. No fluff.",
-            messages   = [{'role': 'user', 'content': prompt}],
+        # This is actionable buy guidance, so keep it on Claude quality mode.
+        analysis = call_quality_ai(
+            prompt,
+            system="You are Hermes, a decisive trading AI. Be concise, specific, use real numbers. No fluff.",
+            max_tokens=1500,
         )
-        analysis = resp.content[0].text
-    except ImportError:
-        HERMES_PY = '/home/sumith/.hermes/hermes-agent/venv/bin/python3'
-        api_key   = os.environ.get('ANTHROPIC_API_KEY', '')
-        inline = (
-            "import anthropic, sys\n"
-            "prompt = sys.stdin.read()\n"
-            f"client = anthropic.Anthropic(api_key={repr(api_key)})\n"
-            "resp = client.messages.create(\n"
-            "    model='claude-sonnet-4-5', max_tokens=1500,\n"
-            "    system='You are Hermes, a decisive trading AI. Be concise, specific, use real numbers. No fluff.',\n"
-            "    messages=[{'role':'user','content':prompt}]\n"
-            ")\n"
-            "print(resp.content[0].text)\n"
-        )
-        result = subprocess.run(
-            [HERMES_PY, '-c', inline],
-            input=prompt, capture_output=True, text=True, timeout=90
-        )
-        analysis = result.stdout.strip() or '[Claude unavailable via venv fallback]'
     except Exception as e:
-        analysis = f"[Claude unavailable: {e}]\n\nRaw top candidates loaded — see table above."
+        analysis = f"[AI unavailable: {e}]\n\nRaw top candidates loaded — see table above."
 
     return jsonify({'analysis': analysis, 'candidates': cands[:50]})
 
@@ -1737,24 +1927,24 @@ def api_chat():
             socketio.emit('trades_executed_batch', {'count': len(trade_log)})
 
     except ImportError:
-        # No anthropic — plain text via venv
+        # No anthropic in this interpreter — plain text via venv, with key read from env only.
         HERMES_PY = '/home/sumith/.hermes/hermes-agent/venv/bin/python3'
-        api_key   = os.environ.get('ANTHROPIC_API_KEY', '')
         full_msg  = ctx + '\n\n' + user_msg
+        payload = {'message': full_msg, 'system': HERMES_SYSTEM}
         inline = (
-            "import anthropic, sys\n"
-            "msg = sys.stdin.read()\n"
-            f"client = anthropic.Anthropic(api_key={repr(api_key)})\n"
+            "import anthropic, json, os, sys\n"
+            "payload = json.loads(sys.stdin.read())\n"
+            "client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY', ''))\n"
             "resp = client.messages.create(\n"
             "    model='claude-sonnet-4-5', max_tokens=1024,\n"
-            f"    system={repr(HERMES_SYSTEM)},\n"
-            "    messages=[{'role':'user','content':msg}]\n"
+            "    system=payload['system'],\n"
+            "    messages=[{'role':'user','content':payload['message']}]\n"
             ")\n"
             "print(resp.content[0].text)\n"
         )
         result = subprocess.run(
             [HERMES_PY, '-c', inline],
-            input=full_msg, capture_output=True, text=True, timeout=60
+            input=json.dumps(payload), capture_output=True, text=True, timeout=60
         )
         reply = result.stdout.strip() or 'Hermes unavailable'
     except Exception as e:
@@ -1895,35 +2085,11 @@ Write a session note in this format:
 
 Be specific. Use real numbers. Keep it under 400 words. This goes in the Trading Brain for future reference."""
 
-        try:
-            import anthropic as ant
-            client = ant.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY', ''))
-            resp   = client.messages.create(
-                model      = 'claude-sonnet-4-5',
-                max_tokens = 1000,
-                system     = "You are Hermes. Write precise, factual trading session notes. Use real numbers. No fluff.",
-                messages   = [{'role': 'user', 'content': prompt}],
-            )
-            note_text = resp.content[0].text
-        except ImportError:
-            HERMES_PY = '/home/sumith/.hermes/hermes-agent/venv/bin/python3'
-            api_key   = os.environ.get('ANTHROPIC_API_KEY', '')
-            inline = (
-                "import anthropic, sys\n"
-                "msg = sys.stdin.read()\n"
-                f"client = anthropic.Anthropic(api_key={repr(api_key)})\n"
-                "resp = client.messages.create(\n"
-                "    model='claude-sonnet-4-5', max_tokens=1000,\n"
-                "    system='You are Hermes. Write precise trading session notes. Use real numbers.',\n"
-                "    messages=[{'role':'user','content':msg}]\n"
-                ")\n"
-                "print(resp.content[0].text)\n"
-            )
-            result = subprocess.run(
-                [HERMES_PY, '-c', inline],
-                input=prompt, capture_output=True, text=True, timeout=60
-            )
-            note_text = result.stdout.strip()
+        note_text = call_quality_ai(
+            prompt,
+            system="You are Hermes. Write precise, factual trading session notes. Use real numbers. No fluff.",
+            max_tokens=1000,
+        )
 
         if not note_text:
             return jsonify({'error': 'Claude returned empty note'}), 500
@@ -2147,36 +2313,11 @@ Return a JSON array of sell decisions. Each item:
 Return ONLY the JSON array, nothing else. Example:
 [{{"sym":"AAPL","sell_amount":25.00,"reason":"Top gainer +28%, ATH zone reached","gain_pct":28.1}}]"""
 
-        try:
-            import anthropic as ant
-            client = ant.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY', ''))
-            resp   = client.messages.create(
-                model      = 'claude-sonnet-4-5',
-                max_tokens = 1000,
-                system     = "You are Hermes, a decisive trading AI. Return only valid JSON arrays. No prose, no markdown fences.",
-                messages   = [{'role': 'user', 'content': prompt}],
-            )
-            raw_text = resp.content[0].text.strip()
-        except ImportError:
-            # Fallback: use the Hermes venv Python which has anthropic installed
-            HERMES_PY = '/home/sumith/.hermes/hermes-agent/venv/bin/python3'
-            api_key   = os.environ.get('ANTHROPIC_API_KEY', '')
-            inline = (
-                "import anthropic, sys, os\n"
-                "prompt = sys.stdin.read()\n"
-                f"client = anthropic.Anthropic(api_key={repr(api_key)})\n"
-                "resp = client.messages.create(\n"
-                "    model='claude-sonnet-4-5', max_tokens=1000,\n"
-                "    system='You are Hermes, a decisive trading AI. Return only valid JSON arrays. No prose, no markdown fences.',\n"
-                "    messages=[{'role':'user','content':prompt}]\n"
-                ")\n"
-                "print(resp.content[0].text)\n"
-            )
-            result = subprocess.run(
-                [HERMES_PY, '-c', inline],
-                input=prompt, capture_output=True, text=True, timeout=90
-            )
-            raw_text = result.stdout.strip() or '[]'
+        raw_text = call_quality_ai(
+            prompt,
+            system="You are Hermes, a decisive trading AI. Return only valid JSON arrays. No prose, no markdown fences.",
+            max_tokens=1000,
+        ).strip() or '[]'
 
         # Parse JSON — strip any markdown fences if present
         raw_text = raw_text.replace('```json','').replace('```','').strip()

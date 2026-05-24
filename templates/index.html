@@ -47,6 +47,11 @@
   .metric2 .lbl2 { font-size: 9px; color: var(--muted); letter-spacing: .3px; }
   .metric2.big .val2 { font-size: 17px; }
   .metric2.big .lbl2 { font-size: 9px; }
+  .ai-switch { display:flex; align-items:center; gap:5px; margin-left:4px; padding:3px 7px; border:1px solid #30363d; border-radius:6px; background:#0d1117; white-space:nowrap; }
+  .ai-switch label { font-size:9px; color:var(--muted); letter-spacing:.04em; }
+  .ai-switch select { background:#161b22; color:var(--text); border:1px solid #30363d; border-radius:4px; padding:2px 5px; font-size:10px; font-family:inherit; max-width:132px; }
+  .ai-switch button { padding:2px 6px; font-size:10px; border:1px solid #30363d; background:#21262d; color:var(--muted); }
+  .ai-switch .ai-note { font-size:9px; color:var(--gold); }
   .green { color: var(--green); }
   .red   { color: var(--red); }
   .gold  { color: var(--gold); }
@@ -380,6 +385,12 @@
       <button class="btn-muted" style="padding:4px 12px;font-size:11px;margin-left:8px" onclick="saveSessionNote()" id="save-note-btn" title="Save today's session note to Trading Vault">📝 Save Note</button>
       <button class="btn-muted" style="padding:4px 12px;font-size:11px;margin-left:4px" onclick="openReadNotes()" title="Read recent session notes from Trading Vault">📖 Read Notes</button>
       <button class="btn-muted" style="padding:4px 12px;font-size:11px" onclick="location.reload(true)" title="Hard refresh — reloads page and clears cache">🔄 Refresh</button>
+      <div class="ai-switch" title="Only simple dashboard AI uses this. Trades, tools, ATH decisions, and final reports stay Claude Sonnet.">
+        <label for="ai-simple-model">Simple AI</label>
+        <select id="ai-simple-model" onchange="saveAiModel()"></select>
+        <button type="button" onclick="testAiModel()">Test</button>
+        <span class="ai-note" id="ai-model-status">Trades/final: Claude</span>
+      </div>
     </div>
     <!-- Row 2: key metrics only -->
     <div class="header-row2">
@@ -1096,6 +1107,64 @@ let _chartMonitor  = null;     // HermesChartMonitor instance
 window.portfolioData = {};     // {equity, cash, day_pl} — kept fresh
 window.currentPositions = [];  // live positions array
 
+function loadAiConfig() {
+  fetch('/api/ai/config')
+    .then(r => r.json())
+    .then(d => {
+      const sel = document.getElementById('ai-simple-model');
+      const st  = document.getElementById('ai-model-status');
+      if (!sel || !d.options) return;
+      sel.innerHTML = d.options.map(o =>
+        `<option value="${o.provider}|${o.model}">${o.label}</option>`
+      ).join('');
+      sel.value = `${d.config.simple_provider}|${d.config.simple_model}`;
+      if (st) st.textContent = `${d.current_label} · trades/final Claude`;
+    })
+    .catch(() => {
+      const st = document.getElementById('ai-model-status');
+      if (st) st.textContent = 'AI config unavailable';
+    });
+}
+
+function saveAiModel() {
+  const sel = document.getElementById('ai-simple-model');
+  const st  = document.getElementById('ai-model-status');
+  if (!sel || !sel.value) return;
+  const [simple_provider, simple_model] = sel.value.split('|');
+  if (st) st.textContent = 'Saving…';
+  fetch('/api/ai/config', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({simple_provider, simple_model})
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.status !== 'ok') throw new Error(d.error || 'save failed');
+    if (st) st.textContent = `${d.current_label} · trades/final Claude`;
+    addChat('system', `Simple AI model set to ${d.current_label}. Trades and final reports still use Claude Sonnet.`);
+  })
+  .catch(e => {
+    if (st) st.textContent = `Save failed: ${e.message}`;
+    loadAiConfig();
+  });
+}
+
+function testAiModel() {
+  const st = document.getElementById('ai-model-status');
+  if (st) st.textContent = 'Testing…';
+  fetch('/api/ai/test', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
+    .then(r => r.json())
+    .then(d => {
+      if (d.status !== 'ok') throw new Error(d.error || 'test failed');
+      if (st) st.textContent = `OK: ${d.model}`;
+      addChat('system', `AI test OK (${d.model}): ${d.reply}`);
+    })
+    .catch(e => {
+      if (st) st.textContent = `Test failed: ${e.message}`;
+      addChat('system', `AI test failed: ${e.message}`);
+    });
+}
+
 // ── EquityCurveAnalyzer — feeds chart shape to Hermes ─────────────────────
 class EquityCurveAnalyzer {
   constructor(dataPoints) {
@@ -1391,6 +1460,7 @@ socket.on('pullback_trade', d => {
 
 // ── Init ──────────────────────────────────────────────────────────────────
 window.onload = () => {
+  loadAiConfig();
   fetchAccount();
   fetchOHLC();
   fetchTrigger();
