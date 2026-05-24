@@ -1,6 +1,6 @@
 {
-  "simple_provider": "openrouter",
-  "simple_model": "openai/gpt-5-mini",
+  "simple_provider": "deepseek",
+  "simple_model": "deepseek-chat",
   "quality_provider": "anthropic",
   "quality_model": "claude-sonnet-4-5",
   "trade_provider": "anthropic",

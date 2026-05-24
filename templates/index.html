@@ -642,6 +642,8 @@
               <div style="display:flex;gap:6px;align-items:center;">
                 <button onclick="window.location.reload()"
                         style="background:none; border:1px solid #2a4a2a; color:#88cc88; font-family:monospace; font-size:10px; cursor:pointer; padding:2px 8px;" title="Hard reload page to pick up JS changes">⟳ RELOAD</button>
+                <button onclick="killMiroSharkSim()"
+                        style="background:#1a0000; border:1px solid #ff4444; color:#ff4444; font-family:monospace; font-size:10px; cursor:pointer; padding:2px 8px;" title="Kill any running MiroShark simulation to stop API spending">⛔ KILL SIM</button>
                 <button onclick="document.getElementById('miroshark-frame').src='about:blank'; document.getElementById('miroshark-panel-title').textContent='✏ MIROSHARK';"
                         style="background:none; border:1px solid #1a3a1a; color:#446644; font-family:monospace; font-size:10px; cursor:pointer; padding:2px 8px;">CLEAR</button>
               </div>
@@ -4309,6 +4311,27 @@ function checkMiroSharkStatus() {
       }
     })
     .catch(() => {});
+}
+
+function killMiroSharkSim() {
+  const title = document.getElementById('miroshark-panel-title');
+  if (!confirm('Kill all running MiroShark simulations? This stops API spending immediately.')) return;
+  fetch('http://localhost:5001/api/simulation/stop', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({})
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (title) title.textContent = '✏ MIROSHARK — ⛔ SIM KILLED';
+    const rs = document.getElementById('research-edgar-status');
+    if (rs) { rs.style.color = '#ff4444'; rs.textContent = '⛔ Simulation killed — API spending stopped'; }
+    console.log('[KILL SIM]', d);
+  })
+  .catch(e => {
+    const rs = document.getElementById('research-edgar-status');
+    if (rs) { rs.style.color = '#ff6666'; rs.textContent = `⛔ Kill failed: ${e.message}`; }
+  });
 }
 
 function launchMiroShark() {
