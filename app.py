@@ -3522,13 +3522,25 @@ def api_markets_quote():
 if __name__ == '__main__':
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     # Start background updater
-    t = threading.Thread(target=_live_updater, daemon=True)
+    def _live_updater_ctx():
+        with app.app_context():
+            _live_updater()
+
+    def _proactive_brain_ctx():
+        with app.app_context():
+            _proactive_brain()
+
+    def _macro_updater_ctx():
+        with app.app_context():
+            _macro_updater()
+
+    t = threading.Thread(target=_live_updater_ctx, daemon=True)
     t.start()
     # Start proactive brain
-    t2 = threading.Thread(target=_proactive_brain, daemon=True)
+    t2 = threading.Thread(target=_proactive_brain_ctx, daemon=True)
     t2.start()
     # Start macro signal updater
-    t3 = threading.Thread(target=_macro_updater, daemon=True)
+    t3 = threading.Thread(target=_macro_updater_ctx, daemon=True)
     t3.start()
     # Seed macro cache immediately with current values
     _update_macro_cache(25.8, 23.8)  # seeded from live TradingView read
