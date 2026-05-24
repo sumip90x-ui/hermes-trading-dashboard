@@ -52,8 +52,8 @@ PORTFOLIO_CSV = HOME / 'portfolio.csv'
 AI_CONFIG_FILE = Path(__file__).with_name('ai_config.json')
 
 DEFAULT_AI_CONFIG = {
-    'simple_provider': 'openrouter',
-    'simple_model':    'openai/gpt-4.1-mini',
+    'simple_provider': 'deepseek',
+    'simple_model':    'deepseek-chat',
     'quality_provider':'anthropic',
     'quality_model':   'claude-sonnet-4-5',
     'trade_provider':  'anthropic',
@@ -61,6 +61,7 @@ DEFAULT_AI_CONFIG = {
 }
 
 ALLOWED_SIMPLE_MODELS = [
+    {'provider': 'deepseek',   'model': 'deepseek-chat',          'label': 'DeepSeek Flash ⚡'},
     {'provider': 'anthropic',  'model': 'claude-sonnet-4-5',      'label': 'Claude Sonnet 4.5'},
     {'provider': 'openrouter', 'model': 'openai/gpt-4.1-mini',    'label': 'GPT-4.1 Mini'},
     {'provider': 'openrouter', 'model': 'openai/gpt-5-mini',      'label': 'GPT-5 Mini'},
@@ -827,9 +828,38 @@ def _call_openrouter_text(prompt, system, max_tokens, model):
     return data.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
 
 
+def _call_deepseek_text(prompt, system, max_tokens, model='deepseek-chat'):
+    api_key = os.environ.get('DEEPSEEK_API_KEY', '')
+    if not api_key:
+        raise RuntimeError('DEEPSEEK_API_KEY not set')
+    import requests as _req
+    resp = _req.post(
+        'https://api.deepseek.com/chat/completions',
+        headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+        json={
+            'model': model,
+            'messages': [
+                *([{'role': 'system', 'content': system}] if system else []),
+                {'role': 'user', 'content': prompt}
+            ],
+            'max_tokens': max_tokens,
+            'temperature': 0.3,
+        },
+        timeout=60
+    )
+    resp.raise_for_status()
+    return resp.json().get('choices', [{}])[0].get('message', {}).get('content', '').strip()
+
+
 def call_simple_ai(prompt, system='', max_tokens=500):
     cfg = load_ai_config()
     provider, model = cfg['simple_provider'], cfg['simple_model']
+    if provider == 'deepseek':
+        try:
+            return _call_deepseek_text(prompt, system, max_tokens, model)
+        except Exception as exc:
+            log.warning(f'[AI SIMPLE] DeepSeek unavailable, falling back to Anthropic: {exc}')
+            return _call_anthropic_text(prompt, system, max_tokens, model='claude-sonnet-4-5')
     if provider == 'openrouter':
         try:
             return _call_openrouter_text(prompt, system, max_tokens, model)
