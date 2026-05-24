@@ -1,6 +1,6 @@
 {
   "simple_provider": "openrouter",
-  "simple_model": "openai/gpt-4.1-mini",
+  "simple_model": "openai/gpt-5-mini",
   "quality_provider": "anthropic",
   "quality_model": "claude-sonnet-4-5",
   "trade_provider": "anthropic",
