@@ -3118,12 +3118,10 @@ def research_reports():
     MiroShark is running or not. Returns list sorted newest first.
     Falls back to empty list gracefully if folder doesn't exist.
     """
-    uploads_dir = Path.home() / 'Documents' / 'MiroShark' / 'backend' / 'uploads'
-    reports_dir = uploads_dir / 'reports'
-    simulations_dir = uploads_dir / 'simulations'
+    reports_dir = Path.home() / 'Documents' / 'MiroShark' / 'backend' / 'uploads' / 'reports'
     results = []
 
-    def add_markdown_report(path, report_id, source, report_type, folder_name):
+    def add_markdown_report(path, report_id, folder_name):
         if not path.is_file():
             return
         try:
@@ -3131,40 +3129,28 @@ def research_reports():
             if not text.strip():
                 return
             stat = path.stat()
-            if source == 'simulation':
-                tm = re.search(r'(?:##\s*Ticker:|Multi-Round Investment Debate:)\s*\$?([A-Z0-9.\-]{1,12})', text[:500])
-                dm = re.search(r'Simulation Date:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})', text[:500])
-            else:
-                tm = re.search(r'ORACLE Investment Analysis\s*[—-]\s*([A-Z0-9.\-]{1,12})', text[:300])
-                dm = re.search(r'\*\*Date:\*\*\s*(.+?)(?:\n|\r)', text[:500])
+            tm = re.search(r'ORACLE Investment Analysis\s*[—-]\s*([A-Z0-9.\-]{1,12})', text[:300])
+            dm = re.search(r'\*\*Date:\*\*\s*(.+?)(?:\n|\r)', text[:500])
             ticker = tm.group(1).strip() if tm else folder_name[:12]
             mtime_str = datetime.fromtimestamp(stat.st_mtime).isoformat(timespec='seconds')
-            date_str = mtime_str if source == 'simulation' else (dm.group(1).strip() if dm else mtime_str)
-            report = {
+            date_str = dm.group(1).strip() if dm else mtime_str
+            results.append({
                 'report_id': report_id,
                 'ticker': ticker,
                 'date': date_str,
                 'size_kb': max(1, stat.st_size // 1024),
                 'preview': text[:120].replace('\n', ' ').strip(),
-                'source': source,
-                'type': report_type,
+                'source': 'report',
+                'type': 'full_report',
                 '_mtime': stat.st_mtime,
-            }
-            if source == 'simulation' and dm:
-                report['simulation_date'] = dm.group(1).strip()
-            results.append(report)
+            })
         except Exception:
             return
 
     if reports_dir.exists():
         for rd in reports_dir.iterdir():
             if rd.is_dir():
-                add_markdown_report(rd / 'full_report.md', rd.name, 'report', 'full_report', rd.name)
-
-    if simulations_dir.exists():
-        for sd in simulations_dir.iterdir():
-            if sd.is_dir():
-                add_markdown_report(sd / 'delta_report.md', f"sim__{sd.name}", 'simulation', 'delta_report', sd.name)
+                add_markdown_report(rd / 'full_report.md', rd.name, rd.name)
 
     results.sort(key=lambda x: x['_mtime'], reverse=True)
     for item in results:

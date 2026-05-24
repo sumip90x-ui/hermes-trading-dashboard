@@ -3134,7 +3134,7 @@ async function loadSimHistory() {
       return;
     }
     el.innerHTML = reports.map(s => {
-      const label = s.source === 'simulation' || s.type === 'delta_report' ? 'SIM DELTA' : 'ORACLE Report';
+      const label = 'ORACLE Report';
       return `
       <div style="padding:5px 10px; cursor:pointer; border-bottom:1px solid #0a1a0a;"
            onmouseover="this.style.background='#0a2a0a'"
