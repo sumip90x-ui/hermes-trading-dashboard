@@ -527,14 +527,14 @@
     </div>
     <div class="chart-body">
       <!-- Intraday equity curve -->
-      <div id="view-intraday">
+      <div id="view-intraday" style="display:flex;flex-direction:column;height:100%">
         <!-- Phase badge strip -->
         <div style="display:flex;align-items:center;gap:10px;padding:4px 4px 2px;flex-shrink:0">
           <span style="font-size:10px;color:var(--muted)">PHASE:</span>
           <span id="phase-badge" style="font-size:11px;font-weight:700;padding:2px 10px;border-radius:10px;background:#21262d;color:var(--muted)">—</span>
           <span id="phase-detail" style="font-size:10px;color:var(--muted)"></span>
         </div>
-        <canvas id="intradayChart" height="340"></canvas>
+        <canvas id="intradayChart" style="flex:1;min-height:0"></canvas>
         <div id="intraday_label" style="display:flex;gap:16px;justify-content:center;padding:3px 8px;font-size:11px;font-family:monospace;flex-shrink:0">
           <span style="color:var(--muted)">O: <span id="il_open" style="color:#c9d1d9">—</span></span>
           <span style="color:#3fb950">H: <span id="il_high">—</span></span>
@@ -1713,6 +1713,7 @@ function buildIntradayChart(bars, athZone, ath, liveEquity) {
     },
     options: {
       responsive: true,
+      maintainAspectRatio: false,
       animation: false,
       plugins: {
         legend: {
