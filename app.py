@@ -2594,8 +2594,8 @@ def _compute_stop_tiers(equity: float, session_high: float, candle_history: list
     # Today's open — first bar from portfolio history (cached in candle history close)
     today_open = candle_history[-1].get('open', equity) if candle_history else equity
 
-    # Principal = verified from Alpaca transfer history (deposited $1,154.00)
-    VERIFIED_PRINCIPAL = 1154.00
+    # Principal = sum of CSD deposits — fallback to known value
+    VERIFIED_PRINCIPAL = 1189.00
     principal_est = VERIFIED_PRINCIPAL
 
     ath = session_high if session_high > 0 else equity
@@ -2649,6 +2649,7 @@ def _live_updater():
     """
     session_high   = 0.0   # highest equity seen this session
     pullback_fired = False # True after we've already acted on the current pullback
+    _alerted_tiers = set() # deduplicate stop-tier warnings within the session
 
     # Minimum drop to act on (avoids noise / rounding)
     PULLBACK_THRESHOLD = 1.00
@@ -2769,11 +2770,15 @@ def _live_updater():
                 try: history = json.loads(CANDLE_FILE.read_text())
                 except: pass
             stops = _compute_stop_tiers(equity, session_high, history)
-            # Alert on new tier breaches
+            # Alert on new tier breaches — deduplicated, once per tier per session
             if stops['breached']:
                 for tier in stops['breached']:
-                    if tier not in ('principal',):  # don't spam principal — it's the floor
+                    if tier not in ('principal',) and tier not in _alerted_tiers:
                         log.warning(f'[STOP] {tier.upper()} BREACHED at ${equity:.2f}')
+                        _alerted_tiers.add(tier)
+            # Clear alert memory for tiers that are no longer breached (equity recovered)
+            recovered = _alerted_tiers - set(stops['breached'])
+            _alerted_tiers -= recovered
 
             socketio.emit('live_update', {
                 'equity':       round(equity, 2),
