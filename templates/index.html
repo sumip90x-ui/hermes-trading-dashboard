@@ -39,7 +39,7 @@
 
   /* Header */
   .header { grid-column: 1/-1; display: flex; flex-direction: column; justify-content: center; padding: 4px 16px; gap: 3px; }
-  .header-row1 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .header-row1 { display: flex; align-items: center; gap: 8px; }
   .header-row2 { display: flex; align-items: center; gap: 14px; padding: 2px 0; border-top: 1px solid var(--border); }
   .header h1 { font-size: 16px; color: var(--gold); font-weight: 700; white-space: nowrap; }
   .metric { text-align: center; }
@@ -451,7 +451,6 @@
         <div class="val" id="cash_val" style="color:var(--gold)">—</div>
         <div class="lbl">CASH</div>
       </div>
-      <button id="free-cash-btn" class="cash-ok" onclick="openFreeCash()" title="Free up cash — click to see sell plan">💵 FREE CASH</button>
       <button class="ath-badge waiting" id="ath_badge" onclick="badgeClick()" title="Click for Hermes analysis">ATH WATCH</button>
       <button id="best-signal-btn" onclick="openBestSignal()" title="Run convergence score — show best trade now">⚡ BEST SIGNAL</button>
       <div id="macro_signal_badge" style="padding:4px 10px;font-size:11px;font-family:monospace;
@@ -520,6 +519,8 @@
         <div style="font-size:9px;color:var(--muted);font-family:monospace;line-height:1.6" id="basket_detail">DIA · QQQ · VOO · SGOL</div>
         <div class="lbl2">TARGET $<span id="basket_target_each">—</span> EACH</div>
       </div>
+      <div style="width:1px;height:28px;background:var(--border);margin:0 4px"></div>
+      <button id="free-cash-btn" class="cash-ok" onclick="openFreeCash()" title="Free up cash — click to see sell plan">💵 FREE CASH</button>
     </div>
   </div>
 
