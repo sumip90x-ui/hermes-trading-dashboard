@@ -1615,6 +1615,12 @@ def api_trade():
     if not sym or side not in ('buy','sell'):
         return jsonify({'error': 'invalid params'}), 400
 
+    # Guard: block sell of symbols not currently held
+    if side == 'sell':
+        held = {p['symbol'] for p in alpaca('/v2/positions')}
+        if sym not in held:
+            return jsonify({'error': f'BLOCKED: {sym} not in positions', 'status': 'blocked'}), 400
+
     payload = {'symbol':sym,'side':side,'type':'market','time_in_force':'day'}
     if notional: payload['notional'] = str(round(float(notional),2))
     if qty:      payload['qty']      = str(qty)
