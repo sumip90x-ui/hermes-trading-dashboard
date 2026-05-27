@@ -1551,6 +1551,32 @@ def api_stop_tiers():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/cash_free_plan')
+def api_cash_free_plan():
+    """Return the low-cash sell plan: what to sell to restore cash ≈ true_profit."""
+    try:
+        acct      = alpaca('/v2/account')
+        equity    = float(acct.get('equity', 0))
+        cash      = float(acct.get('cash', 0))
+        positions = alpaca('/v2/positions')
+        hist_data = alpaca('/v2/account/portfolio/history',
+                           {'period':'1D','timeframe':'1Min','extended_hours':'true'})
+        bars      = [e for e in hist_data.get('equity', []) if e and e > 0]
+        intra_high = max(bars) if bars else equity
+        # Principal from CSD deposits
+        try:
+            csd = alpaca('/v2/account/activities/CSD')
+            principal = round(sum(float(d.get('net_amount', 0)) for d in csd if isinstance(d, dict)), 2) or 1189.00
+        except Exception:
+            principal = 1189.00
+        plan = _compute_cash_free_plan(equity, cash, intra_high, principal, positions)
+        return jsonify(plan)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+
+
 @app.route('/api/house_money')
 def api_house_money():
     if HOUSE_FILE.exists():
@@ -1696,6 +1722,13 @@ SELL RULES (NON-NEGOTIABLE):
 - NEVER suggest selling a ticker that is not in that list — not NTAP, not anything not held.
 - Before any sell recommendation, mentally verify the symbol appears in HELD SYMBOLS.
 - If you cannot find a symbol in HELD SYMBOLS, do NOT mention it as a sell candidate.
+
+LOW CASH RULE (triggers when cash < $10 AND true_profit > 0):
+- Target: free up cash equal to true_profit (equity - principal deposited).
+- Method: sell from largest positive-gain positions first.
+- From each position: sell (MV - pullback_goal), leaving exactly pullback_goal dollars behind.
+- Stop selling once freed cash >= true_profit target.
+- If this rule is triggered in your context, present the plan to Sumith immediately.
 
 
 - Cash only — NO margin, ever.
@@ -1924,6 +1957,28 @@ def api_chat():
             "If the last assistant message proposed specific sells and buys and Sumith says anything like "
             "'do it' or 'execute' — those are the orders to place RIGHT NOW."
         )
+
+        # LOW CASH RULE — inject plan if triggered
+        try:
+            csd_acts = alpaca('/v2/account/activities/CSD')
+            principal_ctx = round(sum(float(d.get('net_amount',0)) for d in csd_acts if isinstance(d,dict)), 2) or 1189.00
+        except Exception:
+            principal_ctx = 1189.00
+        cash_plan = _compute_cash_free_plan(equity, cash, intra_high, principal_ctx, positions)
+        if cash_plan['triggered']:
+            plan_lines = '\n'.join(
+                f"  SELL ${p['sell_amount']:.2f} of {p['symbol']} "
+                f"(MV=${p['mv']:.2f}, {p['gain_pct']:+.1f}%) → leave ${p['leave_amount']:.2f}"
+                for p in cash_plan['plan']
+            )
+            ctx += (
+                f"\n⚠ LOW CASH RULE TRIGGERED — Cash=${cash:.2f} (under $10)\n"
+                f"True profit to recover: ${cash_plan['target_free']:.2f}\n"
+                f"Pullback goal buffer:   ${cash_plan['pullback_goal']:.2f}\n"
+                f"SELL PLAN (largest winners, leave pullback buffer):\n{plan_lines}\n"
+                f"Total to sell: ${cash_plan['total_to_sell']:.2f}\n"
+                f"Tell Sumith about this plan immediately and ask to execute.\n"
+            )
         ctx += _build_hermes_intelligence_block()
     except Exception as e:
         ctx = f"[LIVE CONTEXT ERROR: {e}]"
@@ -2640,6 +2695,89 @@ def _compute_stop_tiers(equity: float, session_high: float, candle_history: list
         'today_open':  round(today_open, 2),
         'drop_from_ath': round(ath - equity, 2),
         'drop_pct':    round((ath - equity) / ath * 100, 2) if ath > 0 else 0,
+    }
+
+
+def _compute_cash_free_plan(equity: float, cash: float, intra_high: float,
+                             principal: float, positions: list) -> dict:
+    """
+    LOW CASH RULE: When cash < $10, compute a sell plan to free up ≈ true_profit dollars.
+
+    Logic:
+    - target_free  = true_profit (equity - principal)
+    - pullback_goal = intra_high - equity  (how much we've pulled back from session ATH)
+    - Walk positions sorted by MV descending, only positive-gain positions
+    - From each position: sell_amount = max(0, MV - pullback_goal)
+      (leave pullback_goal dollars in every position we touch)
+    - Stop once cumulative freed >= target_free
+
+    Returns dict with:
+      triggered   : bool — is the rule active right now?
+      cash        : current cash
+      target_free : how much to free
+      pullback_goal: current pullback
+      plan        : list of {symbol, mv, gain_pct, sell_amount, leave_amount}
+      total_to_sell: sum of sell_amounts
+    """
+    CASH_THRESHOLD = 10.00
+    true_profit    = round(equity - principal, 2)
+    pullback_goal  = round(max(0.0, intra_high - equity), 2)
+    triggered      = cash < CASH_THRESHOLD and true_profit > 0
+
+    if not triggered:
+        return {
+            'triggered':    False,
+            'cash':         round(cash, 2),
+            'target_free':  round(true_profit, 2),
+            'pullback_goal': pullback_goal,
+            'plan':         [],
+            'total_to_sell': 0.0,
+        }
+
+    # Only positive-gain positions with real size, sorted largest MV first
+    candidates = sorted(
+        [p for p in positions
+         if float(p.get('unrealized_pl', 0)) > 0
+         and float(p.get('market_value', 0)) >= 1.10],
+        key=lambda x: -float(x.get('market_value', 0))
+    )
+
+    plan           = []
+    freed_so_far   = 0.0
+    still_need     = round(true_profit, 2)
+
+    for p in candidates:
+        if freed_so_far >= true_profit:
+            break
+        sym  = p['symbol']
+        mv   = round(float(p.get('market_value', 0)), 2)
+        pct  = round(float(p.get('unrealized_plpc', 0)) * 100, 2)
+
+        # How much can we sell: all of it minus the pullback_goal buffer
+        sell_amt = round(max(0.0, mv - pullback_goal), 2)
+        if sell_amt < 1.00:
+            continue  # not enough to sell after reserving the buffer
+
+        # Don't over-sell — cap at what we still need
+        sell_amt     = round(min(sell_amt, still_need - freed_so_far), 2)
+        leave_amt    = round(mv - sell_amt, 2)
+
+        plan.append({
+            'symbol':      sym,
+            'mv':          mv,
+            'gain_pct':    pct,
+            'sell_amount': sell_amt,
+            'leave_amount': leave_amt,
+        })
+        freed_so_far = round(freed_so_far + sell_amt, 2)
+
+    return {
+        'triggered':     triggered,
+        'cash':          round(cash, 2),
+        'target_free':   round(true_profit, 2),
+        'pullback_goal': pullback_goal,
+        'plan':          plan,
+        'total_to_sell': round(freed_so_far, 2),
     }
 
 
