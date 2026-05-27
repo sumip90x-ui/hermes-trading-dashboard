@@ -2828,8 +2828,14 @@ function loadJourney() {
 
 function updateHeader(d) {
   if (d.equity) {
-    document.getElementById('equity').textContent = '$'+d.equity.toLocaleString('en-US',{minimumFractionDigits:2});
-    document.getElementById('cash').textContent   = '$'+d.cash.toFixed(2);
+    const eqEl = document.getElementById('equity');
+    if (eqEl) eqEl.textContent = '$'+d.equity.toLocaleString('en-US',{minimumFractionDigits:2});
+    const cashEl = document.getElementById('cash_val');
+    if (cashEl) {
+      cashEl.textContent = '$'+d.cash.toFixed(2);
+      cashEl.style.color = d.cash < 5 ? 'var(--red)' : d.cash < 20 ? 'var(--gold)' : 'var(--green)';
+      if (typeof updateFreeCashBtn === 'function') updateFreeCashBtn(d.cash);
+    }
   }
 }
 
