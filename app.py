@@ -39,6 +39,7 @@ from collections import defaultdict
 from flask import Flask, render_template, jsonify, request, Blueprint
 import fidelity_db
 from flask_socketio import SocketIO, emit
+from oracle_brain import build_research_context
 
 sys.path.insert(0, str(Path.home()))
 
@@ -1706,7 +1707,21 @@ def api_run_edgar():
 
 # ── Hermes Chat (Claude) ──────────────────────────────────────────────────────
 
-HERMES_SYSTEM = """You are Hermes — the AI brain of Sumith's Alpaca trading account. You are not a generic assistant. You are a decisive, opinionated trading partner who knows this account inside and out.
+# Load Observer 71 framework — prepended to HERMES_SYSTEM at startup
+_OBSERVER71_FRAMEWORK = ""
+try:
+    with open("/home/sumith/ORACLE/config/observer71_framework.md", "r") as _f:
+        _OBSERVER71_FRAMEWORK = _f.read()
+except Exception:
+    _OBSERVER71_FRAMEWORK = "[Observer 71 framework not found — run setup]"
+
+HERMES_SYSTEM = f"""{_OBSERVER71_FRAMEWORK}
+
+---
+
+## TRADING EXECUTION RULES (Alpaca Live Account)
+
+You are Hermes — the AI brain of Sumith's Alpaca trading account. You are not a generic assistant. You are a decisive, opinionated trading partner who knows this account inside and out.
 
 PERSONALITY:
 - Direct, confident, no fluff. You call things as you see them.
@@ -1827,6 +1842,28 @@ TRADE_TOOLS = [
             },
             "required": ["symbol"]
         }
+    },
+    {
+        "name": "get_oracle_research",
+        "description": (
+            "Retrieves ORACLE research intelligence for a specific stock ticker. "
+            "Returns the Obsidian ticker note, EDGAR seed fundamentals, "
+            "ORACLE simulation report, and breaking news context. "
+            "Use this tool whenever the user asks about a specific ticker, "
+            "requests investment analysis, asks about ORACLE verdicts, "
+            "asks about tier ratings, or asks about fundamentals for any stock. "
+            "Always call this before answering any stock-specific question."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ticker": {
+                    "type": "string",
+                    "description": "The stock ticker symbol in uppercase, e.g. 'INTU', 'ZS', 'AAPL'"
+                }
+            },
+            "required": ["ticker"]
+        }
     }
 ]
 
@@ -1867,6 +1904,25 @@ def _execute_tool(name, inputs):
                 pct = float(p.get('unrealized_plpc',0))*100
                 return f"{sym}: MV=${mv:.2f} P/L=${upl:+.2f} ({pct:+.1f}%)"
         return f"{sym}: not found in positions"
+
+    elif name == "get_oracle_research":
+        ticker = inputs.get("ticker", "").upper().strip()
+        if not ticker:
+            return "Error: no ticker provided to get_oracle_research"
+        context_text, meta = build_research_context(ticker)
+        sources = []
+        if meta.get("has_obsidian"):
+            sources.append("Obsidian ticker note")
+        if meta.get("has_report"):
+            report_date = meta.get("report_date")
+            date_str = report_date.strftime("%Y-%m-%d") if report_date else "unknown date"
+            sources.append(f"ORACLE report ({date_str})")
+        if meta.get("has_seed"):
+            sources.append("EDGAR seed data")
+        if meta.get("has_news"):
+            sources.append("Breaking news (Stage 0C)")
+        source_summary = ", ".join(sources) if sources else "none"
+        return f"[Sources found: {source_summary}]\n\n{context_text}"
 
     return f"Unknown tool: {name}"
 
