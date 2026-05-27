@@ -998,8 +998,14 @@ def api_account():
         except: pass
     ath = max([h.get('high', h.get('close', 0)) for h in history] or [intra_high])
 
-    # Verified principal from Alpaca transfer history (6 ACH deposits, Apr-May 2026)
-    VERIFIED_PRINCIPAL = 1154.00
+    # Verified principal: sum of all CSD (ACH deposit) activity entries — auto-updated
+    try:
+        csd_acts = alpaca('/v2/account/activities/CSD')
+        VERIFIED_PRINCIPAL = round(sum(float(d.get('net_amount', 0)) for d in csd_acts if isinstance(d, dict)), 2)
+        if VERIFIED_PRINCIPAL <= 0:
+            VERIFIED_PRINCIPAL = 1189.00  # fallback: 7 deposits through 2026-05-26
+    except Exception:
+        VERIFIED_PRINCIPAL = 1189.00  # fallback
     true_profit     = round(equity - VERIFIED_PRINCIPAL, 2)
     true_profit_pct = round((equity / VERIFIED_PRINCIPAL - 1) * 100, 2)
 
@@ -1445,7 +1451,13 @@ def api_fund_shortfall():
 def api_journey():
     """Return envelope challenge progress based on live true profit."""
     try:
-        VERIFIED_PRINCIPAL = 1154.00
+        try:
+            csd_acts = alpaca('/v2/account/activities/CSD')
+            VERIFIED_PRINCIPAL = round(sum(float(d.get('net_amount', 0)) for d in csd_acts if isinstance(d, dict)), 2)
+            if VERIFIED_PRINCIPAL <= 0:
+                VERIFIED_PRINCIPAL = 1189.00
+        except Exception:
+            VERIFIED_PRINCIPAL = 1189.00
         acct   = alpaca('/v2/account')
         equity = float(acct.get('equity', 0))
         true_profit = round(equity - VERIFIED_PRINCIPAL, 2)
