@@ -1691,7 +1691,13 @@ ACCOUNT IDENTITY:
 - Sumith uses this portfolio as an income source. Capital preservation matters.
 - 37 Fidelity accounts act as the crystal ball — their holdings = conviction signal.
 
-CORE RULES (never break these):
+SELL RULES (NON-NEGOTIABLE):
+- You may ONLY recommend or execute sells for symbols listed in HELD SYMBOLS in your context.
+- NEVER suggest selling a ticker that is not in that list — not NTAP, not anything not held.
+- Before any sell recommendation, mentally verify the symbol appears in HELD SYMBOLS.
+- If you cannot find a symbol in HELD SYMBOLS, do NOT mention it as a sell candidate.
+
+
 - Cash only — NO margin, ever.
 - Minimum $20 cash reserve always. $0.24 cash right now is critical — flag this.
 - No single position > 10% of account.
@@ -1793,6 +1799,13 @@ def _execute_tool(name, inputs):
         notional = float(inputs.get("notional", 0))
         if notional < 1.0:
             return f"ERROR: notional ${notional:.2f} too small (min $1.00)"
+        # Guard: validate sell orders against live positions
+        if side == "sell":
+            positions = alpaca('/v2/positions')
+            held = {p['symbol'] for p in positions}
+            if sym not in held:
+                return (f"BLOCKED: Cannot sell {sym} — not in current positions. "
+                        f"Held symbols: {', '.join(sorted(held))}")
         payload = {
             "symbol": sym, "side": side,
             "type": "market", "time_in_force": "day",
@@ -1854,18 +1867,17 @@ def api_chat():
             score_str = f" EDGAR:{score}/18" if score else ""
             return f"{sym} {pct:+.1f}% MV=${mv:.2f}{score_str}"
 
-        top_gainers = sorted(
-            [p for p in positions if float(p.get('market_value',0)) >= 1.10],
-            key=lambda x: float(x.get('unrealized_plpc',0)), reverse=True)[:5]
-        top_losers  = sorted(
-            [p for p in positions if float(p.get('market_value',0)) >= 1.10],
-            key=lambda x: float(x.get('unrealized_plpc',0)))[:5]
+        real_positions = [p for p in positions if float(p.get('market_value',0)) >= 1.10]
+        held_symbols   = sorted(p['symbol'] for p in real_positions)
+
+        top_gainers = sorted(real_positions, key=lambda x: float(x.get('unrealized_plpc',0)), reverse=True)[:5]
+        top_losers  = sorted(real_positions, key=lambda x: float(x.get('unrealized_plpc',0)))[:5]
         gainers_str = ' | '.join(pos_line(p) for p in top_gainers)
         losers_str  = ' | '.join(pos_line(p) for p in top_losers)
 
         # Worst fundamentals — low EDGAR, in red
         weak = [
-            p for p in positions
+            p for p in real_positions
             if edgar.get(p['symbol'],{}).get('score') is not None
             and edgar.get(p['symbol'],{}).get('score',99) < 6
             and float(p.get('unrealized_pl',0)) < 0
@@ -1883,6 +1895,12 @@ def api_chat():
         trigger    = api_candle_trigger().get_json()
         trig_str   = 'FIRED' if trigger['triggered'] else f"watching (need ${trigger['ath_zone']:,.2f})"
 
+        # Full position roster — every symbol currently held (used for sell validation)
+        all_pos_lines = '\n'.join(
+            f"  {p['symbol']}: MV=${float(p.get('market_value',0)):.2f} P/L={float(p.get('unrealized_plpc',0))*100:+.1f}%"
+            for p in sorted(real_positions, key=lambda x: -float(x.get('market_value',0)))
+        )
+
         ctx = (
             f"[LIVE PORTFOLIO — {datetime.now().strftime('%H:%M:%S')}]\n"
             f"Equity: ${equity:,.2f} | Cash: ${cash:.2f} | Day P/L: ${day_pl:+.2f}\n"
@@ -1892,7 +1910,7 @@ def api_chat():
             f"Top 5 gainers: {gainers_str}\n"
             f"Top 5 losers: {losers_str}\n"
             f"WEAK FUNDAMENTALS (EDGAR<6, in red — sell candidates): {weak_str}\n"
-            f"Total positions: {len(positions)}\n\n"
+            f"HELD SYMBOLS ({len(held_symbols)} positions — YOU MAY ONLY SELL FROM THIS LIST):\n{all_pos_lines}\n\n"
         )
         # Prepend chart curve analysis if provided by frontend
         if chart_ctx:
