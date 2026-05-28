@@ -4841,6 +4841,23 @@ function fetchProfitBasket() {
       });
   }
 
+  // ── Expose sync functions to global scope (onclick= handlers need window access) ──
+  window.portSyncRender          = portSyncRender;
+  window.portSyncLaunch          = portSyncLaunch;
+  window.portSyncShowModal       = portSyncShowModal;
+  window.portSyncCheckConfirm    = portSyncCheckConfirm;
+  window.portSyncCloseModal      = portSyncCloseModal;
+  window.portSyncExecute         = portSyncExecute;
+  window.portSyncSave            = portSyncSave;
+  window.portSyncSaveBalance     = portSyncSaveBalance;
+  window.portSyncLoadAlpaca      = portSyncLoadAlpaca;
+  window.portSyncLoadSavingsData = portSyncLoadSavingsData;
+  window.portSyncReserveChange   = portSyncReserveChange;
+  window.portSyncRenderSavings   = portSyncRenderSavings;
+  window.portSyncRecordRecycled  = portSyncRecordRecycled;
+  window.portSyncResetRecycled   = portSyncResetRecycled;
+  window.portSyncToggleSavings   = portSyncToggleSavings;
+
 })();
 
 // ── Portfolio backtest ─────────────────────────────────────────────────────
