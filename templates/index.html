@@ -2859,7 +2859,7 @@ function switchChart(view, el) {
     // restore Alpaca balance from localStorage and re-render sync panel
     const balEl = document.getElementById('sync-balance');
     if (balEl) { balEl.value = localStorage.getItem('hermes_sync_balance') || ''; balEl._loaded = false; }
-    portSyncRender();
+    portSyncLoadAlpaca();  // re-fetches live positions, then calls portSyncRender
   }
   if (view === 'priority')  loadPriorityQueue();
 }
@@ -3777,6 +3777,10 @@ function fetchProfitBasket() {
   let portSortDir  = 'desc';
   const PORT_PER_PAGE = 50;
 
+  // Alpaca live positions cache — populated by portSyncLoadAlpaca()
+  let _syncAlpacaPositions = {};  // { TICKER: marketValue }
+  let _syncAlpacaLoaded    = false;
+
   // ── Parsing ────────────────────────────────────────────────────────────────
   function portParseMoney(v) {
     if (v == null || v === '') return null;
@@ -3993,7 +3997,7 @@ function fetchProfitBasket() {
           if (meta) meta.textContent = `${file.name}  ·  loaded ${ts}  ·  ${result.rows.length} symbols across ${result.totalAccounts} accounts`;
           portUpdateSummary(result.rows, result.totalAccounts);
           portRender();
-          portSyncRender();
+          portSyncLoadAlpaca();  // fetches live positions then calls portSyncRender
           // ── silently archive to Fidelity_History ──────────────────────────
           const fd = new FormData();
           fd.append('file', file);
@@ -4063,6 +4067,14 @@ function fetchProfitBasket() {
     const LS  = key => localStorage.getItem('hermes_sync_' + key);
     const LSS = (key, val) => localStorage.setItem('hermes_sync_' + key, val);
 
+    // loading guard — positions fetch not yet complete
+    if (!_syncAlpacaLoaded) {
+      const tbody = document.getElementById('sync-tbody');
+      if (tbody) tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;' +
+        'padding:24px;color:var(--muted);font-size:12px;">⟳ Loading Alpaca positions…</td></tr>';
+      return;
+    }
+
     // restore balance input once per panel open
     const balEl = document.getElementById('sync-balance');
     if (balEl && !balEl._loaded) {
@@ -4105,9 +4117,12 @@ function fetchProfitBasket() {
         cap = wk52stored > price ? parseFloat((wk52stored - price).toFixed(2)) : 0;
       }
 
-      const spent    = parseFloat(LS('spent_' + ticker)) || 0;
-      const wk52val  = parseFloat(LS('52wk_'  + ticker)) || 0;
-      const remaining = parseFloat((cap - spent).toFixed(2));
+      // Live Alpaca position takes priority over localStorage manual entry
+      const alpacaLive  = _syncAlpacaPositions[ticker] || 0;
+      const manualEntry = parseFloat(LS('spent_' + ticker)) || 0;
+      const spent       = alpacaLive > 0 ? alpacaLive : manualEntry;
+      const wk52val     = parseFloat(LS('52wk_'  + ticker)) || 0;
+      const remaining   = parseFloat((cap - spent).toFixed(2));
 
       let action, actionDetail;
       if (spent > 0) {
@@ -4137,7 +4152,7 @@ function fetchProfitBasket() {
       }
 
       return { ticker, fidVal, totalGL, todayGL, price, tier, cap,
-               spent, wk52val, remaining, action, actionDetail };
+               spent, alpacaLive, wk52val, remaining, action, actionDetail };
     });
 
     // filter
@@ -4257,14 +4272,20 @@ function fetchProfitBasket() {
         `<td style="padding:5px 8px;text-align:right;color:var(--text);font-weight:600;font-family:monospace;">${d.cap > 0 ? fmt(d.cap) : '—'}</td>` +
         `<td style="padding:5px 8px;text-align:right;">${wk52Input}</td>` +
         `<td style="padding:5px 8px;text-align:right;">` +
-          `<input type="number" min="0" step="0.01"` +
-            ` value="${d.spent > 0 ? d.spent : ''}"` +
-            ` placeholder="0.00"` +
-            ` data-ticker="${d.ticker}" data-field="spent"` +
-            ` onchange="portSyncSave(this)"` +
-            ` style="width:72px;background:var(--panel);border:1px solid var(--border);` +
-                    `color:var(--text);padding:2px 4px;font-size:11px;` +
-                    `font-family:monospace;text-align:right;border-radius:2px;"></td>` +
+          (d.alpacaLive > 0
+            ? `<span style="color:var(--green);font-family:monospace;font-size:12px;">` +
+                `$${d.alpacaLive.toFixed(2)}` +
+                `<span style="font-size:9px;color:var(--muted);margin-left:3px;">live</span>` +
+              `</span>`
+            : `<input type="number" min="0" step="0.01"` +
+                ` value="${d.spent > 0 ? d.spent : ''}"` +
+                ` placeholder="0.00"` +
+                ` data-ticker="${d.ticker}" data-field="spent"` +
+                ` onchange="portSyncSave(this)"` +
+                ` style="width:72px;background:var(--panel);border:1px solid var(--border);` +
+                        `color:var(--text);padding:2px 4px;font-size:11px;` +
+                        `font-family:monospace;text-align:right;border-radius:2px;">`) +
+        `</td>` +
         `<td style="padding:5px 8px;text-align:right;color:${remColor};font-family:monospace;font-weight:600;">` +
           `${d.cap > 0 ? fmt(d.remaining) : '—'}</td>` +
         `<td style="padding:5px 8px;text-align:center;">` +
@@ -4280,7 +4301,9 @@ function fetchProfitBasket() {
   function portSyncSave(el) {
     const ticker = el.dataset.ticker;
     const field  = el.dataset.field;
-    const val    = parseFloat(el.value) || 0;
+    // Never overwrite a live Alpaca position via manual entry
+    if (field === 'spent' && (_syncAlpacaPositions[ticker] || 0) > 0) return;
+    const val = parseFloat(el.value) || 0;
     localStorage.setItem('hermes_sync_' + field + '_' + ticker, val);
     portSyncRender();
   }
@@ -4288,6 +4311,26 @@ function fetchProfitBasket() {
   function portSyncSaveBalance() {
     const val = parseFloat(document.getElementById('sync-balance')?.value) || 0;
     localStorage.setItem('hermes_sync_balance', val);
+  }
+
+  function portSyncLoadAlpaca() {
+    _syncAlpacaLoaded = false;  // reset before every fetch — handles re-uploads
+    fetch('/api/positions')
+      .then(r => r.json())
+      .then(data => {
+        _syncAlpacaPositions = {};
+        (Array.isArray(data) ? data : []).forEach(p => {
+          if (p.sym && p.mv != null) {
+            _syncAlpacaPositions[p.sym.toUpperCase()] = parseFloat(p.mv) || 0;
+          }
+        });
+        _syncAlpacaLoaded = true;
+        portSyncRender();
+      })
+      .catch(() => {
+        _syncAlpacaLoaded = true;   // fail open — render with manual values
+        portSyncRender();
+      });
   }
 
 })();
