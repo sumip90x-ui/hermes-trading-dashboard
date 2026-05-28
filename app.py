@@ -205,8 +205,122 @@ def api_fidelity_true_profit():
     except Exception as exc:
         return jsonify({'error': str(exc)}), 500
 
-# ── Intelligence brief system ─────────────────────────────────────────────────
 
+@app.route('/api/market_clock')
+def api_market_clock():
+    try:
+        clock = alpaca('/v2/clock', {})
+        return jsonify({
+            'is_open':    clock.get('is_open', False),
+            'next_open':  clock.get('next_open', ''),
+            'next_close': clock.get('next_close', ''),
+            'is_live':    True  # hardcoded — keys are always live trading
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/open_orders')
+def api_open_orders():
+    try:
+        orders = alpaca('/v2/orders', {'status': 'open', 'limit': 500})
+        return jsonify(orders if isinstance(orders, list) else [])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/sync_orders', methods=['POST'])
+def api_sync_orders():
+    try:
+        import time as _time
+        payload = request.get_json()
+        sells   = payload.get('sells', [])   # [{symbol, notional}]
+        buys    = payload.get('buys',  [])   # [{symbol, notional}] sorted cap desc
+        results = {'sells': [], 'buys': [], 'cancelled': [], 'errors': []}
+
+        # ── Step 1: cancel open orders for all affected tickers ──────────
+        affected = set(o['symbol'] for o in sells + buys)
+        try:
+            open_ords = alpaca('/v2/orders', {'status': 'open', 'limit': 500})
+            if isinstance(open_ords, list):
+                for o in open_ords:
+                    if o.get('symbol') in affected:
+                        oid = o.get('id')
+                        try:
+                            _session.delete(f'{ALPACA}/v2/orders/{oid}', timeout=(5, 15))
+                            results['cancelled'].append(o.get('symbol'))
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+        # ── Step 2: execute all sells first ─────────────────────────────
+        for order in sells:
+            try:
+                r = alpaca_post('/v2/orders', {
+                    'symbol':        order['symbol'],
+                    'side':          'sell',
+                    'type':          'market',
+                    'time_in_force': 'day',
+                    'notional':      str(round(order['notional'], 2))
+                })
+                if r.get('message'):
+                    results['errors'].append({'symbol': order['symbol'], 'side': 'sell',
+                                              'error': r['message']})
+                else:
+                    results['sells'].append({'symbol': order['symbol'],
+                                             'notional': order['notional'],
+                                             'status': r.get('status', 'submitted'),
+                                             'id': r.get('id', '')})
+            except Exception as e:
+                results['errors'].append({'symbol': order['symbol'], 'side': 'sell',
+                                          'error': str(e)})
+
+        # ── Step 3: re-fetch buying power after sells ────────────────────
+        _time.sleep(1)
+        try:
+            account      = alpaca('/v2/account', {})
+            buying_power = float(account.get('buying_power', 0))
+        except Exception:
+            buying_power = 0
+
+        # ── Step 4: execute buys largest-cap-first until BP exhausted ────
+        for order in buys:
+            notional = round(order['notional'], 2)
+            if notional > buying_power:
+                results['errors'].append({'symbol': order['symbol'], 'side': 'buy',
+                                          'error': f'Insufficient buying power '
+                                                   f'(need ${notional:.2f}, have ${buying_power:.2f})'})
+                continue
+            try:
+                r = alpaca_post('/v2/orders', {
+                    'symbol':        order['symbol'],
+                    'side':          'buy',
+                    'type':          'market',
+                    'time_in_force': 'day',
+                    'notional':      str(notional)
+                })
+                if r.get('message'):
+                    results['errors'].append({'symbol': order['symbol'], 'side': 'buy',
+                                              'error': r['message']})
+                else:
+                    buying_power -= notional
+                    results['buys'].append({'symbol': order['symbol'],
+                                            'notional': notional,
+                                            'status': r.get('status', 'submitted'),
+                                            'id': r.get('id', '')})
+            except Exception as e:
+                results['errors'].append({'symbol': order['symbol'], 'side': 'buy',
+                                          'error': str(e)})
+
+        results['buying_power_remaining'] = round(buying_power, 2)
+        return jsonify(results)
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ── Intelligence brief system ─────────────────────────────────────────────────
 _WIN_RATE_FACTORS = {
     'PULLBACK':      1.30,
     'ACCELERATING':  1.15,

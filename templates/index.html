@@ -896,6 +896,16 @@
                        text-align:right;border-radius:3px;"
                 oninput="portSyncSaveBalance();portSyncRender()">
             </span>
+            <button id="sync-launch-btn" onclick="portSyncLaunch()"
+              style="background:var(--red);border:none;color:#fff;
+                     padding:5px 16px;font-size:11px;font-family:inherit;
+                     cursor:pointer;font-weight:600;letter-spacing:.06em;
+                     border-radius:3px;display:none;">
+              ⚡ SYNC ALPACA
+              <span id="sync-order-count"
+                style="margin-left:6px;background:rgba(0,0,0,0.3);
+                       padding:1px 5px;border-radius:2px;font-size:10px;"></span>
+            </button>
           </div>
 
           <!-- Table -->
@@ -3780,6 +3790,8 @@ function fetchProfitBasket() {
   // Alpaca live positions cache — populated by portSyncLoadAlpaca()
   let _syncAlpacaPositions = {};  // { TICKER: marketValue }
   let _syncAlpacaLoaded    = false;
+  let _syncLastData        = [];   // last computed data array for order building
+  let _syncPendingOrders   = { sells: [], buys: [] };
 
   // ── Parsing ────────────────────────────────────────────────────────────────
   function portParseMoney(v) {
@@ -4155,6 +4167,10 @@ function fetchProfitBasket() {
                spent, alpacaLive, wk52val, remaining, action, actionDetail };
     });
 
+    // store for order building + update sync button
+    _syncLastData = data;
+    portSyncBuildOrders();
+
     // filter
     const q = (document.getElementById('sync-search')?.value || '').toUpperCase().trim();
     const f = document.getElementById('sync-filter')?.value || 'all';
@@ -4296,6 +4312,162 @@ function fetchProfitBasket() {
           `</span></td>` +
         `</tr>`;
     }).join('');
+  }
+
+  // ── Sync order building + launch + modal ──────────────────────────────────
+
+  function portSyncBuildOrders() {
+    if (!portAllRows || portAllRows.length === 0) return;
+    const sells = [];
+    const buys  = [];
+    (_syncLastData || []).forEach(d => {
+      if (d.action === 'TRIM' && d.cap > 0 && d.spent > d.cap) {
+        const trimAmount = parseFloat((d.spent - d.cap).toFixed(2));
+        if (trimAmount >= 0.01) sells.push({ symbol: d.ticker, notional: trimAmount, cap: d.cap });
+      }
+      if (d.action === 'ENTER') {
+        const entrySize = parseFloat(Math.min(1.10, d.todayGL > 0 ? d.todayGL : 1.10).toFixed(2));
+        buys.push({ symbol: d.ticker, notional: entrySize, cap: d.cap });
+      }
+      if (d.action === 'ADD' && d.remaining > 0.01) {
+        buys.push({ symbol: d.ticker, notional: parseFloat(d.remaining.toFixed(2)), cap: d.cap });
+      }
+    });
+    buys.sort((a, b) => b.cap - a.cap);  // largest cap first (Option C)
+    _syncPendingOrders = { sells, buys };
+    const total = sells.length + buys.length;
+    const btn   = document.getElementById('sync-launch-btn');
+    const badge = document.getElementById('sync-order-count');
+    if (btn)   btn.style.display   = total > 0 ? 'inline-block' : 'none';
+    if (badge) badge.textContent   = total + ' orders';
+  }
+
+  function portSyncLaunch() {
+    fetch('/api/market_clock')
+      .then(r => r.json())
+      .then(clock => {
+        if (!clock.is_open) {
+          alert('Market is closed.\nNext open: ' + (clock.next_open || 'unknown') +
+                '\nSync is only available during market hours (9:30 AM – 4:00 PM ET).');
+          return;
+        }
+        portSyncShowModal(clock.is_live !== false);
+      })
+      .catch(() => alert('Could not reach market clock endpoint. Check backend.'));
+  }
+
+  function portSyncShowModal(isLive) {
+    const { sells, buys } = _syncPendingOrders;
+    const orderRow = (o, side) => {
+      const color = side === 'sell' ? 'var(--red)' : 'var(--green)';
+      return `<div style="display:flex;justify-content:space-between;align-items:center;` +
+               `padding:5px 0;border-bottom:1px solid var(--border);font-size:12px;">` +
+        `<span style="font-weight:600;color:var(--text);font-family:monospace;min-width:60px;">${o.symbol}</span>` +
+        `<span style="color:var(--muted);font-size:11px;">cap $${o.cap.toFixed(2)}</span>` +
+        `<span style="color:${color};font-family:monospace;font-weight:600;">${side.toUpperCase()} $${o.notional.toFixed(2)}</span>` +
+        `</div>`;
+    };
+    const sellsEl = document.getElementById('sync-modal-sells');
+    const buysEl  = document.getElementById('sync-modal-buys');
+    if (sellsEl) sellsEl.innerHTML = sells.length
+      ? sells.map(o => orderRow(o, 'sell')).join('')
+      : '<div style="color:var(--muted);font-size:11px;">No sells required.</div>';
+    if (buysEl) buysEl.innerHTML = buys.length
+      ? buys.map(o => orderRow(o, 'buy')).join('')
+      : '<div style="color:var(--muted);font-size:11px;">No buys required.</div>';
+    const totalSell = sells.reduce((s, o) => s + o.notional, 0);
+    const totalBuy  = buys.reduce((s, o) => s + o.notional, 0);
+    const net       = totalBuy - totalSell;
+    const summaryEl = document.getElementById('sync-modal-summary');
+    if (summaryEl) summaryEl.innerHTML =
+      `<span style="color:var(--red);">Sells: $${totalSell.toFixed(2)}</span>` +
+      `&nbsp;&nbsp;|&nbsp;&nbsp;` +
+      `<span style="color:var(--green);">Buys: $${totalBuy.toFixed(2)}</span>` +
+      `&nbsp;&nbsp;|&nbsp;&nbsp;` +
+      `<span style="color:${net > 0 ? 'var(--red)' : 'var(--green)'};">` +
+        `Net: ${net > 0 ? '-' : '+'}$${Math.abs(net).toFixed(2)}` +
+      `</span>` +
+      `&nbsp;&nbsp;|&nbsp;&nbsp;` +
+      `<span style="color:var(--muted);">${sells.length} sell${sells.length!==1?'s':''}, ` +
+        `${buys.length} buy${buys.length!==1?'s':''}</span>`;
+    const confirmInput = document.getElementById('sync-confirm-input');
+    const executeBtn   = document.getElementById('sync-execute-btn');
+    const gateEl       = document.getElementById('sync-confirm-gate');
+    const resultsEl    = document.getElementById('sync-results-panel');
+    if (confirmInput) confirmInput.value = '';
+    if (executeBtn)  { executeBtn.disabled = true; executeBtn.style.opacity = '0.4';
+                       executeBtn.style.cursor = 'not-allowed';
+                       executeBtn.textContent = 'EXECUTE SYNC'; }
+    if (gateEl)   gateEl.style.display   = isLive ? 'block' : 'none';
+    if (resultsEl) resultsEl.style.display = 'none';
+    if (!isLive && executeBtn) {
+      executeBtn.disabled = false; executeBtn.style.opacity = '1';
+      executeBtn.style.cursor = 'pointer';
+    }
+    const overlay = document.getElementById('sync-modal-overlay');
+    if (overlay) overlay.style.display = 'flex';
+  }
+
+  function portSyncCheckConfirm() {
+    const val = (document.getElementById('sync-confirm-input')?.value || '').trim();
+    const btn = document.getElementById('sync-execute-btn');
+    if (!btn) return;
+    const ok = val.toUpperCase() === 'CONFIRM';
+    btn.disabled      = !ok;
+    btn.style.opacity = ok ? '1' : '0.4';
+    btn.style.cursor  = ok ? 'pointer' : 'not-allowed';
+  }
+
+  function portSyncCloseModal() {
+    const overlay = document.getElementById('sync-modal-overlay');
+    if (overlay) overlay.style.display = 'none';
+  }
+
+  function portSyncExecute() {
+    const btn = document.getElementById('sync-execute-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'EXECUTING…'; }
+    fetch('/api/sync_orders', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(_syncPendingOrders)
+    })
+    .then(r => r.json())
+    .then(results => {
+      const resultsEl = document.getElementById('sync-results-panel');
+      const bodyEl    = document.getElementById('sync-results-body');
+      if (!resultsEl || !bodyEl) return;
+      const row = (label, color, items) => items.length === 0 ? '' :
+        `<div style="margin-bottom:8px;">` +
+          `<div style="font-size:10px;color:var(--muted);text-transform:uppercase;` +
+                      `margin-bottom:3px;">${label}</div>` +
+          items.map(o =>
+            `<div style="color:${color};padding:1px 0;">` +
+              `${o.symbol || o}` +
+              `${o.notional ? ' $' + (typeof o.notional === 'number' ? o.notional.toFixed(2) : o.notional) : ''}` +
+              `${o.status   ? ' — ' + o.status : ''}` +
+              `${o.error    ? ' ✗ ' + o.error  : ''}` +
+            `</div>`).join('') +
+        `</div>`;
+      bodyEl.innerHTML =
+        row('Sells filled', 'var(--green)', results.sells    || []) +
+        row('Buys filled',  'var(--green)', results.buys     || []) +
+        row('Cancelled',    'var(--muted)', (results.cancelled||[]).map(s => ({ symbol: s }))) +
+        row('Errors',       'var(--red)',   results.errors   || []) +
+        (results.buying_power_remaining != null
+          ? `<div style="color:var(--muted);font-size:11px;margin-top:6px;">` +
+              `Buying power remaining: $${results.buying_power_remaining.toFixed(2)}` +
+            `</div>` : '');
+      resultsEl.style.display = 'block';
+      // 5-second refresh then close
+      setTimeout(() => {
+        portSyncLoadAlpaca();
+        portSyncCloseModal();
+      }, 5000);
+    })
+    .catch(err => {
+      alert('Sync failed: ' + err.message);
+      if (btn) { btn.disabled = false; btn.textContent = 'EXECUTE SYNC'; }
+    });
   }
 
   function portSyncSave(el) {
@@ -5263,6 +5435,93 @@ function launchMiroShark() {
 
 })();
 </script>
+        <div id="sync-modal-overlay" style="
+          display:none;position:fixed;inset:0;
+          background:rgba(0,0,0,0.85);z-index:9999;
+          align-items:center;justify-content:center;">
+          <div style="
+            background:var(--panel);border:1px solid var(--border);
+            width:680px;max-width:95vw;max-height:85vh;
+            display:flex;flex-direction:column;border-radius:4px;">
+            <!-- Header -->
+            <div style="padding:14px 18px;border-bottom:1px solid var(--border);
+                        display:flex;align-items:center;justify-content:space-between;">
+              <span style="color:var(--text);font-weight:600;font-size:14px;">
+                ⚡ ALPACA SYNC — ORDER PREVIEW
+              </span>
+              <span id="sync-modal-env" style="
+                font-size:10px;padding:2px 8px;border-radius:2px;
+                background:var(--red);color:#fff;letter-spacing:.08em;">
+                LIVE ACCOUNT
+              </span>
+            </div>
+            <!-- Order lists -->
+            <div style="overflow-y:auto;flex:1;padding:16px 18px;">
+              <div style="margin-bottom:16px;">
+                <div style="font-size:10px;color:var(--muted);text-transform:uppercase;
+                            margin-bottom:8px;letter-spacing:.05em;">
+                  Sells — executes first
+                </div>
+                <div id="sync-modal-sells"></div>
+              </div>
+              <div>
+                <div style="font-size:10px;color:var(--muted);text-transform:uppercase;
+                            margin-bottom:8px;letter-spacing:.05em;">
+                  Buys — executes after sells, largest cap first
+                </div>
+                <div id="sync-modal-buys"></div>
+              </div>
+              <!-- Net summary -->
+              <div id="sync-modal-summary" style="
+                margin-top:16px;padding:10px 14px;
+                background:var(--bg);border:1px solid var(--border);
+                font-size:12px;font-family:monospace;"></div>
+              <!-- Live confirm gate -->
+              <div id="sync-confirm-gate" style="margin-top:16px;">
+                <div style="font-size:11px;color:var(--red);margin-bottom:6px;">
+                  ⚠ This is a LIVE account. Type CONFIRM to enable execution.
+                </div>
+                <input id="sync-confirm-input" type="text"
+                  placeholder="Type CONFIRM"
+                  oninput="portSyncCheckConfirm()"
+                  style="background:var(--bg);border:1px solid var(--border);
+                         color:var(--text);padding:6px 10px;font-size:13px;
+                         font-family:monospace;width:100%;letter-spacing:.1em;">
+              </div>
+            </div>
+            <!-- Footer buttons -->
+            <div style="padding:12px 18px;border-top:1px solid var(--border);
+                        display:flex;gap:10px;justify-content:flex-end;">
+              <button onclick="portSyncCloseModal()"
+                style="background:transparent;border:1px solid var(--border);
+                       color:var(--muted);padding:7px 20px;font-size:12px;
+                       font-family:inherit;cursor:pointer;border-radius:2px;">
+                CANCEL
+              </button>
+              <button id="sync-execute-btn" onclick="portSyncExecute()" disabled
+                style="background:var(--red);border:none;color:#fff;
+                       padding:7px 24px;font-size:12px;font-family:inherit;
+                       cursor:not-allowed;opacity:0.4;font-weight:600;
+                       letter-spacing:.05em;border-radius:2px;">
+                EXECUTE SYNC
+              </button>
+            </div>
+            <!-- Results panel (hidden until after execution) -->
+            <div id="sync-results-panel" style="display:none;
+              padding:16px 18px;border-top:1px solid var(--border);">
+              <div style="font-size:10px;color:var(--muted);
+                          text-transform:uppercase;margin-bottom:8px;">
+                Execution results
+              </div>
+              <div id="sync-results-body"
+                style="font-size:12px;font-family:monospace;line-height:1.7;"></div>
+              <div style="margin-top:10px;font-size:11px;color:var(--muted);">
+                Positions will refresh in 5 seconds…
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div id="intel-modal-overlay" onclick="closeIntelModal(event)">
           <div id="intel-modal">
             <h3>⚡ Best Signal</h3>
