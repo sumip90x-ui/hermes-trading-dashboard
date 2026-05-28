@@ -1005,12 +1005,30 @@ def api_account():
     intra_low  = round(min(bars), 2) if bars else equity
     intra_open = round(bars[0],  2) if bars else equity
 
-    # ATH from candle history
-    history = []
-    if CANDLE_FILE.exists():
-        try: history = json.loads(CANDLE_FILE.read_text())
-        except: pass
-    ath = max([h.get('high', h.get('close', 0)) for h in history] or [intra_high])
+    # ATH — pull from Alpaca 1-year daily portfolio history (live, always current)
+    # Falls back to candle_history.json if the API call fails
+    ath = intra_high  # safe floor
+    try:
+        ph = alpaca('/v2/account/portfolio/history',
+                    {'period': '1A', 'timeframe': '1D', 'extended_hours': 'false'})
+        ph_equity     = ph.get('equity', [])
+        ph_timestamps = ph.get('timestamp', [])
+        daily_highs = []
+        for i, (ts, eq) in enumerate(zip(ph_timestamps, ph_equity)):
+            if not eq or eq <= 0:
+                continue
+            prev_eq = ph_equity[i-1] if i > 0 and ph_equity[i-1] and ph_equity[i-1] > 0 else eq
+            # approximate daily high: max(open, close) * 1.003 (same as /api/candles)
+            daily_highs.append(round(max(prev_eq, eq) * 1.003, 2))
+        if daily_highs:
+            ath = max(daily_highs + [intra_high])
+    except Exception:
+        # fallback to candle_history.json
+        history = []
+        if CANDLE_FILE.exists():
+            try: history = json.loads(CANDLE_FILE.read_text())
+            except: pass
+        ath = max([h.get('high', h.get('close', 0)) for h in history] or [intra_high])
 
     # Verified principal: sum of all CSD (ACH deposit) activity entries — auto-updated
     try:
@@ -1162,11 +1180,25 @@ def api_candle_trigger():
                   {'period':'1D','timeframe':'1Min','extended_hours':'true'})
     bars = [e for e in data.get('equity',[]) if e and e > 0]
 
-    history = []
-    if CANDLE_FILE.exists():
-        history = json.loads(CANDLE_FILE.read_text())
-
-    ath = max([h.get('high', h.get('close',0)) for h in history] or [1186.01])
+    # ATH from live 1-year daily history
+    ath = bars[0] if bars else 1186.01
+    try:
+        ph = alpaca('/v2/account/portfolio/history',
+                    {'period': '1A', 'timeframe': '1D', 'extended_hours': 'false'})
+        ph_equity = ph.get('equity', [])
+        daily_highs = []
+        for i, eq in enumerate(ph_equity):
+            if not eq or eq <= 0: continue
+            prev_eq = ph_equity[i-1] if i > 0 and ph_equity[i-1] and ph_equity[i-1] > 0 else eq
+            daily_highs.append(round(max(prev_eq, eq) * 1.003, 2))
+        if daily_highs:
+            ath = max(daily_highs)
+    except Exception:
+        history = []
+        if CANDLE_FILE.exists():
+            try: history = json.loads(CANDLE_FILE.read_text())
+            except: pass
+        ath = max([h.get('high', h.get('close',0)) for h in history] or [1186.01])
     ath_zone  = ath * 0.998
     today_high = max(bars) if bars else 0
     today_low  = min(bars) if bars else 0
