@@ -4136,15 +4136,28 @@ function fetchProfitBasket() {
       const wk52val     = parseFloat(LS('52wk_'  + ticker)) || 0;
       const remaining   = parseFloat((cap - spent).toFixed(2));
 
-      let action, actionDetail;
+      let action, actionDetail, addSize = 0;
       if (spent > 0) {
         if (spent > cap && cap > 0) {
           action = 'TRIM';
           actionDetail = 'to $' + cap.toFixed(2);
           if (tier === 'LR') actionDetail += ' ⚠ doubling down';
         } else if (remaining > 0.01 && todayGL > 0) {
-          action = 'ADD';
-          actionDetail = 'room $' + remaining.toFixed(2);
+          // Tiered ADD sizing — use todayGL as momentum signal
+          // TODO: threshold scaling → Math.max(2.00, cap * 0.03) when live data available
+          const rawAdd = todayGL > 2.00
+                         ? Math.min(todayGL, remaining)
+                         : 1.10;
+          addSize = parseFloat(rawAdd.toFixed(2));
+
+          if (addSize < START_FLOOR || remaining < START_FLOOR) {
+            // cap room too thin or signal too small — hold silently
+            action       = 'HOLD';
+            actionDetail = 'cap room thin';
+          } else {
+            action       = 'ADD';
+            actionDetail = '$' + addSize.toFixed(2) + ' | room $' + remaining.toFixed(2);
+          }
         } else if (remaining <= 0.01) {
           action = 'HOLD';
           actionDetail = 'at cap';
@@ -4164,7 +4177,7 @@ function fetchProfitBasket() {
       }
 
       return { ticker, fidVal, totalGL, todayGL, price, tier, cap,
-               spent, alpacaLive, wk52val, remaining, action, actionDetail };
+               spent, alpacaLive, wk52val, remaining, action, actionDetail, addSize };
     });
 
     // store for order building + update sync button
@@ -4329,8 +4342,8 @@ function fetchProfitBasket() {
         const entrySize = parseFloat(Math.min(1.10, d.todayGL > 0 ? d.todayGL : 1.10).toFixed(2));
         buys.push({ symbol: d.ticker, notional: entrySize, cap: d.cap });
       }
-      if (d.action === 'ADD' && d.remaining > 0.01) {
-        buys.push({ symbol: d.ticker, notional: parseFloat(d.remaining.toFixed(2)), cap: d.cap });
+      if (d.action === 'ADD' && d.addSize >= 1.10) {
+        buys.push({ symbol: d.ticker, notional: d.addSize, cap: d.cap });
       }
     });
     buys.sort((a, b) => b.cap - a.cap);  // largest cap first (Option C)
