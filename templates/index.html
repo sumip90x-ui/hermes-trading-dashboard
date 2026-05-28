@@ -3832,6 +3832,19 @@ function fetchProfitBasket() {
   let _syncHistorySignals  = { avg_signals: 40, avg_size: 3.50, sample_size: 0 };
   let _syncRecycledData    = { total: 0.0, events: [] };
   let _syncSavingsVisible  = true;
+  let _syncWeeklyData      = { per_ticker: {}, aggregate: {
+    avg_signals: 40, avg_size: 3.50, avg_cap_growth_rate: 0.03,
+    sample_size: 0, matched_tickers: 0 } };
+  let _syncLastCsvDate     = null;
+  let _syncLastSyncDate    = null;
+
+  const CONVICTION_MULTIPLIER = accounts => {
+    if (accounts >= 16) return 1.25;
+    if (accounts >= 11) return 1.10;
+    if (accounts >= 6)  return 1.00;
+    if (accounts >= 3)  return 0.75;
+    return 0.50;
+  };
 
   // ── Parsing ────────────────────────────────────────────────────────────────
   function portParseMoney(v) {
@@ -3861,6 +3874,32 @@ function fetchProfitBasket() {
     const lines = text.split('\n').filter(l => l.trim());
     if (lines.length < 2) return null;
     const headers = portParseCSVLine(lines[0]);
+
+    // Extract CSV date from filename pattern or footer — stored for sync lock
+    // Fidelity filenames: Portfolio_Positions_Mon-DD-YYYY.csv
+    // We detect it from the file reference stored on the input element
+    // Fallback: use today's date
+    (function() {
+      try {
+        const inp = document.getElementById('port-csv-input');
+        const fname = inp?.files?.[0]?.name || '';
+        const m = fname.match(/(\w+)-(\d+)-(\d{4})/);
+        if (m) {
+          const MONTHS = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,
+                          jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+          const mo = MONTHS[m[1].toLowerCase().slice(0,3)];
+          if (mo !== undefined) {
+            const d = new Date(parseInt(m[3]), mo, parseInt(m[2]));
+            _syncLastCsvDate = d.toISOString().slice(0, 10);
+            return;
+          }
+        }
+        // fallback to today
+        _syncLastCsvDate = new Date().toISOString().slice(0, 10);
+      } catch(e) {
+        _syncLastCsvDate = new Date().toISOString().slice(0, 10);
+      }
+    })();
 
     const acctIdx    = 0;
     const symIdx     = headers.indexOf('Symbol');
@@ -4178,33 +4217,48 @@ function fetchProfitBasket() {
       const remaining   = parseFloat((cap - spent).toFixed(2));
 
       let action, actionDetail, addSize = 0;
+      // pull weekly data for this ticker
+      const weekData       = _syncWeeklyData.per_ticker[ticker] || {};
+      const weekGL         = weekData.week_gl    || 0;
+      const daysSince      = weekData.days_since || 5;
+      const prevGL         = weekData.prev_gl    || 0;
+      const convMult       = CONVICTION_MULTIPLIER(r.Accounts || 1);
+      // thesis deterioration: cap shrank >10% of prev cap since last snapshot
+      const capShrinkage   = prevGL - totalGL;
+      const isDeteriorating = prevGL > 0 && capShrinkage > Math.abs(prevGL) * 0.10;
+
       if (spent > 0) {
         if (spent > cap && cap > 0) {
-          action = 'TRIM';
-          actionDetail = 'to $' + cap.toFixed(2);
-          if (tier === 'LR') actionDetail += ' ⚠ doubling down';
-        } else if (remaining > 0.01 && todayGL > 0) {
-          // Tiered ADD sizing — use todayGL as momentum signal
-          // TODO: threshold scaling → Math.max(2.00, cap * 0.03) when live data available
-          const rawAdd = todayGL > 2.00
-                         ? Math.min(todayGL, remaining)
-                         : 1.10;
-          addSize = parseFloat(rawAdd.toFixed(2));
-
-          if (addSize < START_FLOOR || remaining < START_FLOOR) {
-            // cap room too thin or signal too small — hold silently
-            action       = 'HOLD';
-            actionDetail = 'cap room thin';
-          } else {
+          action = isDeteriorating ? 'TRIM_D' : 'TRIM_W';
+          actionDetail = 'to $' + cap.toFixed(2) +
+            (isDeteriorating ? ' ⚠ thesis' : ' → recycle');
+        } else if (remaining >= 1.10) {
+          // Case 1: Standard ADD — week positive, today confirming above noise
+          if (weekGL > 0 && todayGL > 2.00) {
+            const rawAdd = Math.min(todayGL, weekGL / daysSince);
+            addSize = parseFloat(
+              Math.max(1.10, Math.min(rawAdd * convMult, remaining)).toFixed(2));
             action       = 'ADD';
             actionDetail = '$' + addSize.toFixed(2) + ' | room $' + remaining.toFixed(2);
+          // Case 2: Recovery ADD — LR tier, week under pressure, today recovering
+          } else if (tier === 'LR' && weekGL < 0 && todayGL > 2.00) {
+            const rawAdd = Math.min(todayGL, remaining);
+            addSize = parseFloat(
+              Math.max(1.10, Math.min(rawAdd * convMult * 0.75, remaining)).toFixed(2));
+            action       = 'ADD_R';
+            actionDetail = '$' + addSize.toFixed(2) + ' | recovery';
+          // Case 3: Weak signal — today positive but below noise floor
+          } else if (todayGL > 0 && todayGL <= 2.00) {
+            addSize      = 1.10;
+            action       = 'ADD';
+            actionDetail = '$1.10 | weak signal';
+          } else {
+            action       = 'HOLD';
+            actionDetail = 'no signal';
           }
-        } else if (remaining <= 0.01) {
-          action = 'HOLD';
-          actionDetail = 'at cap';
         } else {
-          action = 'WATCH';
-          actionDetail = 'no signal';
+          action       = 'HOLD';
+          actionDetail = remaining < 0 ? 'over cap' : 'cap room thin';
         }
       } else {
         if (todayGL > 0) {
@@ -4218,7 +4272,9 @@ function fetchProfitBasket() {
       }
 
       return { ticker, fidVal, totalGL, todayGL, price, tier, cap,
-               spent, alpacaLive, wk52val, remaining, action, actionDetail, addSize };
+               spent, alpacaLive, wk52val, remaining, action, actionDetail,
+               addSize, isDeteriorating, accounts: r.Accounts || 1,
+               weekGL, daysSince };
     });
 
     // store for order building + update sync button
@@ -4234,15 +4290,15 @@ function fetchProfitBasket() {
       if (f === 'gain'  && d.tier   !== 'GL')    return false;
       if (f === 'loss'  && d.tier   !== 'LR')    return false;
       if (f === 'new'   && d.tier   !== 'NP')    return false;
-      if (f === 'trim'  && d.action !== 'TRIM')  return false;
-      if (f === 'add'   && d.action !== 'ADD')   return false;
+      if (f === 'trim'  && d.action !== 'TRIM_W' && d.action !== 'TRIM_D' && d.action !== 'TRIM') return false;
+      if (f === 'add'   && d.action !== 'ADD'   && d.action !== 'ADD_R') return false;
       if (f === 'enter' && d.action !== 'ENTER') return false;
       return true;
     });
 
     // sort
     const s = document.getElementById('sync-sort')?.value || 'gl_desc';
-    const ACTION_PRIORITY = { TRIM:0, ENTER:1, ADD:2, HOLD:3, WATCH:4 };
+    const ACTION_PRIORITY = { TRIM_D:0, TRIM_W:1, TRIM:1, ENTER:2, ADD_R:3, ADD:4, HOLD:5, WATCH:6 };
     filtered.sort((a, b) => {
       if (s === 'gl_desc')    return b.totalGL - a.totalGL;
       if (s === 'cap_desc')   return b.cap - a.cap;
@@ -4286,11 +4342,14 @@ function fetchProfitBasket() {
 
     // action / tier styles
     const ACTION_STYLE = {
-      TRIM:  'color:var(--red);border:1px solid var(--red)',
-      ADD:   'color:var(--green);border:1px solid var(--green)',
-      ENTER: 'color:var(--blue);border:1px solid var(--blue)',
-      HOLD:  'color:var(--gold);border:1px solid var(--gold)',
-      WATCH: 'color:var(--muted);border:1px solid var(--border)',
+      TRIM_W: 'color:var(--gold);border:1px solid var(--gold)',
+      TRIM_D: 'color:var(--red);border:1px solid var(--red)',
+      TRIM:   'color:var(--gold);border:1px solid var(--gold)',  // legacy fallback
+      ADD:    'color:var(--green);border:1px solid var(--green)',
+      ADD_R:  'color:var(--blue);border:1px solid var(--blue)',
+      ENTER:  'color:var(--blue);border:1px solid var(--blue)',
+      HOLD:   'color:var(--gold);border:1px solid var(--gold)',
+      WATCH:  'color:var(--muted);border:1px solid var(--border)',
     };
     const TIER_STYLE = {
       GL: 'color:var(--green);border:1px solid var(--green)',
@@ -4372,9 +4431,9 @@ function fetchProfitBasket() {
   // ── Savings Plan Panel ────────────────────────────────────────────────────
 
   function portSyncLoadSavingsData() {
-    fetch('/api/sync_history_signals')
+    fetch('/api/sync_weekly_data')
       .then(r => r.json())
-      .then(d => { _syncHistorySignals = d; portSyncRenderSavings(); })
+      .then(d => { _syncWeeklyData = d; _syncHistorySignals = d.aggregate || _syncHistorySignals; portSyncRenderSavings(); })
       .catch(() => portSyncRenderSavings());
     fetch('/api/sync_recycled')
       .then(r => r.json())
@@ -4513,12 +4572,13 @@ function fetchProfitBasket() {
           `</div>`).join('');
   }
 
-  function portSyncRecordRecycled(amount, label) {
-    if (amount <= 0) return;
+  function portSyncRecordRecycled(amount, label, extra) {
+    if (amount <= 0 && !extra?.sync_result) return;
+    const body = { amount, label, ...(extra || {}) };
     fetch('/api/sync_recycled', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ amount, label })
+      body:    JSON.stringify(body)
     })
     .then(r => r.json())
     .then(d => { _syncRecycledData = d; portSyncRenderSavings(); })
@@ -4549,31 +4609,41 @@ function fetchProfitBasket() {
 
   function portSyncBuildOrders() {
     if (!portAllRows || portAllRows.length === 0) return;
-    const sells = [];
-    const buys  = [];
+    const sells      = [];
+    const buys       = [];
+    const reserveAdds = [];  // thesis deterioration proceeds → reserve not deployment
     (_syncLastData || []).forEach(d => {
-      if (d.action === 'TRIM' && d.cap > 0 && d.spent > d.cap) {
-        const trimAmount = parseFloat((d.spent - d.cap).toFixed(2));
-        if (trimAmount >= 0.01) sells.push({ symbol: d.ticker, notional: trimAmount, cap: d.cap });
+      if ((d.action === 'TRIM_W' || d.action === 'TRIM_D') && d.cap > 0 && d.spent > d.cap) {
+        const trimAmt = parseFloat((d.spent - d.cap).toFixed(2));
+        if (trimAmt >= 1.10) {
+          sells.push({ symbol: d.ticker, notional: trimAmt, cap: d.cap,
+                       type: d.action === 'TRIM_D' ? 'deteriorating' : 'winner' });
+          if (d.action === 'TRIM_D') reserveAdds.push({ symbol: d.ticker, amount: trimAmt });
+        }
       }
-      if (d.action === 'ENTER') {
-        const entrySize = parseFloat(Math.min(1.10, d.todayGL > 0 ? d.todayGL : 1.10).toFixed(2));
-        buys.push({ symbol: d.ticker, notional: entrySize, cap: d.cap });
-      }
-      if (d.action === 'ADD' && d.addSize >= 1.10) {
-        buys.push({ symbol: d.ticker, notional: d.addSize, cap: d.cap });
-      }
+      if (d.action === 'ENTER' && d.cap > 0)
+        buys.push({ symbol: d.ticker, notional: 1.10, cap: d.cap, type: 'enter' });
+      if ((d.action === 'ADD' || d.action === 'ADD_R') && d.addSize >= 1.10)
+        buys.push({ symbol: d.ticker, notional: d.addSize, cap: d.cap,
+                    type: d.action.toLowerCase() });
     });
-    buys.sort((a, b) => b.cap - a.cap);  // largest cap first (Option C)
-    _syncPendingOrders = { sells, buys };
+    buys.sort((a, b) => b.cap - a.cap);
+    _syncPendingOrders = { sells, buys, reserveAdds };
     const total = sells.length + buys.length;
     const btn   = document.getElementById('sync-launch-btn');
     const badge = document.getElementById('sync-order-count');
-    if (btn)   btn.style.display   = total > 0 ? 'inline-block' : 'none';
-    if (badge) badge.textContent   = total + ' orders';
+    if (btn)   btn.style.display = total > 0 ? 'inline-block' : 'none';
+    if (badge) badge.textContent = total + ' orders';
   }
 
   function portSyncLaunch() {
+    // ── CSV date lock — no new info since last sync ──────────────────
+    const lastSyncCsvDate = localStorage.getItem('hermes_sync_last_csv_date');
+    if (lastSyncCsvDate && _syncLastCsvDate && lastSyncCsvDate === _syncLastCsvDate) {
+      alert('Sync locked — no new CSV data since last sync.\n' +
+            'Upload a more recent Fidelity export to unlock.');
+      return;
+    }
     fetch('/api/market_clock')
       .then(r => r.json())
       .then(clock => {
@@ -4581,6 +4651,14 @@ function fetchProfitBasket() {
           alert('Market is closed.\nNext open: ' + (clock.next_open || 'unknown') +
                 '\nSync is only available during market hours (9:30 AM – 4:00 PM ET).');
           return;
+        }
+        // ── Month-boundary advisory ──────────────────────────────────
+        if (clock.is_month_boundary && clock.month_boundary_note) {
+          const proceed = confirm(
+            '⚠ Month-End Flows Active\n\n' + clock.month_boundary_note +
+            '\n\nProceed anyway, or Cancel to delay?'
+          );
+          if (!proceed) return;
         }
         portSyncShowModal(clock.is_live !== false);
       })
@@ -4655,6 +4733,7 @@ function fetchProfitBasket() {
   }
 
   function portSyncExecute() {
+    const round2 = v => Math.round((v || 0) * 100) / 100;
     const btn = document.getElementById('sync-execute-btn');
     if (btn) { btn.disabled = true; btn.textContent = 'EXECUTING…'; }
     fetch('/api/sync_orders', {
@@ -4689,13 +4768,32 @@ function fetchProfitBasket() {
               `Buying power remaining: $${results.buying_power_remaining.toFixed(2)}` +
             `</div>` : '');
       resultsEl.style.display = 'block';
-      // record trim proceeds as recycled capital
-      const sellTotal = (results.sells || []).reduce((s,o) => s + (o.notional || 0), 0);
-      if (sellTotal > 0) {
-        const labels = (results.sells || [])
-          .map(o => `TRIM ${o.symbol} $${(o.notional||0).toFixed(2)}`).join(', ');
-        portSyncRecordRecycled(parseFloat(sellTotal.toFixed(2)), labels);
+      // record full sync result — TRIM_W proceeds recycle, TRIM_D to reserve
+      const trimProceeds       = (results.sells||[]).filter(o=>o.type!=='deteriorating')
+                                   .reduce((s,o)=>s+(o.notional||0),0);
+      const cashFreedToReserve = (results.sells||[]).filter(o=>o.type==='deteriorating')
+                                   .reduce((s,o)=>s+(o.notional||0),0);
+      const entryCosts         = (results.buys||[]).filter(o=>o.type==='enter')
+                                   .reduce((s,o)=>s+(o.notional||0),0);
+      const addCosts           = (results.buys||[]).filter(o=>o.type!=='enter')
+                                   .reduce((s,o)=>s+(o.notional||0),0);
+      if (trimProceeds > 0 || cashFreedToReserve > 0 || entryCosts > 0 || addCosts > 0) {
+        const labels = (results.sells||[]).filter(o=>o.type!=='deteriorating')
+          .map(o=>`TRIM_W ${o.symbol} $${(o.notional||0).toFixed(2)}`).join(', ');
+        portSyncRecordRecycled(parseFloat(trimProceeds.toFixed(2)), labels, {
+          sync_result: {
+            date:                  new Date().toISOString(),
+            trim_proceeds:         round2(trimProceeds),
+            cash_freed_to_reserve: round2(cashFreedToReserve),
+            entry_costs:           round2(entryCosts),
+            add_costs:             round2(addCosts),
+            net_pl_impact:         0,
+          }
+        });
       }
+      // stamp CSV lock date on successful sync
+      if (_syncLastCsvDate) localStorage.setItem('hermes_sync_last_csv_date', _syncLastCsvDate);
+      localStorage.setItem('hermes_sync_last_sync_date', new Date().toISOString());
       // 5-second refresh then close
       setTimeout(() => {
         portSyncLoadAlpaca();

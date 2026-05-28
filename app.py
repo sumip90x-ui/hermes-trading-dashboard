@@ -209,12 +209,23 @@ def api_fidelity_true_profit():
 @app.route('/api/market_clock')
 def api_market_clock():
     try:
+        import calendar as _cal
         clock = alpaca('/v2/clock', {})
+        today = datetime.now()
+        last_day = _cal.monthrange(today.year, today.month)[1]
+        is_month_boundary = today.day <= 3 or today.day >= last_day - 2
+        boundary_note = (
+            'Month-end flows active — spreads wider than mid-month average. '
+            'Consider delaying to Wednesday for better execution quality.'
+            if is_month_boundary else ''
+        )
         return jsonify({
-            'is_open':    clock.get('is_open', False),
-            'next_open':  clock.get('next_open', ''),
-            'next_close': clock.get('next_close', ''),
-            'is_live':    True  # hardcoded — keys are always live trading
+            'is_open':            clock.get('is_open', False),
+            'next_open':          clock.get('next_open', ''),
+            'next_close':         clock.get('next_close', ''),
+            'is_live':            True,
+            'is_month_boundary':  is_month_boundary,
+            'month_boundary_note': boundary_note,
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -320,52 +331,108 @@ def api_sync_orders():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/sync_history_signals')
-def api_sync_history_signals():
-    """Average daily BUY signal count + size from last 20 Fidelity snapshots."""
+@app.route('/api/sync_weekly_data')
+def api_sync_weekly_data():
+    """Per-ticker week_gl + prev_gl + aggregate signal stats from Fidelity history DB."""
     try:
         import sqlite3 as _sql
         db_path = Path.home() / 'Documents' / 'Trading Vault' / \
                   'Fidelity_History' / 'portfolio_history.db'
         if not db_path.exists():
-            return jsonify({'avg_signals': 40, 'avg_size': 3.50,
-                            'sample_size': 0, 'note': 'no history db'})
+            return jsonify({'per_ticker': {}, 'aggregate': {
+                'avg_signals': 40, 'avg_size': 3.50,
+                'avg_cap_growth_rate': 0.03, 'sample_size': 0,
+                'matched_tickers': 0}, 'note': 'no history db'})
         conn = _sql.connect(str(db_path))
         conn.row_factory = _sql.Row
-        # Get last 20 distinct snapshot dates
-        snap_dates = [r[0] for r in conn.execute("""
-            SELECT DISTINCT snapshot_date
-            FROM snapshots
-            ORDER BY snapshot_date DESC
-            LIMIT 20
+
+        # Step 1 — two most recent snapshot dates
+        dates = [r[0] for r in conn.execute("""
+            SELECT DISTINCT snapshot_date FROM snapshots
+            ORDER BY snapshot_date DESC LIMIT 2
         """).fetchall()]
-        if not snap_dates:
+        if len(dates) < 2:
             conn.close()
-            return jsonify({'avg_signals': 40, 'avg_size': 3.50, 'sample_size': 0})
-        # For each snapshot count tickers with total_gl > 2.0 (BUY signal candidates)
+            return jsonify({'per_ticker': {}, 'aggregate': {
+                'avg_signals': 40, 'avg_size': 3.50,
+                'avg_cap_growth_rate': 0.03, 'sample_size': 0,
+                'matched_tickers': 0}, 'note': 'insufficient history'})
+        current_date, prev_date = dates[0], dates[1]
+
+        # Step 2 — per-ticker week_gl (intersection set only — DB-to-DB delta)
+        rows = conn.execute("""
+            SELECT
+                c.symbol,
+                c.total_gl                              AS current_gl,
+                p.total_gl                              AS prev_gl,
+                c.total_gl - p.total_gl                 AS week_gl,
+                julianday(c.snapshot_date) -
+                julianday(p.snapshot_date)              AS days_since
+            FROM snapshots c
+            JOIN snapshots p
+              ON c.symbol       = p.symbol
+             AND p.snapshot_date = ?
+            WHERE c.snapshot_date = ?
+        """, (prev_date, current_date)).fetchall()
+
+        per_ticker = {}
+        for r in rows:
+            per_ticker[r['symbol'].upper()] = {
+                'current_gl': round(float(r['current_gl'] or 0), 2),
+                'prev_gl':    round(float(r['prev_gl']    or 0), 2),
+                'week_gl':    round(float(r['week_gl']    or 0), 2),
+                'days_since': max(1, round(float(r['days_since'] or 5), 1)),
+            }
+        matched_tickers = len(per_ticker)
+
+        # Step 3 — organic cap growth rate (positive-GL intersection only)
+        growth_row = conn.execute("""
+            SELECT SUM(c.total_gl) AS cur_total, SUM(p.total_gl) AS prev_total
+            FROM snapshots c
+            JOIN snapshots p ON c.symbol = p.symbol AND p.snapshot_date = ?
+            WHERE c.snapshot_date = ? AND c.total_gl > 0 AND p.total_gl > 0
+        """, (prev_date, current_date)).fetchone()
+        if growth_row and growth_row['prev_total'] and float(growth_row['prev_total']) > 0:
+            cap_growth_rate = (float(growth_row['cur_total']) -
+                               float(growth_row['prev_total'])) / \
+                               float(growth_row['prev_total'])
+        else:
+            cap_growth_rate = 0.03
+
+        # Step 4 — avg daily signal count (last 20 snapshots)
+        snap_dates_20 = [r[0] for r in conn.execute("""
+            SELECT DISTINCT snapshot_date FROM snapshots
+            ORDER BY snapshot_date DESC LIMIT 20
+        """).fetchall()]
         per_snap = []
-        for sd in snap_dates:
-            rows = conn.execute("""
-                SELECT COUNT(*) as cnt, AVG(ABS(total_gl)) as avg_gl
-                FROM snapshots
-                WHERE snapshot_date = ? AND total_gl > 2.0
+        for sd in snap_dates_20:
+            sr = conn.execute("""
+                SELECT COUNT(*) AS cnt, AVG(ABS(total_gl)) AS avg_gl
+                FROM snapshots WHERE snapshot_date = ? AND total_gl > 2.0
             """, (sd,)).fetchone()
-            if rows and rows['cnt']:
-                per_snap.append((sd, rows['cnt'], rows['avg_gl'] or 0))
+            if sr and sr['cnt']:
+                per_snap.append((sr['cnt'], sr['avg_gl'] or 0))
+        avg_signals = sum(r[0] for r in per_snap) / len(per_snap) if per_snap else 40
+        avg_size    = sum(r[1] for r in per_snap) / len(per_snap) if per_snap else 3.50
         conn.close()
-        if not per_snap:
-            return jsonify({'avg_signals': 40, 'avg_size': 3.50, 'sample_size': 0})
-        avg_signals = sum(r[1] for r in per_snap) / len(per_snap)
-        avg_size    = sum(r[2] for r in per_snap) / len(per_snap)
+
         return jsonify({
-            'avg_signals':   round(avg_signals, 1),
-            'avg_size':      round(avg_size, 2),
-            'sample_size':   len(per_snap),
-            'earliest_date': per_snap[-1][0][:10],
-            'latest_date':   per_snap[0][0][:10],
+            'per_ticker':    per_ticker,
+            'current_date':  current_date[:10],
+            'prev_date':     prev_date[:10],
+            'aggregate': {
+                'avg_signals':         round(avg_signals, 1),
+                'avg_size':            round(avg_size, 2),
+                'avg_cap_growth_rate': round(cap_growth_rate, 4),
+                'sample_size':         len(per_snap),
+                'matched_tickers':     matched_tickers,
+            }
         })
     except Exception as e:
-        return jsonify({'error': str(e), 'avg_signals': 40, 'avg_size': 3.50}), 200
+        return jsonify({'error': str(e), 'per_ticker': {}, 'aggregate': {
+            'avg_signals': 40, 'avg_size': 3.50,
+            'avg_cap_growth_rate': 0.03, 'sample_size': 0,
+            'matched_tickers': 0}}), 200
 
 
 SYNC_RECYCLED_FILE = str(HOME / 'sync_recycled.json')
@@ -396,6 +463,12 @@ def api_sync_recycled():
             'label':  label,
         })
         data['events'] = data['events'][:100]
+        # optional sync_result record (one per sync execution)
+        if 'sync_result' in payload:
+            if 'sync_results' not in data:
+                data['sync_results'] = []
+            data['sync_results'].insert(0, payload['sync_result'])
+            data['sync_results'] = data['sync_results'][:20]
         with open(SYNC_RECYCLED_FILE, 'w') as f:
             json.dump(data, f)
         return jsonify(data)
