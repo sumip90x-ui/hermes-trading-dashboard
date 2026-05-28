@@ -192,6 +192,19 @@ def api_fidelity_backtest():
     except Exception as exc:
         return jsonify({'error': str(exc)}), 500
 
+
+@app.route('/api/fidelity/true_profit')
+def api_fidelity_true_profit():
+    """
+    Portfolio-level true profit time series from all ingested Fidelity snapshots.
+    true_profit = SUM(total_value) - SUM(total_cost) per snapshot.
+    Cost basis is the principal — no separate deposit tracking needed.
+    """
+    try:
+        return jsonify(fidelity_db.get_true_profit_history())
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
 # ── Intelligence brief system ─────────────────────────────────────────────────
 
 _WIN_RATE_FACTORS = {

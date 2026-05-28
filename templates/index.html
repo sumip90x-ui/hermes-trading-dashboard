@@ -767,6 +767,23 @@
           <div class="port-card"><div class="port-card-lbl">Return %</div><div class="port-card-val" id="pc-ret">—</div></div>
         </div>
 
+        <!-- ── TRUE PROFIT TRACKER ── -->
+        <div id="port-tp-section" style="margin-top:1.2rem;background:#050e05;border:1px solid #1a3a1a;border-radius:6px;padding:14px 16px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+            <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;">💰 True Profit — Fidelity Portfolio</div>
+            <div style="display:flex;gap:14px;align-items:baseline;">
+              <div style="font-size:11px;color:var(--muted);">Value <span id="tp-value" style="color:var(--text);font-family:monospace;">—</span></div>
+              <div style="font-size:11px;color:var(--muted);">Cost <span id="tp-cost" style="color:var(--text);font-family:monospace;">—</span></div>
+              <div style="font-size:14px;font-weight:700;" id="tp-gl">—</div>
+              <div style="font-size:13px;font-weight:600;" id="tp-pct">—</div>
+              <div style="font-size:10px;color:var(--muted);" id="tp-snap-count"></div>
+            </div>
+          </div>
+          <!-- equity curve canvas -->
+          <canvas id="tp-canvas" height="110" style="width:100%;display:block;cursor:crosshair;"></canvas>
+          <div id="tp-tooltip" style="font-size:10px;color:var(--muted);margin-top:4px;font-family:monospace;min-height:14px;"></div>
+        </div>
+
         <!-- Snapshot diff bar (hidden until 2nd upload) -->
         <div class="port-snap-bar" id="port-snap-bar" style="display:none">
           <strong>vs previous snapshot:</strong> <span id="port-snap-detail"></span>
@@ -2746,6 +2763,7 @@ function switchChart(view, el) {
   }
   if (view === 'portfolio') loadBacktest();
   if (view === 'portfolio') loadEdgarQueue();
+  if (view === 'portfolio') loadTrueProfit();
   if (view === 'priority')  loadPriorityQueue();
 }
 
@@ -3938,6 +3956,152 @@ function fetchProfitBasket() {
 })();
 
 // ── Portfolio backtest ─────────────────────────────────────────────────────
+// ── True Profit Tracker ────────────────────────────────────────────────────
+(function() {
+  const $ = id => document.getElementById(id);
+  const fmt = n => (n >= 0 ? '+' : '') + '$' + Math.abs(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+  const fmtV = n => '$' + n.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+
+  function drawTpChart(points) {
+    const canvas = $('tp-canvas');
+    if (!canvas) return;
+    const W = canvas.offsetWidth || canvas.parentElement.offsetWidth || 800;
+    canvas.width = W;
+    const H = canvas.height;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, W, H);
+
+    const vals = points.map(p => p.gl);
+    const minV = Math.min(...vals);
+    const maxV = Math.max(...vals);
+    const range = maxV - minV || 1;
+    const PAD = { l: 52, r: 14, t: 10, b: 22 };
+    const cw = W - PAD.l - PAD.r;
+    const ch = H - PAD.t - PAD.b;
+
+    // zero line
+    const zeroY = PAD.t + ch - ((0 - minV) / range) * ch;
+    ctx.beginPath();
+    ctx.strokeStyle = '#1a3a1a';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.moveTo(PAD.l, zeroY);
+    ctx.lineTo(W - PAD.r, zeroY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Y-axis labels
+    ctx.fillStyle = '#446644';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'right';
+    [minV, (minV+maxV)/2, maxV].forEach(v => {
+      const y = PAD.t + ch - ((v - minV) / range) * ch;
+      ctx.fillText((v >= 0 ? '+' : '') + '$' + Math.abs(v).toFixed(0), PAD.l - 4, y + 3);
+    });
+
+    // fill area
+    ctx.beginPath();
+    points.forEach((p, i) => {
+      const x = PAD.l + (i / (points.length - 1 || 1)) * cw;
+      const y = PAD.t + ch - ((p.gl - minV) / range) * ch;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    const lastX = PAD.l + cw;
+    ctx.lineTo(lastX, zeroY);
+    ctx.lineTo(PAD.l, zeroY);
+    ctx.closePath();
+    const latest = points[points.length - 1];
+    ctx.fillStyle = latest && latest.gl >= 0 ? 'rgba(0,255,136,0.08)' : 'rgba(255,68,68,0.08)';
+    ctx.fill();
+
+    // line
+    ctx.beginPath();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = latest && latest.gl >= 0 ? '#00ff88' : '#ff4444';
+    points.forEach((p, i) => {
+      const x = PAD.l + (i / (points.length - 1 || 1)) * cw;
+      const y = PAD.t + ch - ((p.gl - minV) / range) * ch;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    // dots at each point
+    ctx.fillStyle = latest && latest.gl >= 0 ? '#00ff88' : '#ff4444';
+    if (points.length <= 60) {
+      points.forEach((p, i) => {
+        const x = PAD.l + (i / (points.length - 1 || 1)) * cw;
+        const y = PAD.t + ch - ((p.gl - minV) / range) * ch;
+        ctx.beginPath();
+        ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
+    // date labels (first, middle, last)
+    ctx.fillStyle = '#446644';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center';
+    [[0, 'left'], [Math.floor((points.length-1)/2), 'center'], [points.length-1, 'right']].forEach(([i, align]) => {
+      if (!points[i]) return;
+      const x = PAD.l + (i / (points.length - 1 || 1)) * cw;
+      ctx.textAlign = align;
+      ctx.fillText(points[i].date.slice(0, 10), x, H - 4);
+    });
+
+    // hover
+    canvas._tpPoints = points;
+    canvas._tpPad = PAD;
+    canvas._tpRange = { minV, range, cw, ch };
+  }
+
+  function tpHover(e) {
+    const canvas = $('tp-canvas');
+    const tip = $('tp-tooltip');
+    if (!canvas || !canvas._tpPoints || !tip) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const { l, r } = canvas._tpPad;
+    const cw = canvas.width - l - r;
+    const pts = canvas._tpPoints;
+    const idx = Math.round((mx - l) / cw * (pts.length - 1));
+    if (idx < 0 || idx >= pts.length) { tip.textContent = ''; return; }
+    const p = pts[idx];
+    const sign = p.gl >= 0 ? 'color:#00ff88' : 'color:#ff4444';
+    tip.innerHTML = `<span style="color:#446644">${p.date.slice(0,10)}</span>  value: ${fmtV(p.value)}  cost: ${fmtV(p.cost)}  G/L: <span style="${sign}">${fmt(p.gl)}</span>  <span style="${sign}">${p.gl_pct >= 0 ? '+' : ''}${p.gl_pct}%</span>`;
+  }
+
+  window._tpPoints = null;
+
+  window.loadTrueProfit = function() {
+    fetch('/api/fidelity/true_profit')
+      .then(r => r.json())
+      .then(data => {
+        if (!data || data.error || !data.latest) return;
+        const L = data.latest;
+        const glColor = L.gl >= 0 ? '#00ff88' : '#ff4444';
+        const el = id => $(`tp-${id}`);
+        if ($('tp-value')) $('tp-value').textContent = fmtV(L.value);
+        if ($('tp-cost'))  $('tp-cost').textContent  = fmtV(L.cost);
+        if ($('tp-gl')) { $('tp-gl').textContent = fmt(L.gl); $('tp-gl').style.color = glColor; }
+        if ($('tp-pct')) { $('tp-pct').textContent = (L.gl_pct >= 0 ? '+' : '') + L.gl_pct + '%'; $('tp-pct').style.color = glColor; }
+        if ($('tp-snap-count')) $('tp-snap-count').textContent = `${data.total_snapshots} snapshots`;
+        window._tpPoints = data.points;
+        setTimeout(() => drawTpChart(data.points), 50);
+      })
+      .catch(() => {});
+  };
+
+  // wire hover after DOM ready
+  document.addEventListener('DOMContentLoaded', () => {
+    const canvas = $('tp-canvas');
+    if (canvas) canvas.addEventListener('mousemove', tpHover);
+    // redraw on resize
+    window.addEventListener('resize', () => {
+      if (window._tpPoints) drawTpChart(window._tpPoints);
+    });
+  });
+})();
+
 function loadBacktest() {
   fetch('/api/fidelity/backtest')
     .then(r => r.json())

@@ -18,7 +18,7 @@ import sqlite3
 import uuid
 import re
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from collections import defaultdict
 
@@ -522,8 +522,16 @@ def ingest_snapshot(filepath: str | Path) -> dict:
         raise ValueError(f"No valid position rows parsed from {filepath.name}")
 
     snapshot_id   = str(uuid.uuid4())
-    snapshot_date = datetime.utcnow().isoformat()
     filename      = filepath.name
+    # Parse snapshot date from filename: fidelity_YYYY-MM-DD_HHMMSS_...csv
+    # Fall back to UTC now if pattern not found
+    _dm = re.match(r'fidelity_(\d{4}-\d{2}-\d{2})_(\d{6})', filename)
+    if _dm:
+        date_str = _dm.group(1)
+        time_str = _dm.group(2)
+        snapshot_date = f"{date_str}T{time_str[:2]}:{time_str[2:4]}:{time_str[4:6]}"
+    else:
+        snapshot_date = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
     total_value   = sum(r["total_value"] for r in rows)
 
     # Insert all position rows for this snapshot
@@ -855,6 +863,60 @@ def get_hot_streaks(min_streak: int = 3) -> list[dict]:
 
     results.sort(key=lambda x: (-x["streak_length"], -x["latest_deploy_amount"]))
     return results
+
+
+def get_true_profit_history() -> dict:
+    """
+    Return portfolio-level true profit time series from all ingested snapshots.
+
+    True profit = SUM(total_value) - SUM(total_cost) per snapshot.
+    Cost basis IS the principal — Fidelity calculates it per position.
+    No separate deposit tracking needed.
+
+    Returns:
+    {
+      points: [{date, value, cost, gl, gl_pct}, ...],   # one per snapshot, oldest first
+      latest: {date, value, cost, gl, gl_pct},           # most recent snapshot stats
+      earliest: {date, value, cost, gl, gl_pct},         # oldest snapshot stats
+      total_snapshots: int,
+    }
+    """
+    init_db()
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT
+                snapshot_date,
+                filename,
+                SUM(total_value) AS portfolio_value,
+                SUM(total_cost)  AS portfolio_cost
+            FROM snapshots
+            GROUP BY snapshot_id
+            ORDER BY snapshot_date ASC
+        """).fetchall()
+
+    if not rows:
+        return {"points": [], "latest": None, "earliest": None, "total_snapshots": 0}
+
+    points = []
+    for r in rows:
+        val  = r["portfolio_value"] or 0.0
+        cost = r["portfolio_cost"]  or 0.0
+        gl   = round(val - cost, 2)
+        gl_pct = round(gl / cost * 100, 2) if cost else 0.0
+        points.append({
+            "date":    r["snapshot_date"],
+            "value":   round(val, 2),
+            "cost":    round(cost, 2),
+            "gl":      gl,
+            "gl_pct":  gl_pct,
+        })
+
+    return {
+        "points":           points,
+        "latest":           points[-1],
+        "earliest":         points[0],
+        "total_snapshots":  len(points),
+    }
 
 
 def backtest_signals() -> dict:
