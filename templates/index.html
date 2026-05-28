@@ -841,6 +841,97 @@
           <button class="port-pager-btn" id="port-next-btn" disabled>Next →</button>
         </div>
 
+        <!-- ── ALPACA SYNC PANEL ── -->
+        <div id="port-sync-panel" style="margin-top:2rem;">
+
+          <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.08em;
+                      text-transform:uppercase;margin-bottom:.75rem;border-top:1px solid var(--border);
+                      padding-top:1rem;">⚡ Alpaca Sync — Budget Caps</div>
+
+          <!-- Summary bar -->
+          <div id="sync-summary-bar" style="
+            display:grid;
+            grid-template-columns:repeat(8,1fr);
+            gap:1px;
+            background:var(--border);
+            border:1px solid var(--border);
+            border-radius:4px;
+            overflow:hidden;
+            margin-bottom:1rem;
+          "></div>
+
+          <!-- Controls -->
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+            <input id="sync-search" type="text" placeholder="Search ticker…"
+              style="background:var(--panel);border:1px solid var(--border);color:var(--text);
+                     padding:4px 8px;font-size:12px;font-family:inherit;width:140px;border-radius:3px;"
+              oninput="portSyncRender()">
+            <select id="sync-filter"
+              style="background:var(--panel);border:1px solid var(--border);color:var(--text);
+                     padding:4px 6px;font-size:12px;font-family:inherit;border-radius:3px;"
+              onchange="portSyncRender()">
+              <option value="all">All tickers</option>
+              <option value="gain">Gain-lock only</option>
+              <option value="loss">Loss-recovery only</option>
+              <option value="new">New positions only</option>
+              <option value="trim">TRIM alerts</option>
+              <option value="add">ADD signals</option>
+              <option value="enter">ENTER signals</option>
+            </select>
+            <select id="sync-sort"
+              style="background:var(--panel);border:1px solid var(--border);color:var(--text);
+                     padding:4px 6px;font-size:12px;font-family:inherit;border-radius:3px;"
+              onchange="portSyncRender()">
+              <option value="gl_desc">G/L high → low</option>
+              <option value="cap_desc">Cap high → low</option>
+              <option value="rem_desc">Remaining high → low</option>
+              <option value="ticker_asc">Ticker A → Z</option>
+              <option value="action">Action priority</option>
+            </select>
+            <span style="margin-left:auto;font-size:11px;color:var(--muted);">
+              Alpaca balance:
+              <input id="sync-balance" type="number" min="0" step="0.01" placeholder="0.00"
+                style="background:var(--panel);border:1px solid var(--border);color:var(--green);
+                       padding:3px 6px;font-size:12px;font-family:inherit;width:90px;
+                       text-align:right;border-radius:3px;"
+                oninput="portSyncSaveBalance();portSyncRender()">
+            </span>
+          </div>
+
+          <!-- Table -->
+          <div style="overflow-x:auto;">
+            <table id="sync-table" style="
+              width:100%;border-collapse:collapse;font-size:12px;
+              font-family:'Segoe UI',monospace;
+            ">
+              <thead>
+                <tr style="border-bottom:1px solid var(--border);color:var(--muted);
+                           text-transform:uppercase;font-size:10px;letter-spacing:.04em;">
+                  <th style="text-align:left;padding:6px 8px;">Symbol</th>
+                  <th style="text-align:left;padding:6px 4px;">Tier</th>
+                  <th style="text-align:right;padding:6px 8px;">Fidel value</th>
+                  <th style="text-align:right;padding:6px 8px;">Today G/L</th>
+                  <th style="text-align:right;padding:6px 8px;">Total G/L</th>
+                  <th style="text-align:right;padding:6px 8px;">Cap</th>
+                  <th style="text-align:right;padding:6px 8px;">52wk high</th>
+                  <th style="text-align:right;padding:6px 8px;">Alpaca spent</th>
+                  <th style="text-align:right;padding:6px 8px;">Remaining</th>
+                  <th style="text-align:center;padding:6px 8px;">Action</th>
+                </tr>
+              </thead>
+              <tbody id="sync-tbody"></tbody>
+            </table>
+          </div>
+
+          <div style="font-size:10px;color:var(--muted);margin-top:8px;
+                      border-top:1px solid var(--border);padding-top:6px;line-height:1.6;">
+            Cap = abs(Total G/L) for gains and losses. New positions: cap = 52wk high − current price.
+            All positions start at $1.10. Entry signal fires when today G/L &gt; 0.
+            Data persists via localStorage (hermes_sync_*).
+          </div>
+
+        </div><!-- end port-sync-panel -->
+
         <!-- ── Backtest Results — read-only signal validation ── -->
         <div id="backtest-panel" style="margin-top:1.5rem;">
           <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.08em;margin-bottom:.5rem;text-transform:uppercase;">Backtest Results</div>
@@ -2764,6 +2855,12 @@ function switchChart(view, el) {
   if (view === 'portfolio') loadBacktest();
   if (view === 'portfolio') loadEdgarQueue();
   if (view === 'portfolio') loadTrueProfit();
+  if (view === 'portfolio') {
+    // restore Alpaca balance from localStorage and re-render sync panel
+    const balEl = document.getElementById('sync-balance');
+    if (balEl) { balEl.value = localStorage.getItem('hermes_sync_balance') || ''; balEl._loaded = false; }
+    portSyncRender();
+  }
   if (view === 'priority')  loadPriorityQueue();
 }
 
@@ -3709,14 +3806,15 @@ function fetchProfitBasket() {
     if (lines.length < 2) return null;
     const headers = portParseCSVLine(lines[0]);
 
-    const acctIdx  = 0;
-    const symIdx   = headers.indexOf('Symbol');
-    const descIdx  = headers.indexOf('Description');
-    const qtyIdx   = headers.indexOf('Quantity');
-    const priceIdx = headers.indexOf('Last Price');
-    const valIdx   = headers.indexOf('Current Value');
-    const costIdx  = headers.indexOf('Cost Basis Total');
-    const glIdx    = headers.indexOf('Total Gain/Loss Dollar');
+    const acctIdx    = 0;
+    const symIdx     = headers.indexOf('Symbol');
+    const descIdx    = headers.indexOf('Description');
+    const qtyIdx     = headers.indexOf('Quantity');
+    const priceIdx   = headers.indexOf('Last Price');
+    const valIdx     = headers.indexOf('Current Value');
+    const costIdx    = headers.indexOf('Cost Basis Total');
+    const glIdx      = headers.indexOf('Total Gain/Loss Dollar');
+    const todayGLIdx = headers.indexOf("Today's Gain/Loss Dollar");
 
     const acctSet = new Set();
     const map = {};
@@ -3738,15 +3836,17 @@ function fetchProfitBasket() {
       if (!map[sym]) {
         map[sym] = { Symbol:sym, Description:desc, acctSet:new Set(),
                      Total_Qty:0, Last_Price:price,
-                     Total_Value:0, Total_Cost:0, Total_GL:0 };
+                     Total_Value:0, Total_Cost:0, Total_GL:0, Today_GL:0 };
       }
       const r = map[sym];
       r.acctSet.add(acct);
-      if (qty   != null) r.Total_Qty   += qty;
-      if (val   != null) r.Total_Value += val;
-      if (cost  != null) r.Total_Cost  += cost;
-      if (gl    != null) r.Total_GL    += gl;
-      if (price != null) r.Last_Price   = price;
+      if (qty     != null) r.Total_Qty   += qty;
+      if (val     != null) r.Total_Value += val;
+      if (cost    != null) r.Total_Cost  += cost;
+      if (gl      != null) r.Total_GL    += gl;
+      if (price   != null) r.Last_Price   = price;
+      const todayGL = portParseMoney(f[todayGLIdx]);
+      if (todayGL != null) r.Today_GL    += todayGL;
     }
 
     const rows = Object.values(map).map(r => ({
@@ -3893,6 +3993,7 @@ function fetchProfitBasket() {
           if (meta) meta.textContent = `${file.name}  ·  loaded ${ts}  ·  ${result.rows.length} symbols across ${result.totalAccounts} accounts`;
           portUpdateSummary(result.rows, result.totalAccounts);
           portRender();
+          portSyncRender();
           // ── silently archive to Fidelity_History ──────────────────────────
           const fd = new FormData();
           fd.append('file', file);
@@ -3953,6 +4054,242 @@ function fetchProfitBasket() {
       a.click();
     });
   });
+
+  // ── Alpaca Sync Panel ──────────────────────────────────────────────────────
+
+  function portSyncRender() {
+    const START_FLOOR     = 1.10;
+    const FLAT_THRESHOLD  = 0.05;
+    const LS  = key => localStorage.getItem('hermes_sync_' + key);
+    const LSS = (key, val) => localStorage.setItem('hermes_sync_' + key, val);
+
+    // restore balance input once per panel open
+    const balEl = document.getElementById('sync-balance');
+    if (balEl && !balEl._loaded) {
+      balEl.value = LS('balance') || '';
+      balEl._loaded = true;
+    }
+    const alpacaBalance = parseFloat(balEl?.value) || 0;
+
+    if (!portAllRows || portAllRows.length === 0) return;
+
+    // filter money markets / junk rows
+    const rows = portAllRows.filter(r => {
+      const t = (r.Symbol || '').trim();
+      if (!t || t.length > 8) return false;
+      if (t.includes('**') || t.includes('***')) return false;
+      if (['FZFXX','SPAXX','CORE','FZFXX**','SPAXX**','CORE**','USD***'].includes(t)) return false;
+      return true;
+    });
+
+    // compute tiers, caps, actions
+    const data = rows.map(r => {
+      const ticker  = r.Symbol.trim();
+      const fidVal  = r.Total_Value || 0;
+      const totalGL = r.Total_GL    || 0;
+      const todayGL = r.Today_GL    || 0;
+      const price   = r.Last_Price  || 0;
+
+      let tier;
+      if      (totalGL >  FLAT_THRESHOLD) tier = 'GL';
+      else if (totalGL < -FLAT_THRESHOLD) tier = 'LR';
+      else                                tier = 'NP';
+
+      let cap = 0;
+      if (tier === 'GL') {
+        cap = totalGL;
+      } else if (tier === 'LR') {
+        cap = Math.abs(totalGL);
+      } else {
+        const wk52stored = parseFloat(LS('52wk_' + ticker)) || 0;
+        cap = wk52stored > price ? parseFloat((wk52stored - price).toFixed(2)) : 0;
+      }
+
+      const spent    = parseFloat(LS('spent_' + ticker)) || 0;
+      const wk52val  = parseFloat(LS('52wk_'  + ticker)) || 0;
+      const remaining = parseFloat((cap - spent).toFixed(2));
+
+      let action, actionDetail;
+      if (spent > 0) {
+        if (spent > cap && cap > 0) {
+          action = 'TRIM';
+          actionDetail = 'to $' + cap.toFixed(2);
+          if (tier === 'LR') actionDetail += ' ⚠ doubling down';
+        } else if (remaining > 0.01 && todayGL > 0) {
+          action = 'ADD';
+          actionDetail = 'room $' + remaining.toFixed(2);
+        } else if (remaining <= 0.01) {
+          action = 'HOLD';
+          actionDetail = 'at cap';
+        } else {
+          action = 'WATCH';
+          actionDetail = 'no signal';
+        }
+      } else {
+        if (todayGL > 0) {
+          const entrySize = Math.min(START_FLOOR, todayGL).toFixed(2);
+          action = 'ENTER';
+          actionDetail = '$' + entrySize;
+        } else {
+          action = 'WATCH';
+          actionDetail = 'no signal';
+        }
+      }
+
+      return { ticker, fidVal, totalGL, todayGL, price, tier, cap,
+               spent, wk52val, remaining, action, actionDetail };
+    });
+
+    // filter
+    const q = (document.getElementById('sync-search')?.value || '').toUpperCase().trim();
+    const f = document.getElementById('sync-filter')?.value || 'all';
+    let filtered = data.filter(d => {
+      if (q && !d.ticker.includes(q)) return false;
+      if (f === 'gain'  && d.tier   !== 'GL')    return false;
+      if (f === 'loss'  && d.tier   !== 'LR')    return false;
+      if (f === 'new'   && d.tier   !== 'NP')    return false;
+      if (f === 'trim'  && d.action !== 'TRIM')  return false;
+      if (f === 'add'   && d.action !== 'ADD')   return false;
+      if (f === 'enter' && d.action !== 'ENTER') return false;
+      return true;
+    });
+
+    // sort
+    const s = document.getElementById('sync-sort')?.value || 'gl_desc';
+    const ACTION_PRIORITY = { TRIM:0, ENTER:1, ADD:2, HOLD:3, WATCH:4 };
+    filtered.sort((a, b) => {
+      if (s === 'gl_desc')    return b.totalGL - a.totalGL;
+      if (s === 'cap_desc')   return b.cap - a.cap;
+      if (s === 'rem_desc')   return b.remaining - a.remaining;
+      if (s === 'ticker_asc') return a.ticker.localeCompare(b.ticker);
+      if (s === 'action')     return (ACTION_PRIORITY[a.action]||9) - (ACTION_PRIORITY[b.action]||9);
+      return 0;
+    });
+
+    // summary bar
+    const gainPool     = data.filter(d=>d.tier==='GL').reduce((s,d)=>s+d.cap,0);
+    const lossPool     = data.filter(d=>d.tier==='LR').reduce((s,d)=>s+d.cap,0);
+    const newPool      = data.filter(d=>d.tier==='NP').reduce((s,d)=>s+d.cap,0);
+    const totalNeeded  = gainPool + lossPool + newPool;
+    const totalSpent   = data.reduce((s,d)=>s+d.spent,0);
+    const fundingGap   = totalNeeded - alpacaBalance;
+    const overCapCount = data.filter(d=>d.spent>d.cap&&d.cap>0).length;
+
+    const summaryBar = document.getElementById('sync-summary-bar');
+    if (summaryBar) {
+      const cell = (label, value, color) =>
+        `<div style="background:var(--panel);padding:8px 10px;">` +
+          `<div style="font-size:9px;color:var(--muted);text-transform:uppercase;` +
+               `letter-spacing:.05em;margin-bottom:3px;">${label}</div>` +
+          `<div style="font-size:13px;font-weight:600;color:${color};` +
+               `font-family:monospace;">${value}</div>` +
+        `</div>`;
+      summaryBar.innerHTML =
+        cell('Gain-lock pool',  '$'+gainPool.toFixed(2),    'var(--green)') +
+        cell('Loss-recovery',   '$'+lossPool.toFixed(2),    'var(--gold)')  +
+        cell('New position',    '$'+newPool.toFixed(2),     'var(--blue)')  +
+        cell('Total needed',    '$'+totalNeeded.toFixed(2), 'var(--text)')  +
+        cell('Alpaca balance',  '$'+alpacaBalance.toFixed(2),'var(--text)') +
+        cell('Deployed',        '$'+totalSpent.toFixed(2),  'var(--text)')  +
+        cell('Funding gap',     (fundingGap>0?'+':'') + '$'+Math.abs(fundingGap).toFixed(2),
+             fundingGap > 0 ? 'var(--red)' : 'var(--green)') +
+        cell('Over cap',
+             overCapCount > 0 ? '⚠ '+overCapCount : '✓ 0',
+             overCapCount > 0 ? 'var(--red)' : 'var(--green)');
+    }
+
+    // action / tier styles
+    const ACTION_STYLE = {
+      TRIM:  'color:var(--red);border:1px solid var(--red)',
+      ADD:   'color:var(--green);border:1px solid var(--green)',
+      ENTER: 'color:var(--blue);border:1px solid var(--blue)',
+      HOLD:  'color:var(--gold);border:1px solid var(--gold)',
+      WATCH: 'color:var(--muted);border:1px solid var(--border)',
+    };
+    const TIER_STYLE = {
+      GL: 'color:var(--green);border:1px solid var(--green)',
+      LR: 'color:var(--gold);border:1px solid var(--gold)',
+      NP: 'color:var(--blue);border:1px solid var(--blue)',
+    };
+    const TIER_BORDER = {
+      GL: 'border-left:3px solid var(--green)',
+      LR: 'border-left:3px solid var(--gold)',
+      NP: 'border-left:3px solid var(--blue)',
+    };
+
+    const tbody = document.getElementById('sync-tbody');
+    if (!tbody) return;
+
+    if (filtered.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:24px;' +
+        'color:var(--muted);font-size:12px;">No tickers match current filters.</td></tr>';
+      return;
+    }
+
+    const fmt     = v => '$' + Math.abs(v).toFixed(2);
+    const fmtS    = v => (v >= 0 ? '+' : '-') + '$' + Math.abs(v).toFixed(2);
+    const glColor = v => v > 0 ? 'var(--green)' : v < 0 ? 'var(--red)' : 'var(--muted)';
+
+    tbody.innerHTML = filtered.map(d => {
+      const wk52Input = d.tier === 'NP'
+        ? `<input type="number" min="0" step="0.01"` +
+            ` value="${d.wk52val > 0 ? d.wk52val : ''}"` +
+            ` placeholder="—"` +
+            ` data-ticker="${d.ticker}" data-field="52wk"` +
+            ` onchange="portSyncSave(this)"` +
+            ` style="width:72px;background:var(--panel);border:1px solid var(--border);` +
+                    `color:var(--blue);padding:2px 4px;font-size:11px;` +
+                    `font-family:monospace;text-align:right;border-radius:2px;">`
+        : `<span style="color:var(--muted);font-size:11px;">—</span>`;
+
+      const remColor = d.remaining < 0 ? 'var(--red)'
+                     : d.remaining < 1  ? 'var(--gold)'
+                     : 'var(--green)';
+
+      return `<tr style="border-bottom:1px solid var(--border);${TIER_BORDER[d.tier]}">` +
+        `<td style="padding:5px 8px;font-weight:600;color:var(--text);">${d.ticker}</td>` +
+        `<td style="padding:5px 4px;">` +
+          `<span style="font-size:9px;padding:1px 5px;border-radius:2px;${TIER_STYLE[d.tier]}">` +
+            `${d.tier}</span></td>` +
+        `<td style="padding:5px 8px;text-align:right;color:var(--muted);font-family:monospace;">${fmt(d.fidVal)}</td>` +
+        `<td style="padding:5px 8px;text-align:right;color:${glColor(d.todayGL)};font-family:monospace;">${fmtS(d.todayGL)}</td>` +
+        `<td style="padding:5px 8px;text-align:right;color:${glColor(d.totalGL)};font-family:monospace;">${fmtS(d.totalGL)}</td>` +
+        `<td style="padding:5px 8px;text-align:right;color:var(--text);font-weight:600;font-family:monospace;">${d.cap > 0 ? fmt(d.cap) : '—'}</td>` +
+        `<td style="padding:5px 8px;text-align:right;">${wk52Input}</td>` +
+        `<td style="padding:5px 8px;text-align:right;">` +
+          `<input type="number" min="0" step="0.01"` +
+            ` value="${d.spent > 0 ? d.spent : ''}"` +
+            ` placeholder="0.00"` +
+            ` data-ticker="${d.ticker}" data-field="spent"` +
+            ` onchange="portSyncSave(this)"` +
+            ` style="width:72px;background:var(--panel);border:1px solid var(--border);` +
+                    `color:var(--text);padding:2px 4px;font-size:11px;` +
+                    `font-family:monospace;text-align:right;border-radius:2px;"></td>` +
+        `<td style="padding:5px 8px;text-align:right;color:${remColor};font-family:monospace;font-weight:600;">` +
+          `${d.cap > 0 ? fmt(d.remaining) : '—'}</td>` +
+        `<td style="padding:5px 8px;text-align:center;">` +
+          `<span style="font-size:10px;padding:2px 7px;border-radius:2px;` +
+                       `${ACTION_STYLE[d.action]};white-space:nowrap;">` +
+            `${d.action}` +
+            `<span style="font-size:9px;color:var(--muted);margin-left:4px;">${d.actionDetail}</span>` +
+          `</span></td>` +
+        `</tr>`;
+    }).join('');
+  }
+
+  function portSyncSave(el) {
+    const ticker = el.dataset.ticker;
+    const field  = el.dataset.field;
+    const val    = parseFloat(el.value) || 0;
+    localStorage.setItem('hermes_sync_' + field + '_' + ticker, val);
+    portSyncRender();
+  }
+
+  function portSyncSaveBalance() {
+    const val = parseFloat(document.getElementById('sync-balance')?.value) || 0;
+    localStorage.setItem('hermes_sync_balance', val);
+  }
+
 })();
 
 // ── Portfolio backtest ─────────────────────────────────────────────────────
