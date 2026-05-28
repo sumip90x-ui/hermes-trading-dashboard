@@ -860,6 +860,42 @@
             margin-bottom:1rem;
           "></div>
 
+          <!-- ── Savings Plan Panel ── -->
+          <div id="sync-savings-panel" style="border:1px solid var(--border);background:var(--panel);margin-bottom:1rem;display:none;border-radius:4px;overflow:hidden;">
+            <div style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+              <span style="font-size:11px;font-weight:600;color:var(--gold);letter-spacing:.08em;text-transform:uppercase;">⚡ Funding status &amp; savings plan</span>
+              <button onclick="portSyncToggleSavings()" style="background:transparent;border:none;color:var(--muted);font-size:11px;cursor:pointer;font-family:inherit;">▲ collapse</button>
+            </div>
+            <div id="sync-savings-inner" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--border);">
+              <div style="background:var(--panel);padding:14px 16px;">
+                <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;">Funding status</div>
+                <div id="sp-funding-rows"></div>
+                <div style="margin-top:12px;">
+                  <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:4px;">
+                    <span>Reserve floor</span>
+                    <span id="sp-reserve-display" style="color:var(--gold);font-family:monospace;font-weight:600;">$300</span>
+                  </div>
+                  <input type="range" id="sp-reserve-slider" min="0" max="1000" step="50" value="300" oninput="portSyncReserveChange(this.value)" style="width:100%;">
+                  <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:2px;"><span>$0 aggressive</span><span>$1000 conservative</span></div>
+                </div>
+              </div>
+              <div style="background:var(--panel);padding:14px 16px;border-left:1px solid var(--border);">
+                <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;">Today's deployment</div>
+                <div id="sp-deployment-rows"></div>
+              </div>
+              <div style="background:var(--panel);padding:14px 16px;border-left:1px solid var(--border);">
+                <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;">Gap closure estimate</div>
+                <div id="sp-closure-rows"></div>
+                <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);">
+                  <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">Capital recycled via trims</div>
+                  <div style="font-size:20px;font-weight:600;color:var(--green);font-family:monospace;" id="sp-recycled-total">$0.00</div>
+                  <div id="sp-recycled-events" style="margin-top:6px;max-height:80px;overflow-y:auto;"></div>
+                  <button onclick="portSyncResetRecycled()" style="margin-top:8px;background:transparent;border:1px solid var(--border);color:var(--muted);font-size:9px;padding:2px 8px;cursor:pointer;font-family:inherit;border-radius:2px;">reset counter</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Controls -->
           <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
             <input id="sync-search" type="text" placeholder="Search ticker…"
@@ -2870,6 +2906,7 @@ function switchChart(view, el) {
     const balEl = document.getElementById('sync-balance');
     if (balEl) { balEl.value = localStorage.getItem('hermes_sync_balance') || ''; balEl._loaded = false; }
     portSyncLoadAlpaca();  // re-fetches live positions, then calls portSyncRender
+    portSyncLoadSavingsData();
   }
   if (view === 'priority')  loadPriorityQueue();
 }
@@ -3792,6 +3829,9 @@ function fetchProfitBasket() {
   let _syncAlpacaLoaded    = false;
   let _syncLastData        = [];   // last computed data array for order building
   let _syncPendingOrders   = { sells: [], buys: [] };
+  let _syncHistorySignals  = { avg_signals: 40, avg_size: 3.50, sample_size: 0 };
+  let _syncRecycledData    = { total: 0.0, events: [] };
+  let _syncSavingsVisible  = true;
 
   // ── Parsing ────────────────────────────────────────────────────────────────
   function portParseMoney(v) {
@@ -4010,6 +4050,7 @@ function fetchProfitBasket() {
           portUpdateSummary(result.rows, result.totalAccounts);
           portRender();
           portSyncLoadAlpaca();  // fetches live positions then calls portSyncRender
+          portSyncLoadSavingsData();
           // ── silently archive to Fidelity_History ──────────────────────────
           const fd = new FormData();
           fd.append('file', file);
@@ -4183,6 +4224,7 @@ function fetchProfitBasket() {
     // store for order building + update sync button
     _syncLastData = data;
     portSyncBuildOrders();
+    portSyncRenderSavings();
 
     // filter
     const q = (document.getElementById('sync-search')?.value || '').toUpperCase().trim();
@@ -4325,6 +4367,182 @@ function fetchProfitBasket() {
           `</span></td>` +
         `</tr>`;
     }).join('');
+  }
+
+  // ── Savings Plan Panel ────────────────────────────────────────────────────
+
+  function portSyncLoadSavingsData() {
+    fetch('/api/sync_history_signals')
+      .then(r => r.json())
+      .then(d => { _syncHistorySignals = d; portSyncRenderSavings(); })
+      .catch(() => portSyncRenderSavings());
+    fetch('/api/sync_recycled')
+      .then(r => r.json())
+      .then(d => { _syncRecycledData = d; portSyncRenderSavings(); })
+      .catch(() => {});
+    // restore reserve slider from localStorage
+    const saved = localStorage.getItem('hermes_sync_reserve_floor');
+    if (saved) {
+      const slider = document.getElementById('sp-reserve-slider');
+      if (slider) { slider.value = saved; portSyncReserveChange(saved, false); }
+    }
+  }
+
+  function portSyncReserveChange(val, rerender) {
+    const v = parseInt(val) || 300;
+    localStorage.setItem('hermes_sync_reserve_floor', v);
+    const display = document.getElementById('sp-reserve-display');
+    if (display) display.textContent = '$' + v;
+    if (rerender !== false) {
+      portSyncRenderSavings();
+      portSyncBuildOrders();
+    }
+  }
+
+  function portSyncRenderSavings() {
+    const panel = document.getElementById('sync-savings-panel');
+    if (!panel || !_syncLastData || _syncLastData.length === 0) return;
+    panel.style.display = 'block';
+
+    const alpacaBalance    = parseFloat(document.getElementById('sync-balance')?.value) || 0;
+    const reserveFloor     = parseInt(localStorage.getItem('hermes_sync_reserve_floor') || '300');
+    const availableToDeploy= Math.max(0, alpacaBalance - reserveFloor);
+
+    const progressBar = (pct, color) =>
+      `<div style="width:100%;height:4px;background:var(--border);border-radius:2px;margin:4px 0 8px;">` +
+        `<div style="width:${Math.min(100,pct).toFixed(1)}%;height:100%;background:${color};border-radius:2px;transition:width .3s;"></div>` +
+      `</div>`;
+
+    const fr = (label, value, color) =>
+      `<div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:5px;">` +
+        `<span style="color:var(--muted);">${label}</span>` +
+        `<span style="color:${color};font-family:monospace;font-weight:600;">${value}</span>` +
+      `</div>`;
+
+    const divider = `<div style="border-top:1px solid var(--border);margin:6px 0;"></div>`;
+
+    // ── Section 1: Funding Status ──────────────────────────────────────
+    const totalNeeded = _syncLastData.reduce((s,d) => s + d.cap, 0);
+    const fundingGap  = Math.max(0, totalNeeded - alpacaBalance);
+    const fundedPct   = totalNeeded > 0
+                        ? Math.min(100, (alpacaBalance / totalNeeded) * 100) : 0;
+    const fundEl = document.getElementById('sp-funding-rows');
+    if (fundEl) fundEl.innerHTML =
+      fr('Total cap needed',    '$' + totalNeeded.toFixed(2),       'var(--text)') +
+      progressBar(fundedPct, 'var(--green)') +
+      fr('Alpaca balance',      '$' + alpacaBalance.toFixed(2),     'var(--text)') +
+      fr('Funding gap',         '$' + fundingGap.toFixed(2),
+         fundingGap > 0 ? 'var(--red)' : 'var(--green)') +
+      fr('Reserve floor',       '$' + reserveFloor,                 'var(--gold)') +
+      fr('Available to deploy', '$' + availableToDeploy.toFixed(2), 'var(--blue)');
+
+    // ── Section 2: Today's Deployment ─────────────────────────────────
+    const enterSignals  = _syncLastData.filter(d => d.action === 'ENTER');
+    const addSignals    = _syncLastData.filter(d => d.action === 'ADD');
+    const trimSignals   = _syncLastData.filter(d => d.action === 'TRIM');
+    const enterCost     = enterSignals.length * 1.10;
+    const addCost       = addSignals.reduce((s,d) => s + (d.addSize || 0), 0);
+    const trimProceeds  = trimSignals.reduce((s,d) => s + Math.max(0, d.spent - d.cap), 0);
+    const totalTodayCost= enterCost + addCost;
+    const netCapital    = totalTodayCost - trimProceeds;
+    const canFullyFund  = availableToDeploy >= netCapital;
+    const depEl = document.getElementById('sp-deployment-rows');
+    if (depEl) depEl.innerHTML =
+      fr('ENTER signals',
+         enterSignals.length + ' × $1.10 = $' + enterCost.toFixed(2),   'var(--blue)') +
+      fr('ADD signals',
+         addSignals.length + ' × avg $' +
+         (addSignals.length > 0 ? (addCost/addSignals.length).toFixed(2) : '0.00') +
+         ' = $' + addCost.toFixed(2),                                     'var(--green)') +
+      fr('TRIM proceeds', '+ $' + trimProceeds.toFixed(2),               'var(--gold)') +
+      divider +
+      fr('Total today cost',    '$' + totalTodayCost.toFixed(2),         'var(--text)') +
+      fr('Net capital needed',  '$' + Math.max(0,netCapital).toFixed(2),
+         netCapital > availableToDeploy ? 'var(--red)' : 'var(--green)') +
+      fr('Can fully fund today',
+         canFullyFund ? '✓ yes' : '✗ partial only',
+         canFullyFund ? 'var(--green)' : 'var(--red)');
+
+    // ── Section 3: Gap Closure ─────────────────────────────────────────
+    const { avg_signals, avg_size, sample_size } = _syncHistorySignals;
+    const avgDailyDeploy     = avg_signals * Math.min(avg_size, 3.50);
+    const tradingDaysToClose = avgDailyDeploy > 0
+                               ? Math.ceil(fundingGap / avgDailyDeploy) : 999;
+    const targetDate = (() => {
+      if (tradingDaysToClose >= 999) return 'unknown';
+      let days = tradingDaysToClose;
+      let d = new Date();
+      while (days > 0) {
+        d.setDate(d.getDate() + 1);
+        const dow = d.getDay();
+        if (dow !== 0 && dow !== 6) days--;
+      }
+      return d.toLocaleDateString('en-US',
+        { month: 'short', day: 'numeric', year: 'numeric' });
+    })();
+    const closEl = document.getElementById('sp-closure-rows');
+    if (closEl) closEl.innerHTML =
+      fr('Avg daily signals', avg_signals.toFixed(1) + ' positions',     'var(--text)') +
+      fr('Avg signal size',   '$' + avg_size.toFixed(2),                  'var(--text)') +
+      fr('Avg daily deploy',  '$' + avgDailyDeploy.toFixed(2),            'var(--text)') +
+      fr('History sample',    sample_size + ' snapshots',                 'var(--muted)') +
+      divider +
+      fr('Trading days',
+         tradingDaysToClose >= 999 ? '—' : '~' + tradingDaysToClose + ' days',
+         'var(--text)') +
+      `<div style="margin-top:6px;">` +
+        `<div style="font-size:9px;color:var(--muted);text-transform:uppercase;` +
+                    `letter-spacing:.05em;margin-bottom:3px;">Fully funded by</div>` +
+        `<div style="font-size:18px;font-weight:600;color:var(--blue);` +
+                    `font-family:monospace;">${targetDate}</div>` +
+      `</div>`;
+
+    // ── Recycled capital counter ───────────────────────────────────────
+    const recycledTotalEl  = document.getElementById('sp-recycled-total');
+    const recycledEventsEl = document.getElementById('sp-recycled-events');
+    if (recycledTotalEl)
+      recycledTotalEl.textContent = '$' + (_syncRecycledData.total || 0).toFixed(2);
+    if (recycledEventsEl)
+      recycledEventsEl.innerHTML =
+        (_syncRecycledData.events || []).slice(0, 5).map(e =>
+          `<div style="font-size:10px;color:var(--muted);padding:2px 0;` +
+                      `border-bottom:1px solid var(--border);font-family:monospace;">` +
+            `<span style="color:var(--green);">+$${e.amount.toFixed(2)}</span>` +
+            `&nbsp;${e.label}` +
+            `<span style="float:right;font-size:9px;">${e.date}</span>` +
+          `</div>`).join('');
+  }
+
+  function portSyncRecordRecycled(amount, label) {
+    if (amount <= 0) return;
+    fetch('/api/sync_recycled', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ amount, label })
+    })
+    .then(r => r.json())
+    .then(d => { _syncRecycledData = d; portSyncRenderSavings(); })
+    .catch(() => {});
+  }
+
+  function portSyncResetRecycled() {
+    if (!confirm('Reset recycled capital counter to $0?')) return;
+    fetch('/api/sync_recycled', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ amount: -(_syncRecycledData.total || 0),
+                                label: 'manual reset' })
+    })
+    .then(r => r.json())
+    .then(d => { _syncRecycledData = d; portSyncRenderSavings(); });
+  }
+
+  function portSyncToggleSavings() {
+    _syncSavingsVisible = !_syncSavingsVisible;
+    const inner = document.getElementById('sync-savings-inner');
+    const btn   = document.querySelector('#sync-savings-panel > div:first-child button');
+    if (inner) inner.style.display = _syncSavingsVisible ? 'grid' : 'none';
+    if (btn)   btn.textContent     = _syncSavingsVisible ? '▲ collapse' : '▼ expand';
   }
 
   // ── Sync order building + launch + modal ──────────────────────────────────
@@ -4471,6 +4689,13 @@ function fetchProfitBasket() {
               `Buying power remaining: $${results.buying_power_remaining.toFixed(2)}` +
             `</div>` : '');
       resultsEl.style.display = 'block';
+      // record trim proceeds as recycled capital
+      const sellTotal = (results.sells || []).reduce((s,o) => s + (o.notional || 0), 0);
+      if (sellTotal > 0) {
+        const labels = (results.sells || [])
+          .map(o => `TRIM ${o.symbol} $${(o.notional||0).toFixed(2)}`).join(', ');
+        portSyncRecordRecycled(parseFloat(sellTotal.toFixed(2)), labels);
+      }
       // 5-second refresh then close
       setTimeout(() => {
         portSyncLoadAlpaca();

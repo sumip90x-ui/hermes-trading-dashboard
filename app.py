@@ -320,6 +320,89 @@ def api_sync_orders():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/sync_history_signals')
+def api_sync_history_signals():
+    """Average daily BUY signal count + size from last 20 Fidelity snapshots."""
+    try:
+        import sqlite3 as _sql
+        db_path = Path.home() / 'Documents' / 'Trading Vault' / \
+                  'Fidelity_History' / 'portfolio_history.db'
+        if not db_path.exists():
+            return jsonify({'avg_signals': 40, 'avg_size': 3.50,
+                            'sample_size': 0, 'note': 'no history db'})
+        conn = _sql.connect(str(db_path))
+        conn.row_factory = _sql.Row
+        # Get last 20 distinct snapshot dates
+        snap_dates = [r[0] for r in conn.execute("""
+            SELECT DISTINCT snapshot_date
+            FROM snapshots
+            ORDER BY snapshot_date DESC
+            LIMIT 20
+        """).fetchall()]
+        if not snap_dates:
+            conn.close()
+            return jsonify({'avg_signals': 40, 'avg_size': 3.50, 'sample_size': 0})
+        # For each snapshot count tickers with total_gl > 2.0 (BUY signal candidates)
+        per_snap = []
+        for sd in snap_dates:
+            rows = conn.execute("""
+                SELECT COUNT(*) as cnt, AVG(ABS(total_gl)) as avg_gl
+                FROM snapshots
+                WHERE snapshot_date = ? AND total_gl > 2.0
+            """, (sd,)).fetchone()
+            if rows and rows['cnt']:
+                per_snap.append((sd, rows['cnt'], rows['avg_gl'] or 0))
+        conn.close()
+        if not per_snap:
+            return jsonify({'avg_signals': 40, 'avg_size': 3.50, 'sample_size': 0})
+        avg_signals = sum(r[1] for r in per_snap) / len(per_snap)
+        avg_size    = sum(r[2] for r in per_snap) / len(per_snap)
+        return jsonify({
+            'avg_signals':   round(avg_signals, 1),
+            'avg_size':      round(avg_size, 2),
+            'sample_size':   len(per_snap),
+            'earliest_date': per_snap[-1][0][:10],
+            'latest_date':   per_snap[0][0][:10],
+        })
+    except Exception as e:
+        return jsonify({'error': str(e), 'avg_signals': 40, 'avg_size': 3.50}), 200
+
+
+SYNC_RECYCLED_FILE = str(HOME / 'sync_recycled.json')
+
+@app.route('/api/sync_recycled', methods=['GET', 'POST'])
+def api_sync_recycled():
+    if request.method == 'GET':
+        try:
+            with open(SYNC_RECYCLED_FILE) as f:
+                return jsonify(json.load(f))
+        except Exception:
+            return jsonify({'total': 0.0, 'events': []})
+
+    # POST — increment recycled total
+    try:
+        payload = request.get_json()
+        amount  = float(payload.get('amount', 0))
+        label   = payload.get('label', '')
+        try:
+            with open(SYNC_RECYCLED_FILE) as f:
+                data = json.load(f)
+        except Exception:
+            data = {'total': 0.0, 'events': []}
+        data['total'] = round(data['total'] + amount, 2)
+        data['events'].insert(0, {
+            'date':   datetime.now().strftime('%Y-%m-%d %H:%M'),
+            'amount': round(amount, 2),
+            'label':  label,
+        })
+        data['events'] = data['events'][:100]
+        with open(SYNC_RECYCLED_FILE, 'w') as f:
+            json.dump(data, f)
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # ── Intelligence brief system ─────────────────────────────────────────────────
 _WIN_RATE_FACTORS = {
     'PULLBACK':      1.30,
