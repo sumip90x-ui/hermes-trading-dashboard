@@ -1169,7 +1169,7 @@
     <div class="rpanel-tabs">
       <div class="tab active" onclick="switchPanel('chat',this)">💬 <span class="rtab-lbl">Chat</span></div>
       <div class="tab" onclick="switchPanel('trade',this)">⚡ <span class="rtab-lbl">Trade</span></div>
-      <div class="tab" onclick="switchPanel('candle',this)">🕯 <span class="rtab-lbl">Candle</span></div>
+      <div class="tab" onclick="switchPanel('scanner',this)">🔍 <span class="rtab-lbl">Scanner</span></div>
       <div class="tab" onclick="switchPanel('buys',this)">📋 <span class="rtab-lbl">Buys</span></div>
       <div class="tab" onclick="switchPanel('journey',this)">🗺 <span class="rtab-lbl">Journey</span></div>
       <div class="tab" onclick="switchPanel('markets',this)">📈 <span class="rtab-lbl">Markets</span></div>
@@ -1217,29 +1217,48 @@
       <div id="csv-result" style="margin-top:6px;font-size:11px;color:var(--muted)"></div>
     </div>
 
-    <!-- CANDLE TRIGGER -->
-    <div class="rpanel-content" id="panel-candle" style="display:none">
-      <div class="trigger-box cold" id="trigger-box">
-        <div style="font-size:12px;color:var(--muted);margin-bottom:4px">DISTANCE FROM ATH ZONE</div>
-        <div class="trigger-val" id="trig-dist">—</div>
-        <div class="progress-bar">
-          <div class="progress-fill" id="trig-progress" style="width:0%;background:var(--muted)"></div>
-        </div>
-        <div style="font-size:11px;color:var(--muted)" id="trig-detail">Loading...</div>
+    <!-- SCANNER TAB -->
+    <div class="rpanel-content" id="panel-scanner" style="display:none">
+
+      <!-- Header + Run button -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div style="font-size:12px;color:var(--muted);font-weight:700">🔍 STAGE 0 SCANNER</div>
+        <button class="btn-gold" style="font-size:10px;padding:3px 10px" onclick="runScanner()">▶ RUN</button>
       </div>
 
-      <div style="margin-bottom:8px;font-size:11px;color:var(--muted)">
-        When HIGH enters ATH zone → trim (HIGH-LOW) from top gainers → redeploy via Fidelity CSV + EDGAR scores
+      <!-- Regime badge -->
+      <div id="scanner-regime" style="font-size:10px;padding:3px 8px;border-radius:4px;background:#21262d;color:var(--muted);margin-bottom:8px;text-align:center">
+        Regime: — | Click RUN to scan
       </div>
 
-      <div style="display:flex;gap:6px;margin-bottom:10px">
-        <button class="btn-gold" style="flex:1" onclick="runCandleTrade(true)">🔍 Preview Trade</button>
-        <button class="btn-green" style="flex:1" onclick="runCandleTrade(false)">⚡ Execute Trade</button>
+      <!-- Tier 1 -->
+      <div style="font-size:10px;color:#3fb950;font-weight:700;margin-bottom:4px">🟢 BUY NOW</div>
+      <div id="scanner-tier1" style="margin-bottom:10px;font-size:11px;color:var(--muted)">—</div>
+
+      <!-- Tier 2 -->
+      <div style="font-size:10px;color:#f5a623;font-weight:700;margin-bottom:4px">🟡 WATCH</div>
+      <div id="scanner-tier2" style="margin-bottom:10px;font-size:11px;color:var(--muted)">—</div>
+
+      <!-- Cluster alerts -->
+      <div id="scanner-clusters" style="margin-bottom:10px;font-size:11px;color:var(--muted)"></div>
+
+      <!-- Custom scan -->
+      <hr style="border-color:var(--border);margin:8px 0">
+      <div style="font-size:10px;color:var(--muted);margin-bottom:4px">SCAN SPECIFIC SYMBOLS</div>
+      <div style="display:flex;gap:4px;margin-bottom:6px">
+        <input type="text" id="scanner-syms" placeholder="MSFT ADBE BBY ..."
+               style="flex:1;font-size:11px;background:#0d1117;border:1px solid var(--border);
+                      border-radius:4px;padding:4px 6px;color:#c9d1d9;text-transform:uppercase">
+        <button class="btn-blue" style="font-size:10px;padding:3px 8px" onclick="runScannerCustom()">GO</button>
       </div>
 
-      <div id="candle-output" style="font-size:11px;background:#0d1117;padding:8px;border-radius:4px;min-height:60px;white-space:pre-wrap;overflow-y:auto;max-height:250px;color:var(--muted)">
-        Output will appear here...
-      </div>
+      <!-- Tracker summary -->
+      <hr style="border-color:var(--border);margin:8px 0">
+      <div style="font-size:10px;color:var(--muted);font-weight:700;margin-bottom:4px">📋 TRACKING LOG</div>
+      <div id="scanner-tracker" style="font-size:10px;color:var(--muted);max-height:160px;overflow-y:auto">—</div>
+
+      <!-- Hidden candle output so chat still works -->
+      <div id="candle-output" style="display:none"></div>
 
       <hr style="border-color:var(--border);margin:10px 0">
       <div style="font-size:12px;color:var(--muted);margin-bottom:6px">HOUSE MONEY MARKERS</div>
@@ -1333,6 +1352,158 @@
 const socket = io();
 let intradayChart = null;
 let candleChart   = null;
+let _scannerRunning = false;
+
+function switchPanel(name, el) {
+  document.querySelectorAll('.rpanel-content').forEach(p => p.style.display = 'none');
+  document.querySelectorAll('.rpanel-tabs .tab').forEach(t => t.classList.remove('active'));
+  const panel = document.getElementById('panel-' + name);
+  if (panel) panel.style.display = '';
+  if (el) el.classList.add('active');
+  // Auto-load tracker when scanner tab opens
+  if (name === 'scanner') loadScannerTracker();
+}
+
+function runScanner() {
+  if (_scannerRunning) return;
+  _scannerRunning = true;
+  document.getElementById('scanner-regime').textContent = '⏳ Running scanner... (30-120s)';
+  document.getElementById('scanner-regime').style.color = 'var(--gold)';
+  document.getElementById('scanner-tier1').innerHTML = '<span style="color:var(--muted)">Scanning...</span>';
+  document.getElementById('scanner-tier2').innerHTML = '';
+  document.getElementById('scanner-clusters').innerHTML = '';
+
+  fetch('/api/scanner/stage0')
+    .then(r => r.json())
+    .then(data => {
+      _scannerRunning = false;
+      renderScannerResults(data);
+    })
+    .catch(err => {
+      _scannerRunning = false;
+      document.getElementById('scanner-regime').textContent = '❌ Error: ' + err.message;
+    });
+}
+
+function runScannerCustom() {
+  if (_scannerRunning) return;
+  const syms = document.getElementById('scanner-syms').value.trim();
+  if (!syms) { runScanner(); return; }
+  _scannerRunning = true;
+  document.getElementById('scanner-regime').textContent = '⏳ Scanning ' + syms + '...';
+  document.getElementById('scanner-regime').style.color = 'var(--gold)';
+  document.getElementById('scanner-tier1').innerHTML = '<span style="color:var(--muted)">Scanning...</span>';
+  document.getElementById('scanner-tier2').innerHTML = '';
+
+  fetch('/api/scanner/stage0?syms=' + encodeURIComponent(syms))
+    .then(r => r.json())
+    .then(data => {
+      _scannerRunning = false;
+      renderScannerResults(data);
+    })
+    .catch(err => {
+      _scannerRunning = false;
+      document.getElementById('scanner-regime').textContent = '❌ Error: ' + err.message;
+    });
+}
+
+function renderScannerResults(data) {
+  if (data.error) {
+    document.getElementById('scanner-regime').textContent = '❌ ' + data.error;
+    document.getElementById('scanner-regime').style.color = '#f85149';
+    return;
+  }
+
+  // Regime
+  const regCol = data.regime === 'BULL' ? '#3fb950' : data.regime === 'BEAR' ? '#f85149' : '#f5a623';
+  document.getElementById('scanner-regime').style.color = regCol;
+  document.getElementById('scanner-regime').textContent =
+    `Regime: ${data.regime} (HARSI ${data.m_harsi !== null ? data.m_harsi.toFixed(1) : '?'}) | ${data.total} scanned`;
+
+  // Tier 1
+  const t1 = document.getElementById('scanner-tier1');
+  if (!data.tier1 || data.tier1.length === 0) {
+    t1.innerHTML = '<span style="color:var(--muted)">None — no stocks meet Tier 1 criteria</span>';
+  } else {
+    t1.innerHTML = data.tier1.map(c => `
+      <div style="background:#0d1117;border:1px solid #238636;border-radius:4px;padding:6px 8px;margin-bottom:6px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="color:#3fb950;font-weight:700;font-size:12px">${c.sym}</span>
+          <span style="color:var(--muted);font-size:10px">Conv ${c.conviction_score}/20 · S0 ${c.stage0_score}/12</span>
+        </div>
+        <div style="font-size:10px;color:#8b949e;margin-top:2px">
+          ${c.pattern_type} · $${c.price.toFixed(2)} · ${c.hold_min}-${c.hold_max}mo hold · ${c.fidelity_accts} accts
+        </div>
+        <div style="font-size:9px;color:var(--muted);margin-top:2px">${(c.signals || []).slice(0,4).join(' · ')}</div>
+        <div style="display:flex;gap:4px;margin-top:5px">
+          <button class="btn-green" style="font-size:9px;padding:2px 8px"
+            onclick="document.getElementById('chat-input').value='Buy $5 ${c.sym}';document.getElementById('chat-send').click()">
+            ⚡ Buy $5
+          </button>
+          <button class="btn-muted" style="font-size:9px;padding:2px 8px"
+            onclick="switchPanel('chat',null);document.getElementById('chat-input').value='Research ${c.sym} — write the bear case in 3 sentences';document.getElementById('chat-send').click()">
+            🐻 Bear Case
+          </button>
+        </div>
+      </div>`).join('');
+  }
+
+  // Tier 2
+  const t2 = document.getElementById('scanner-tier2');
+  if (!data.tier2 || data.tier2.length === 0) {
+    t2.innerHTML = '<span style="color:var(--muted)">None</span>';
+  } else {
+    t2.innerHTML = data.tier2.map(c => `
+      <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)">
+        <span style="color:#f5a623;font-weight:700;font-size:11px">${c.sym}</span>
+        <span style="font-size:10px;color:var(--muted)">${c.pattern_type}</span>
+        <span style="font-size:10px;color:var(--muted)">$${c.price.toFixed(2)}</span>
+        <span style="font-size:10px;color:var(--muted)">${c.conviction_score}/20</span>
+      </div>`).join('');
+  }
+
+  // Cluster alerts
+  const cl = document.getElementById('scanner-clusters');
+  if (data.clusters && Object.keys(data.clusters).length > 0) {
+    cl.innerHTML = '<div style="font-size:10px;color:#f5a623;font-weight:700;margin-bottom:4px">🔔 CLUSTER ALERTS</div>' +
+      Object.entries(data.clusters).map(([name, syms]) =>
+        `<div style="font-size:10px;color:var(--muted);padding:2px 0">
+          <span style="color:#f5a623">${name}</span>: ${syms.join(', ')} — buy the cluster
+         </div>`
+      ).join('');
+  } else {
+    cl.innerHTML = '';
+  }
+
+  // Load tracker
+  loadScannerTracker();
+}
+
+function loadScannerTracker() {
+  fetch('/api/scanner/tracker')
+    .then(r => r.json())
+    .then(data => {
+      const el = document.getElementById('scanner-tracker');
+      if (!data.log || data.log.trim() === '') {
+        el.textContent = 'No positions tracked yet.';
+        return;
+      }
+      // Format the text output as a simple table
+      const lines = data.log.trim().split('\n').filter(l => l.trim() && !l.startsWith('─') && !l.startsWith('SYM'));
+      el.innerHTML = lines.map(line => {
+        const parts = line.trim().split(/\s{2,}/);
+        const sym = parts[0] || '';
+        const isGreen = sym.length > 0;
+        return `<div style="font-size:10px;color:${isGreen ? '#c9d1d9' : 'var(--muted)'};
+                            padding:2px 0;border-bottom:1px solid var(--border);
+                            font-family:monospace;white-space:nowrap;overflow:hidden;
+                            text-overflow:ellipsis">${line.trim()}</div>`;
+      }).join('');
+    })
+    .catch(() => {
+      document.getElementById('scanner-tracker').textContent = 'Tracker unavailable';
+    });
+}
 let ohlcData      = {};
 let _equityPoints = [];        // [{t, v}] — raw intraday bars, updated every refresh
 let _curveAnalyzer = null;     // EquityCurveAnalyzer instance, updated every refresh
@@ -2365,8 +2536,18 @@ function _mergAndRender(edgarCandidates) {
                     || buys[0] || null;
 
           if (!best) {
+            const noCashMsg = cash < 1.10
+              ? `<div style="margin-top:10px;padding:10px;background:#1e1e1e;border-radius:6px;font-size:12px;">
+                  <span style="color:#ff9944;font-weight:700;">⚠ CASH TOO LOW TO BUY</span><br>
+                  <span style="color:#888;">Available: $${cash.toFixed(2)} — minimum is $1.10</span><br><br>
+                  ${sells.length ? `<span style="color:#aaa;">Trim these to free cash:</span><br>` +
+                    sells.slice(0,4).map(s => `<span style="color:#f5a623;">→ ${s.sym} +${s.unrealized_pct.toFixed(1)}% (MV $${(s.market_value||0).toFixed(2)})</span>`).join('<br>')
+                    : '<span style="color:#555;">No trim candidates found.</span>'}
+                </div>`
+              : '';
             content.innerHTML = `
               <div class="im-empty">No high-confidence signals right now.</div>
+              ${noCashMsg}
               <div style="margin-top:12px;font-size:11px;color:#555;">
                 Regime: ${regime} | Cash: $${cash.toFixed(2)}<br>
                 Fidelity: ${fresh.fidelity_snapshots||0} snapshots, latest ${fresh.fidelity_latest||'none'}<br>
@@ -2912,13 +3093,14 @@ function switchChart(view, el) {
 }
 
 function switchPanel(panel, el) {
-  ['chat','trade','candle','buys','journey','markets'].forEach(p => {
-    document.getElementById(`panel-${p}`).style.display = p===panel ? '' : 'none';
+  ['chat','trade','scanner','buys','journey','markets'].forEach(p => {
+    const pe = document.getElementById(`panel-${p}`);
+    if (pe) pe.style.display = p===panel ? '' : 'none';
   });
   document.querySelectorAll('.rpanel-tabs .tab').forEach(t => t.classList.remove('active'));
   if (el) el.classList.add('active');
   if (panel === 'buys')    loadCandidates();
-  if (panel === 'candle')  { fetchTrigger(); fetchHouseMoney(); fetchStopTiers(); }
+  if (panel === 'scanner') loadScannerTracker();
   if (panel === 'journey') loadJourney();
   if (window._mktLoadOnSwitch) window._mktLoadOnSwitch(panel);
 }

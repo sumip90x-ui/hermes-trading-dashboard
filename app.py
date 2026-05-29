@@ -735,6 +735,7 @@ def _compute_brief(force: bool = False) -> dict:
             sell_candidates.append({
                 'sym':               sym,
                 'alpaca_value':      round(pos['market_value'], 2),
+                'market_value':      round(pos['market_value'], 2),
                 'unrealized_pct':    round(unreal_pct, 2),
                 'fidelity_direction':fid_dir,
                 'recommendation':    rec,
@@ -1442,6 +1443,63 @@ def api_candles():
             'pct':   round((close_val - open_val) / open_val * 100, 2) if open_val else 0,
         })
     return jsonify(candles)
+
+@app.route('/api/scanner/stage0')
+def api_scanner_stage0():
+    """Run Stage 0 scanner and return JSON results for the dashboard."""
+    import subprocess, sys
+    scanner_path = Path.home() / 'Documents/EDGAR/scanner_engine.py'
+    try:
+        syms_arg = request.args.get('syms', '')
+        cmd = [sys.executable, str(scanner_path), '--json', '--top', '30', '--longterm']
+        if syms_arg:
+            cmd += ['--sym'] + syms_arg.upper().split()
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        if result.stdout.strip():
+            data = json.loads(result.stdout)
+            candidates = data.get('candidates', [])
+            regime     = data.get('regime', {})
+
+            tier1 = [c for c in candidates if c.get('conviction_score',0) >= 14 and c.get('stage0_gate_pass')]
+            tier2 = [c for c in candidates if 9 <= c.get('conviction_score',0) < 14 and c.get('stage0_gate_pass')]
+
+            # Cluster alerts
+            from collections import defaultdict
+            clusters = defaultdict(list)
+            for c in candidates:
+                if c.get('cluster') and c.get('stage0_gate_pass'):
+                    clusters[c['cluster']].append(c['sym'])
+            alerts = {k: v for k, v in clusters.items() if len(v) >= 2}
+
+            return jsonify({
+                'regime':   regime.get('regime', 'UNKNOWN'),
+                'm_harsi':  regime.get('m_harsi'),
+                'tier1':    tier1,
+                'tier2':    tier2,
+                'clusters': alerts,
+                'total':    len(candidates),
+            })
+        return jsonify({'error': 'Scanner produced no output', 'tier1': [], 'tier2': []})
+    except subprocess.TimeoutExpired:
+        return jsonify({'error': 'Scanner timed out (>180s)', 'tier1': [], 'tier2': []})
+    except Exception as e:
+        return jsonify({'error': str(e), 'tier1': [], 'tier2': []})
+
+
+@app.route('/api/scanner/tracker')
+def api_scanner_tracker():
+    """Return active signal tracker entries."""
+    import subprocess, sys
+    tracker_path = Path.home() / 'Documents/EDGAR/signal_tracker.py'
+    try:
+        result = subprocess.run(
+            [sys.executable, str(tracker_path), '--list'],
+            capture_output=True, text=True, timeout=10
+        )
+        return jsonify({'log': result.stdout})
+    except Exception as e:
+        return jsonify({'log': f'Error: {e}'})
+
 
 @app.route('/api/candle_trigger')
 def api_candle_trigger():
