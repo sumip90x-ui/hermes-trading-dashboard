@@ -2384,6 +2384,10 @@ def api_chat():
         # Direct execution: "sell $3 from X", "buy $5 SGOL", "sell the gainers"
         # NOT a question: "what should I sell?", "which ones are gainers?"
         user_lower = user_msg.lower().strip()
+
+        # Best Signal button sends a tagged message — force place_order directly
+        best_signal_buy = user_msg.startswith('BEST_SIGNAL_BUY:')
+
         direct_sell = (
             ('sell' in user_lower or 'harvest' in user_lower or 'trim' in user_lower)
             and any(c.isdigit() for c in user_lower)  # has a dollar amount
@@ -2406,7 +2410,9 @@ def api_chat():
             for m in CHAT_HISTORY[-4:]
         )
         # Force tool use when executing, not when just asking
-        force_tool = direct_sell or direct_buy or (confirmatory and prior_had_plan)
+        force_tool = best_signal_buy or direct_sell or direct_buy or (confirmatory and prior_had_plan)
+        # For best-signal buys, pin tool_choice to place_order so Claude can't swerve to research
+        force_place_order = best_signal_buy
 
         # Agentic loop — let Claude call tools until it's done
         trade_log = []
@@ -2420,7 +2426,11 @@ def api_chat():
                 messages   = msgs,
             )
             if force_tool:
-                create_kwargs['tool_choice'] = {'type': 'any'}
+                if force_place_order:
+                    create_kwargs['tool_choice'] = {'type': 'tool', 'name': 'place_order'}
+                    force_place_order = False
+                else:
+                    create_kwargs['tool_choice'] = {'type': 'any'}
                 force_tool = False  # only force on first round
             resp = client.messages.create(**create_kwargs)
 

@@ -2451,7 +2451,7 @@ function _mergAndRender(edgarCandidates) {
         function executeIntelSignal(sym, amount) {
           document.getElementById('intel-modal-overlay').classList.remove('visible');
           switchPanel('chat', document.querySelector('.rpanel-tabs .tab'));
-          const msg = `Execute best signal: buy ${sym} for $${amount} notional. Please confirm and execute now.`;
+          const msg = `BEST_SIGNAL_BUY: buy ${sym} for $${amount} notional. Execute immediately.`;
           const inp = document.getElementById('chat-input');
           const btn = document.getElementById('chat-send');
           if (inp && btn) {
