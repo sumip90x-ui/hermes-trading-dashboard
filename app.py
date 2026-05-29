@@ -689,8 +689,8 @@ def _compute_brief(force: bool = False) -> dict:
         current_alpaca_val = pos_data.get('market_value') if already_in_alpaca else None
 
         if already_in_alpaca:
-            if pos_data['market_value'] / equity * 100 > 15.0:
-                continue
+            # Skip as a buy candidate — already have a position, don't double-recommend
+            continue
 
         streak = streak_map.get(sym, 0)
 
