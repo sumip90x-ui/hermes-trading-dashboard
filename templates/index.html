@@ -596,7 +596,7 @@
   <div class="chart-panel panel">
     <div class="chart-tabs">
       <div class="tab active" onclick="switchChart('intraday',this)">Intraday</div>
-      <div class="tab" onclick="switchChart('candles',this)">Candles</div>
+      <div class="tab" onclick="switchChart('scanner',this)">🔍 Scanner</div>
       <div class="tab" onclick="switchChart('positions',this)">Positions</div>
       <div class="tab" id="tab-research" onclick="switchChart('research',this)">Research</div>
       <div class="tab" id="tab-portfolio" onclick="switchChart('portfolio',this)">📊 Portfolio</div>
@@ -633,9 +633,51 @@
         </div>
       </div>
       <!-- Multi-session candlesticks -->
-      <div id="view-candles" style="display:none;height:100%;display:none;flex-direction:column">
-        <canvas id="candleChart" height="300"></canvas>
-        <div id="candle-stats" style="display:flex;gap:16px;padding:6px 4px;flex-shrink:0;flex-wrap:wrap"></div>
+      <div id="view-scanner" style="display:none;height:100%;flex-direction:column;overflow-y:auto;padding:10px">
+
+        <!-- Header -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div style="font-size:13px;font-weight:700;color:var(--text)">🔍 STAGE 0 SCANNER</div>
+          <div style="display:flex;gap:6px">
+            <button class="btn-gold" style="font-size:11px;padding:4px 12px" onclick="runMainScanner()">▶ RUN FULL SCAN</button>
+            <button class="btn-muted" style="font-size:11px;padding:4px 10px" onclick="runMainScannerLongterm()">📋 Long-Term Only</button>
+          </div>
+        </div>
+
+        <!-- Custom symbols -->
+        <div style="display:flex;gap:6px;margin-bottom:10px">
+          <input type="text" id="main-scanner-syms" placeholder="Type symbols: MSFT ADBE BBY ..."
+                 style="flex:1;font-size:11px;background:#0d1117;border:1px solid var(--border);border-radius:4px;padding:5px 8px;color:#c9d1d9;text-transform:uppercase">
+          <button class="btn-blue" style="font-size:11px;padding:4px 12px" onclick="runMainScannerCustom()">GO</button>
+        </div>
+
+        <!-- Regime -->
+        <div id="main-scanner-regime" style="font-size:11px;padding:5px 10px;border-radius:4px;background:#21262d;color:var(--muted);margin-bottom:10px;text-align:center">
+          Click RUN to scan your portfolio for Stage 0 candidates
+        </div>
+
+        <!-- Tier 1 -->
+        <div style="font-size:11px;color:#3fb950;font-weight:700;margin-bottom:6px">🟢 BUY NOW — Conviction 14+/20</div>
+        <div id="main-scanner-tier1" style="margin-bottom:14px">
+          <div style="color:var(--muted);font-size:11px;padding:8px">Run the scanner to find candidates</div>
+        </div>
+
+        <!-- Tier 2 -->
+        <div style="font-size:11px;color:#f5a623;font-weight:700;margin-bottom:6px">🟡 WATCH — Conviction 9-13/20</div>
+        <div id="main-scanner-tier2" style="margin-bottom:14px"></div>
+
+        <!-- Cluster alerts -->
+        <div id="main-scanner-clusters"></div>
+
+        <!-- Tracking log -->
+        <div style="font-size:11px;color:var(--muted);font-weight:700;margin:10px 0 6px">📋 ACTIVE TRACKING LOG</div>
+        <div id="main-scanner-tracker" style="font-size:10px;font-family:monospace;background:#0d1117;border-radius:4px;padding:8px;max-height:200px;overflow-y:auto;color:var(--muted)">
+          Loading...
+        </div>
+
+        <!-- Keep hidden candleChart so existing JS doesn't break -->
+        <canvas id="candleChart" style="display:none" height="1"></canvas>
+        <div id="candle-stats" style="display:none"></div>
       </div>
       <!-- Positions list -->
       <div id="view-positions" style="display:none;overflow-y:auto;height:100%">
@@ -2198,6 +2240,125 @@ function buildCandleChart(history) {
 }
 
 function loadCandles() {
+  // legacy — canvas kept hidden for compat
+}
+
+let _mainScannerRunning = false;
+
+function runMainScanner() {
+  if (_mainScannerRunning) return;
+  _mainScannerRunning = true;
+  document.getElementById('main-scanner-regime').style.color = 'var(--gold)';
+  document.getElementById('main-scanner-regime').textContent = '⏳ Running full portfolio scan... (60-120s)';
+  document.getElementById('main-scanner-tier1').innerHTML = '<div style="color:var(--muted);padding:8px">Scanning 400+ stocks...</div>';
+  document.getElementById('main-scanner-tier2').innerHTML = '';
+  document.getElementById('main-scanner-clusters').innerHTML = '';
+  fetch('/api/scanner/stage0')
+    .then(r => r.json())
+    .then(data => { _mainScannerRunning = false; _renderMainScanner(data); })
+    .catch(e => { _mainScannerRunning = false; document.getElementById('main-scanner-regime').textContent = '❌ ' + e.message; });
+}
+
+function runMainScannerLongterm() {
+  if (_mainScannerRunning) return;
+  _mainScannerRunning = true;
+  document.getElementById('main-scanner-regime').style.color = 'var(--gold)';
+  document.getElementById('main-scanner-regime').textContent = '⏳ Scanning for long-term holds...';
+  document.getElementById('main-scanner-tier1').innerHTML = '<div style="color:var(--muted);padding:8px">Scanning...</div>';
+  fetch('/api/scanner/stage0?longterm=1')
+    .then(r => r.json())
+    .then(data => { _mainScannerRunning = false; _renderMainScanner(data); })
+    .catch(e => { _mainScannerRunning = false; document.getElementById('main-scanner-regime').textContent = '❌ ' + e.message; });
+}
+
+function runMainScannerCustom() {
+  const syms = document.getElementById('main-scanner-syms').value.trim();
+  if (!syms || _mainScannerRunning) return;
+  _mainScannerRunning = true;
+  document.getElementById('main-scanner-regime').style.color = 'var(--gold)';
+  document.getElementById('main-scanner-regime').textContent = '⏳ Scanning ' + syms + '...';
+  document.getElementById('main-scanner-tier1').innerHTML = '<div style="color:var(--muted);padding:8px">Scanning...</div>';
+  fetch('/api/scanner/stage0?syms=' + encodeURIComponent(syms))
+    .then(r => r.json())
+    .then(data => { _mainScannerRunning = false; _renderMainScanner(data); })
+    .catch(e => { _mainScannerRunning = false; document.getElementById('main-scanner-regime').textContent = '❌ ' + e.message; });
+}
+
+function runMainScannerTracker() {
+  fetch('/api/scanner/tracker')
+    .then(r => r.json())
+    .then(data => {
+      const el = document.getElementById('main-scanner-tracker');
+      if (el) el.textContent = data.log || 'No picks tracked yet.';
+    });
+}
+
+function _renderMainScanner(data) {
+  if (data.error) {
+    document.getElementById('main-scanner-regime').style.color = '#f85149';
+    document.getElementById('main-scanner-regime').textContent = '❌ ' + data.error;
+    return;
+  }
+  const regCol = data.regime === 'BULL' ? '#3fb950' : data.regime === 'BEAR' ? '#f85149' : '#f5a623';
+  document.getElementById('main-scanner-regime').style.color = regCol;
+  document.getElementById('main-scanner-regime').textContent =
+    'Regime: ' + data.regime + ' (HARSI ' + (data.m_harsi !== null ? data.m_harsi.toFixed(1) : '?') + ') | ' + data.total + ' stocks scanned';
+
+  const t1 = document.getElementById('main-scanner-tier1');
+  if (!data.tier1 || data.tier1.length === 0) {
+    t1.innerHTML = '<div style="color:var(--muted);padding:8px">No Tier 1 candidates — try a custom symbol scan</div>';
+  } else {
+    t1.innerHTML = data.tier1.map(c => `
+      <div style="background:#0d1117;border:1px solid #238636;border-radius:6px;padding:8px 10px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <span style="color:#3fb950;font-weight:700;font-size:14px">${c.sym}</span>
+          <span style="font-size:11px;color:var(--muted)">Conv ${c.conviction_score}/20 · S0 ${c.stage0_score}/12</span>
+        </div>
+        <div style="font-size:11px;color:#8b949e;margin-bottom:4px">
+          ${c.pattern_type} · $${c.price.toFixed(2)} · Hold ${c.hold_min}-${c.hold_max} months · ${c.fidelity_accts} Fidelity accts
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:6px">${(c.signals||[]).slice(0,5).join(' · ')}</div>
+        <div style="display:flex;gap:6px">
+          <button class="btn-green" style="font-size:11px;padding:3px 12px"
+            onclick="document.getElementById('chat-in').value='Buy $5 ${c.sym}. Pattern: ${c.pattern_type}. Hold ${c.hold_min}-${c.hold_max} months.';sendChat()">
+            ⚡ Buy $5
+          </button>
+          <button class="btn-muted" style="font-size:11px;padding:3px 12px"
+            onclick="document.getElementById('chat-in').value='Write a 3 sentence bear case for ${c.sym} — assume it goes to zero in 24 months, what is the most plausible path?';sendChat()">
+            🐻 Bear Case
+          </button>
+        </div>
+      </div>`).join('');
+  }
+
+  const t2 = document.getElementById('main-scanner-tier2');
+  if (!data.tier2 || data.tier2.length === 0) {
+    t2.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:4px">None</div>';
+  } else {
+    t2.innerHTML = '<table style="width:100%;font-size:11px;border-collapse:collapse">' +
+      '<tr style="color:var(--muted);border-bottom:1px solid var(--border)"><th style="padding:4px;text-align:left">Symbol</th><th>Pattern</th><th>Price</th><th>Conv</th><th>Hold</th><th>Accts</th></tr>' +
+      data.tier2.map(c => `<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:5px;color:#f5a623;font-weight:700">${c.sym}</td>
+        <td style="padding:5px;color:var(--muted)">${c.pattern_type}</td>
+        <td style="padding:5px">$${c.price.toFixed(2)}</td>
+        <td style="padding:5px">${c.conviction_score}/20</td>
+        <td style="padding:5px">${c.hold_min}-${c.hold_max}mo</td>
+        <td style="padding:5px">${c.fidelity_accts}</td>
+      </tr>`).join('') + '</table>';
+  }
+
+  const cl = document.getElementById('main-scanner-clusters');
+  if (data.clusters && Object.keys(data.clusters).length > 0) {
+    cl.innerHTML = '<div style="font-size:11px;color:#f5a623;font-weight:700;margin:10px 0 6px">🔔 CLUSTER ALERTS</div>' +
+      Object.entries(data.clusters).map(([name, syms]) =>
+        `<div style="font-size:11px;color:var(--muted);padding:3px 0">
+          <span style="color:#f5a623">${name}:</span> ${syms.join(', ')} — buy the cluster
+        </div>`).join('');
+  }
+  runMainScannerTracker();
+}
+
+function _legacyLoadCandles() {
   fetch('/api/candles').then(r=>r.json()).then(candles => {
     const ctx = document.getElementById('candleChart').getContext('2d');
     if (!candles || !candles.length) {
@@ -3030,7 +3191,7 @@ function _renderCandidates(cands) {
 
 // ── Tab switching ─────────────────────────────────────────────────────────
 function switchChart(view, el) {
-  ['intraday','candles','positions','research','portfolio','priority'].forEach(v => {
+  ['intraday','scanner','positions','research','portfolio','priority'].forEach(v => {
     const p = document.getElementById(`view-${v}`);
     if (p) {
       if (v === view) {
@@ -3065,7 +3226,7 @@ function switchChart(view, el) {
   }
 
   if (view === 'positions') loadPositions();
-  if (view === 'candles')   loadCandles();
+  if (view === 'scanner')   { runMainScannerTracker(); }
   if (view === 'research') {
     loadEdgarTickers();
     loadSimHistory();
