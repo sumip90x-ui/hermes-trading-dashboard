@@ -1441,6 +1441,117 @@ def api_candles():
         })
     return jsonify(candles)
 
+@app.route('/api/scanner/progress')
+def api_scanner_progress():
+    """SSE stream — sends progress updates as scanner runs each symbol."""
+    import subprocess, sys, re
+    from flask import Response, stream_with_context
+
+    scanner_path = Path.home() / 'Documents/EDGAR/scanner_engine.py'
+    syms_arg  = request.args.get('syms', '')
+    longterm  = request.args.get('longterm', '0')
+
+    cmd = [sys.executable, str(scanner_path), '--json', '--top', '30']
+    if longterm == '1':
+        cmd.append('--longterm')
+    if syms_arg:
+        cmd += ['--sym'] + syms_arg.upper().split()
+
+    def generate():
+        try:
+            proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, bufsize=1
+            )
+            total = 0
+            current = 0
+            json_lines = []
+            collecting_json = False
+
+            import json as _json
+
+            def sse(obj):
+                return 'data: ' + _json.dumps(obj) + '\n\n'
+
+            for line in proc.stderr:
+                line = line.rstrip()
+
+                m_total = re.search(r'\[SCAN\]\s+(\d+)\s+candidates', line)
+                if m_total:
+                    total = int(m_total.group(1))
+                    yield sse({'type': 'total', 'total': total})
+                    continue
+
+                m_sym = re.search(r'\[(\d+)/(\d+)\]\s+(\S+?)\.\.\.(.*)', line)
+                if m_sym:
+                    current = int(m_sym.group(1))
+                    total   = int(m_sym.group(2))
+                    sym     = m_sym.group(3)
+                    rest    = m_sym.group(4).strip()
+                    pct     = round(current / total * 100) if total else 0
+                    ms = re.search(r'S0=(\d+)', rest)
+                    s0 = int(ms.group(1)) if ms else 0
+                    mp = re.search(r'pattern=(\S+)', rest)
+                    pat = mp.group(1) if mp else ''
+                    yield sse({'type': 'progress', 'sym': sym,
+                               'current': current, 'total': total,
+                               'pct': pct, 's0': s0, 'pattern': pat})
+                    continue
+
+                if 'BULL' in line or 'BEAR' in line or 'NEUTRAL' in line:
+                    m_reg = re.search(r'(BULL|BEAR|NEUTRAL).*HARSI.*?(-?[\d.]+)', line)
+                    if m_reg:
+                        yield sse({'type': 'regime', 'regime': m_reg.group(1),
+                                   'harsi': float(m_reg.group(2))})
+
+            # Now read stdout for final JSON
+            stdout_data = proc.stdout.read()
+            proc.wait()
+
+            if stdout_data.strip():
+                try:
+                    import json as _json
+                    data = _json.loads(stdout_data)
+                    candidates = data.get('candidates', [])
+                    regime     = data.get('regime', {})
+                    from collections import defaultdict
+                    clusters = defaultdict(list)
+                    for c in candidates:
+                        if c.get('cluster') and c.get('stage0_gate_pass'):
+                            clusters[c['cluster']].append(c['sym'])
+                    alerts = {k: v for k, v in clusters.items() if len(v) >= 2}
+                    tier1 = [c for c in candidates if c.get('conviction_score',0) >= 14 and c.get('stage0_gate_pass')]
+                    tier2 = [c for c in candidates if 9 <= c.get('conviction_score',0) < 14 and c.get('stage0_gate_pass')]
+                    result = _json.dumps({
+                        'type': 'results',
+                        'regime':   regime.get('regime','UNKNOWN'),
+                        'm_harsi':  regime.get('m_harsi'),
+                        'tier1':    tier1,
+                        'tier2':    tier2,
+                        'clusters': alerts,
+                        'total':    len(candidates),
+                    })
+                    yield 'data: ' + result + '\n\n'
+                except Exception as e:
+                    yield sse({'type': 'error', 'msg': str(e)})
+            else:
+                yield sse({'type': 'error', 'msg': 'No output from scanner'})
+
+            yield sse({'type': 'done'})
+
+        except Exception as e:
+            yield sse({'type': 'error', 'msg': str(e)})
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',
+        }
+    )
+
+
 @app.route('/api/scanner/stage0')
 def api_scanner_stage0():
     """Run Stage 0 scanner and return JSON results for the dashboard."""

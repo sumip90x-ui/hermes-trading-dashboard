@@ -2226,43 +2226,82 @@ function loadCandles() {
 
 let _mainScannerRunning = false;
 
-function runMainScanner() {
+function _startScannerStream(url) {
   if (_mainScannerRunning) return;
   _mainScannerRunning = true;
+
+  // Reset UI
   document.getElementById('main-scanner-regime').style.color = 'var(--gold)';
-  document.getElementById('main-scanner-regime').textContent = '⏳ Running full portfolio scan... (60-120s)';
-  document.getElementById('main-scanner-tier1').innerHTML = '<div style="color:var(--muted);padding:8px">Scanning 400+ stocks...</div>';
+  document.getElementById('main-scanner-regime').innerHTML =
+    '<div style="margin-bottom:4px">⏳ Initializing scanner...</div>' +
+    '<div style="background:#1c2128;border-radius:4px;height:8px;overflow:hidden">' +
+    '  <div id="scanner-prog-bar" style="height:100%;background:var(--gold);width:0%;transition:width 0.3s"></div>' +
+    '</div>' +
+    '<div id="scanner-prog-label" style="font-size:10px;color:var(--muted);margin-top:3px">Starting...</div>';
+  document.getElementById('main-scanner-tier1').innerHTML = '';
   document.getElementById('main-scanner-tier2').innerHTML = '';
   document.getElementById('main-scanner-clusters').innerHTML = '';
-  fetch('/api/scanner/stage0')
-    .then(r => r.json())
-    .then(data => { _mainScannerRunning = false; _renderMainScanner(data); })
-    .catch(e => { _mainScannerRunning = false; document.getElementById('main-scanner-regime').textContent = '❌ ' + e.message; });
+
+  const es = new EventSource(url);
+
+  es.onmessage = function(e) {
+    const d = JSON.parse(e.data);
+
+    if (d.type === 'total') {
+      document.getElementById('scanner-prog-label').textContent =
+        'Scanning 0 / ' + d.total + ' stocks...';
+
+    } else if (d.type === 'regime') {
+      const col = d.regime === 'BULL' ? '#3fb950' : d.regime === 'BEAR' ? '#f85149' : '#f5a623';
+      document.getElementById('scanner-prog-label').style.color = col;
+
+    } else if (d.type === 'progress') {
+      const bar   = document.getElementById('scanner-prog-bar');
+      const label = document.getElementById('scanner-prog-label');
+      if (bar)   bar.style.width = d.pct + '%';
+      if (label) {
+        const s0str = d.s0 >= 8 ? `<span style="color:#3fb950">S0=${d.s0}</span>` :
+                      d.s0 >= 6 ? `<span style="color:#f5a623">S0=${d.s0}</span>` :
+                                  `<span style="color:var(--muted)">S0=${d.s0}</span>`;
+        label.innerHTML = `${d.current}/${d.total} — <b style="color:#c9d1d9">${d.sym}</b> ${s0str} ${d.pattern}`;
+      }
+
+    } else if (d.type === 'results') {
+      es.close();
+      _mainScannerRunning = false;
+      _renderMainScanner(d);
+
+    } else if (d.type === 'error') {
+      es.close();
+      _mainScannerRunning = false;
+      document.getElementById('main-scanner-regime').style.color = '#f85149';
+      document.getElementById('main-scanner-regime').textContent = '❌ ' + d.msg;
+
+    } else if (d.type === 'done') {
+      es.close();
+      _mainScannerRunning = false;
+    }
+  };
+
+  es.onerror = function() {
+    es.close();
+    _mainScannerRunning = false;
+    document.getElementById('main-scanner-regime').textContent = '❌ Connection lost';
+  };
+}
+
+function runMainScanner() {
+  _startScannerStream('/api/scanner/progress');
 }
 
 function runMainScannerLongterm() {
-  if (_mainScannerRunning) return;
-  _mainScannerRunning = true;
-  document.getElementById('main-scanner-regime').style.color = 'var(--gold)';
-  document.getElementById('main-scanner-regime').textContent = '⏳ Scanning for long-term holds...';
-  document.getElementById('main-scanner-tier1').innerHTML = '<div style="color:var(--muted);padding:8px">Scanning...</div>';
-  fetch('/api/scanner/stage0?longterm=1')
-    .then(r => r.json())
-    .then(data => { _mainScannerRunning = false; _renderMainScanner(data); })
-    .catch(e => { _mainScannerRunning = false; document.getElementById('main-scanner-regime').textContent = '❌ ' + e.message; });
+  _startScannerStream('/api/scanner/progress?longterm=1');
 }
 
 function runMainScannerCustom() {
   const syms = document.getElementById('main-scanner-syms').value.trim();
-  if (!syms || _mainScannerRunning) return;
-  _mainScannerRunning = true;
-  document.getElementById('main-scanner-regime').style.color = 'var(--gold)';
-  document.getElementById('main-scanner-regime').textContent = '⏳ Scanning ' + syms + '...';
-  document.getElementById('main-scanner-tier1').innerHTML = '<div style="color:var(--muted);padding:8px">Scanning...</div>';
-  fetch('/api/scanner/stage0?syms=' + encodeURIComponent(syms))
-    .then(r => r.json())
-    .then(data => { _mainScannerRunning = false; _renderMainScanner(data); })
-    .catch(e => { _mainScannerRunning = false; document.getElementById('main-scanner-regime').textContent = '❌ ' + e.message; });
+  if (!syms) { runMainScanner(); return; }
+  _startScannerStream('/api/scanner/progress?syms=' + encodeURIComponent(syms));
 }
 
 function runMainScannerTracker() {
