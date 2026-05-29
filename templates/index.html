@@ -1354,15 +1354,7 @@ let intradayChart = null;
 let candleChart   = null;
 let _scannerRunning = false;
 
-function switchPanel(name, el) {
-  document.querySelectorAll('.rpanel-content').forEach(p => p.style.display = 'none');
-  document.querySelectorAll('.rpanel-tabs .tab').forEach(t => t.classList.remove('active'));
-  const panel = document.getElementById('panel-' + name);
-  if (panel) panel.style.display = '';
-  if (el) el.classList.add('active');
-  // Auto-load tracker when scanner tab opens
-  if (name === 'scanner') loadScannerTracker();
-}
+// switchPanel defined below
 
 function runScanner() {
   if (_scannerRunning) return;
@@ -1437,11 +1429,11 @@ function renderScannerResults(data) {
         <div style="font-size:9px;color:var(--muted);margin-top:2px">${(c.signals || []).slice(0,4).join(' · ')}</div>
         <div style="display:flex;gap:4px;margin-top:5px">
           <button class="btn-green" style="font-size:9px;padding:2px 8px"
-            onclick="document.getElementById('chat-input').value='Buy $5 ${c.sym}';document.getElementById('chat-send').click()">
+            onclick="document.getElementById('chat-in').value='Buy $5 ${c.sym}';document.querySelector('.chat-input button').click()">
             ⚡ Buy $5
           </button>
           <button class="btn-muted" style="font-size:9px;padding:2px 8px"
-            onclick="switchPanel('chat',null);document.getElementById('chat-input').value='Research ${c.sym} — write the bear case in 3 sentences';document.getElementById('chat-send').click()">
+            onclick="switchPanel('chat',null);document.getElementById('chat-in').value='Research ${c.sym} — write the bear case in 3 sentences';document.querySelector('.chat-input button').click()">
             🐻 Bear Case
           </button>
         </div>

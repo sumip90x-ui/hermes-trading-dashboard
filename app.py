@@ -36,7 +36,7 @@ import re
 import time
 from pathlib import Path
 from collections import defaultdict
-from flask import Flask, render_template, jsonify, request, Blueprint
+from flask import Flask, render_template, jsonify, request, send_file, make_response, Blueprint
 import fidelity_db
 from flask_socketio import SocketIO, emit
 from oracle_brain import build_research_context
@@ -1198,13 +1198,10 @@ def get_trade_ai_config():
 
 @app.route('/')
 def index():
-    resp = render_template('index.html')
-    from flask import make_response
-    r = make_response(resp)
-    r.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-    r.headers['Pragma'] = 'no-cache'
-    r.headers['Expires'] = '0'
-    return r
+    resp = make_response(render_template('index.html'))
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    resp.headers['Pragma'] = 'no-cache'
+    return resp
 
 
 @app.route('/api/ai/config', methods=['GET'])
