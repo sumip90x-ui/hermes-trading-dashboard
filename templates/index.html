@@ -1211,7 +1211,7 @@
     <div class="rpanel-tabs">
       <div class="tab active" onclick="switchPanel('chat',this)">💬 <span class="rtab-lbl">Chat</span></div>
       <div class="tab" onclick="switchPanel('trade',this)">⚡ <span class="rtab-lbl">Trade</span></div>
-      <div class="tab" onclick="switchPanel('scanner',this)">🔍 <span class="rtab-lbl">Scanner</span></div>
+      <div class="tab" onclick="switchPanel('candle',this)">🕯 <span class="rtab-lbl">Candle</span></div>
       <div class="tab" onclick="switchPanel('buys',this)">📋 <span class="rtab-lbl">Buys</span></div>
       <div class="tab" onclick="switchPanel('journey',this)">🗺 <span class="rtab-lbl">Journey</span></div>
       <div class="tab" onclick="switchPanel('markets',this)">📈 <span class="rtab-lbl">Markets</span></div>
@@ -1259,48 +1259,29 @@
       <div id="csv-result" style="margin-top:6px;font-size:11px;color:var(--muted)"></div>
     </div>
 
-    <!-- SCANNER TAB -->
-    <div class="rpanel-content" id="panel-scanner" style="display:none">
-
-      <!-- Header + Run button -->
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-        <div style="font-size:12px;color:var(--muted);font-weight:700">🔍 STAGE 0 SCANNER</div>
-        <button class="btn-gold" style="font-size:10px;padding:3px 10px" onclick="runScanner()">▶ RUN</button>
+    <!-- CANDLE TRIGGER -->
+    <div class="rpanel-content" id="panel-candle" style="display:none">
+      <div class="trigger-box cold" id="trigger-box">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:4px">DISTANCE FROM ATH ZONE</div>
+        <div class="trigger-val" id="trig-dist">—</div>
+        <div class="progress-bar">
+          <div class="progress-fill" id="trig-progress" style="width:0%;background:var(--muted)"></div>
+        </div>
+        <div style="font-size:11px;color:var(--muted)" id="trig-detail">Loading...</div>
       </div>
 
-      <!-- Regime badge -->
-      <div id="scanner-regime" style="font-size:10px;padding:3px 8px;border-radius:4px;background:#21262d;color:var(--muted);margin-bottom:8px;text-align:center">
-        Regime: — | Click RUN to scan
+      <div style="margin-bottom:8px;font-size:11px;color:var(--muted)">
+        When HIGH enters ATH zone → trim (HIGH-LOW) from top gainers → redeploy via Fidelity CSV + EDGAR scores
       </div>
 
-      <!-- Tier 1 -->
-      <div style="font-size:10px;color:#3fb950;font-weight:700;margin-bottom:4px">🟢 BUY NOW</div>
-      <div id="scanner-tier1" style="margin-bottom:10px;font-size:11px;color:var(--muted)">—</div>
-
-      <!-- Tier 2 -->
-      <div style="font-size:10px;color:#f5a623;font-weight:700;margin-bottom:4px">🟡 WATCH</div>
-      <div id="scanner-tier2" style="margin-bottom:10px;font-size:11px;color:var(--muted)">—</div>
-
-      <!-- Cluster alerts -->
-      <div id="scanner-clusters" style="margin-bottom:10px;font-size:11px;color:var(--muted)"></div>
-
-      <!-- Custom scan -->
-      <hr style="border-color:var(--border);margin:8px 0">
-      <div style="font-size:10px;color:var(--muted);margin-bottom:4px">SCAN SPECIFIC SYMBOLS</div>
-      <div style="display:flex;gap:4px;margin-bottom:6px">
-        <input type="text" id="scanner-syms" placeholder="MSFT ADBE BBY ..."
-               style="flex:1;font-size:11px;background:#0d1117;border:1px solid var(--border);
-                      border-radius:4px;padding:4px 6px;color:#c9d1d9;text-transform:uppercase">
-        <button class="btn-blue" style="font-size:10px;padding:3px 8px" onclick="runScannerCustom()">GO</button>
+      <div style="display:flex;gap:6px;margin-bottom:10px">
+        <button class="btn-gold" style="flex:1" onclick="runCandleTrade(true)">🔍 Preview Trade</button>
+        <button class="btn-green" style="flex:1" onclick="runCandleTrade(false)">⚡ Execute Trade</button>
       </div>
 
-      <!-- Tracker summary -->
-      <hr style="border-color:var(--border);margin:8px 0">
-      <div style="font-size:10px;color:var(--muted);font-weight:700;margin-bottom:4px">📋 TRACKING LOG</div>
-      <div id="scanner-tracker" style="font-size:10px;color:var(--muted);max-height:160px;overflow-y:auto">—</div>
-
-      <!-- Hidden candle output so chat still works -->
-      <div id="candle-output" style="display:none"></div>
+      <div id="candle-output" style="font-size:11px;background:#0d1117;padding:8px;border-radius:4px;min-height:60px;white-space:pre-wrap;overflow-y:auto;max-height:250px;color:var(--muted)">
+        Output will appear here...
+      </div>
 
       <hr style="border-color:var(--border);margin:10px 0">
       <div style="font-size:12px;color:var(--muted);margin-bottom:6px">HOUSE MONEY MARKERS</div>
@@ -3246,14 +3227,14 @@ function switchChart(view, el) {
 }
 
 function switchPanel(panel, el) {
-  ['chat','trade','scanner','buys','journey','markets'].forEach(p => {
+  ['chat','trade','candle','buys','journey','markets'].forEach(p => {
     const pe = document.getElementById(`panel-${p}`);
     if (pe) pe.style.display = p===panel ? '' : 'none';
   });
   document.querySelectorAll('.rpanel-tabs .tab').forEach(t => t.classList.remove('active'));
   if (el) el.classList.add('active');
   if (panel === 'buys')    loadCandidates();
-  if (panel === 'scanner') loadScannerTracker();
+  if (panel === 'candle')  { fetchTrigger(); fetchHouseMoney(); fetchStopTiers(); }
   if (panel === 'journey') loadJourney();
   if (window._mktLoadOnSwitch) window._mktLoadOnSwitch(panel);
 }
