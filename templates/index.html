@@ -670,10 +670,18 @@
         <div id="main-scanner-clusters"></div>
 
         <!-- Tracking log -->
-        <div style="font-size:11px;color:var(--muted);font-weight:700;margin:10px 0 6px">📋 ACTIVE TRACKING LOG</div>
-        <div id="main-scanner-tracker" style="font-size:10px;font-family:monospace;background:#0d1117;border-radius:4px;padding:8px;max-height:200px;overflow-y:auto;color:var(--muted)">
-          Loading...
+        <div style="font-size:11px;color:var(--muted);font-weight:700;margin:10px 0 6px">📋 PERFORMANCE TRACKER</div>
+        <div id="main-scanner-tracker" style="background:#0d1117;border-radius:6px;padding:6px;max-height:340px;overflow-y:auto">
+          <div style="color:var(--muted);font-size:11px;padding:8px">Loading picks...</div>
         </div>
+
+        <!-- Trajectory Inventory -->
+        <div style="font-size:11px;color:var(--muted);font-weight:700;margin:14px 0 6px">🧬 TRAJECTORY INVENTORY</div>
+        <div style="display:flex;gap:6px;margin-bottom:8px">
+          <button class="btn-blue" style="font-size:11px;padding:4px 14px" onclick="runTrajectoryInventory()">🧬 Run Trajectory Inventory</button>
+          <span id="traj-status" style="font-size:10px;color:var(--muted);align-self:center"></span>
+        </div>
+        <div id="traj-result" style="display:none;background:#0d1117;border-radius:6px;padding:8px;font-size:11px;overflow-x:auto"></div>
 
         <!-- Keep hidden candleChart so existing JS doesn't break -->
         <canvas id="candleChart" style="display:none" height="1"></canvas>
@@ -1519,6 +1527,77 @@ function loadScannerTracker() {
       document.getElementById('scanner-tracker').textContent = 'Tracker unavailable';
     });
 }
+
+function runTrajectoryInventory() {
+  const statusEl = document.getElementById('traj-status');
+  const resultEl = document.getElementById('traj-result');
+  statusEl.textContent = '⏳ Running... (up to 120s)';
+  statusEl.style.color = 'var(--gold)';
+  resultEl.style.display = 'none';
+  resultEl.innerHTML = '';
+
+  fetch('/api/scanner/trajectory_inventory', {cache: 'no-store'})
+    .then(r => r.json())
+    .then(data => {
+      statusEl.textContent = data.ok ? '✅ Done' : '⚠️ Ran with issues';
+      statusEl.style.color = data.ok ? '#3fb950' : '#f5a623';
+
+      const s = data.summary || {};
+      const tickers = data.tickers || [];
+      const with8 = tickers.filter(t => t.has_8_usable_quarters);
+      const blocked = tickers.filter(t => (t.quality_flags || []).includes('likely_backfill_required'));
+
+      let html = `<div style="margin-bottom:8px">`;
+      html += `<div style="color:#3fb950;font-weight:700;margin-bottom:4px">📊 ${s.recommendation === 'backfill first' ? '⚠️ Backfill required first' : '✅ Trajectory extractor possible now'}</div>`;
+      html += `<div style="color:var(--muted)">Tickers inspected: <b style="color:#c9d1d9">${s.ticker_count ?? '—'}</b> &nbsp;|&nbsp; `;
+      html += `8+ usable qtrs: <b style="color:#3fb950">${s.tickers_with_8_usable_quarters_count ?? '—'}</b> &nbsp;|&nbsp; `;
+      html += `Likely backfill: <b style="color:#f85149">${s.likely_backfill_required_count ?? '—'}</b></div>`;
+      if (with8.length) html += `<div style="margin-top:4px;color:#3fb950">8+ usable: ${with8.map(t=>t.ticker).join(', ')}</div>`;
+      if (blocked.length) html += `<div style="margin-top:2px;color:#f85149">Blocked/backfill: ${blocked.map(t=>t.ticker).join(', ')}</div>`;
+      if (data.markdown_path) html += `<div style="margin-top:4px;color:var(--muted);font-size:10px;word-break:break-all">📄 ${data.markdown_path}</div>`;
+      if (data.error) html += `<div style="margin-top:4px;color:#f85149">Error: ${data.error}</div>`;
+      html += `</div>`;
+
+      // Per-ticker compact table
+      if (tickers.length) {
+        html += `<table style="width:100%;border-collapse:collapse;font-size:10px;font-family:monospace">`;
+        html += `<thead><tr style="color:var(--muted);border-bottom:1px solid var(--border)">
+          <th style="text-align:left;padding:2px 4px">Ticker</th>
+          <th style="padding:2px 4px">Facts</th>
+          <th style="padding:2px 4px">Index</th>
+          <th style="padding:2px 4px">RevQ</th>
+          <th style="padding:2px 4px">UseQ</th>
+          <th style="padding:2px 4px">8+</th>
+          <th style="padding:2px 4px">Latest Filed</th>
+          <th style="text-align:left;padding:2px 4px">Flags</th>
+        </tr></thead><tbody>`;
+        for (const t of tickers) {
+          const ok8 = t.has_8_usable_quarters;
+          const col = ok8 ? '#3fb950' : (t.quality_flags && t.quality_flags.includes('likely_backfill_required') ? '#f85149' : '#c9d1d9');
+          const flags = (t.quality_flags || []).filter(f => f !== 'likely_backfill_required' && f !== 'insufficient_quarters').join(', ');
+          html += `<tr style="border-bottom:1px solid #21262d;color:${col}">
+            <td style="padding:2px 4px;font-weight:700">${t.ticker}</td>
+            <td style="text-align:center;padding:2px 4px">${t.companyfacts_exists ? 'Y' : 'N'}</td>
+            <td style="text-align:center;padding:2px 4px">${t.filings_index_exists ? 'Y' : 'N'}</td>
+            <td style="text-align:center;padding:2px 4px">${(t.metrics && t.metrics.revenue) ? t.metrics.revenue.period_count : '—'}</td>
+            <td style="text-align:center;padding:2px 4px">${t.usable_quarter_count}</td>
+            <td style="text-align:center;padding:2px 4px">${ok8 ? '✅' : '❌'}</td>
+            <td style="padding:2px 4px">${t.latest_filed_date || '—'}</td>
+            <td style="padding:2px 4px;color:var(--muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${t.quality_flags ? t.quality_flags.join(', ') : ''}">${flags || '—'}</td>
+          </tr>`;
+        }
+        html += `</tbody></table>`;
+      }
+
+      resultEl.innerHTML = html;
+      resultEl.style.display = 'block';
+    })
+    .catch(err => {
+      statusEl.textContent = '❌ ' + err.message;
+      statusEl.style.color = '#f85149';
+    });
+}
+
 let ohlcData      = {};
 let _equityPoints = [];        // [{t, v}] — raw intraday bars, updated every refresh
 let _curveAnalyzer = null;     // EquityCurveAnalyzer instance, updated every refresh
@@ -2305,12 +2384,59 @@ function runMainScannerCustom() {
 }
 
 function runMainScannerTracker() {
-  fetch('/api/scanner/tracker')
+  const el = document.getElementById('main-scanner-tracker');
+  if (!el) return;
+  el.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:8px">Loading picks...</div>';
+  fetch('/api/scanner/performance')
     .then(r => r.json())
     .then(data => {
-      const el = document.getElementById('main-scanner-tracker');
-      if (el) el.textContent = data.log || 'No picks tracked yet.';
-    });
+      const picks = data.picks || [];
+      if (!picks.length) { el.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:8px">No picks tracked yet.</div>'; return; }
+      const hdr = `<table style="width:100%;border-collapse:collapse;font-size:10px">
+        <thead><tr style="color:#8b949e;border-bottom:1px solid #21262d;position:sticky;top:0;background:#0d1117">
+          <th style="padding:4px 6px;text-align:left">SYM</th>
+          <th style="padding:4px 4px;text-align:left">PICKED</th>
+          <th style="padding:4px 4px;text-align:right">ENTRY</th>
+          <th style="padding:4px 4px;text-align:right">NOW</th>
+          <th style="padding:4px 4px;text-align:right">P&amp;L%</th>
+          <th style="padding:4px 4px;text-align:right">DAYS</th>
+          <th style="padding:4px 4px;text-align:left">HOLD&nbsp;TARGET</th>
+          <th style="padding:4px 4px;text-align:left">PATTERN</th>
+          <th style="padding:4px 4px;text-align:center">STATUS</th>
+        </tr></thead><tbody>`;
+      const rows = picks.map(p => {
+        const pnl = p.pct_change;
+        let borderColor = '#30363d';
+        if (p.status !== 'PENDING') borderColor = p.status === 'WIN' ? '#238636' : '#f85149';
+        else if (pnl !== null && pnl > 0) borderColor = '#238636';
+        else if (pnl !== null && pnl < 0) borderColor = '#da3633';
+        else borderColor = '#d29922';
+        const pnlStr = pnl === null ? '<span style="color:#8b949e">—</span>'
+          : `<span style="color:${pnl>=0?'#3fb950':'#f85149'};font-weight:700">${pnl>=0?'+':''}${pnl.toFixed(1)}%</span>`;
+        const nowStr = p.current_price !== null ? `$${p.current_price.toFixed(2)}` : '<span style="color:#8b949e">—</span>';
+        let badge = '';
+        if (p.status === 'WIN') badge = '<span style="background:#238636;color:#fff;border-radius:3px;padding:1px 5px;font-size:9px">WIN</span>';
+        else if (p.status === 'LOSS') badge = '<span style="background:#da3633;color:#fff;border-radius:3px;padding:1px 5px;font-size:9px">LOSS</span>';
+        else badge = '<span style="color:#8b949e;font-size:9px">PENDING</span>';
+        const prog = p.hold_progress_pct || 0;
+        const progBar = `<div style="background:#21262d;border-radius:2px;height:3px;margin-top:2px;width:80px">
+          <div style="background:#d29922;height:3px;border-radius:2px;width:${Math.min(100,prog)}%"></div></div>`;
+        const holdLabel = `${p.hold_min_months}-${p.hold_max_months}mo`;
+        return `<tr style="border-left:2px solid ${borderColor};border-bottom:1px solid #161b22">
+          <td style="padding:4px 6px;color:#e6edf3;font-weight:700">${p.symbol}</td>
+          <td style="padding:4px 4px;color:#8b949e">${p.date_picked}</td>
+          <td style="padding:4px 4px;text-align:right;color:#8b949e">$${p.price_at_pick.toFixed(2)}</td>
+          <td style="padding:4px 4px;text-align:right">${nowStr}</td>
+          <td style="padding:4px 4px;text-align:right">${pnlStr}</td>
+          <td style="padding:4px 4px;text-align:right;color:#8b949e">${p.days_held}d</td>
+          <td style="padding:4px 4px">${holdLabel}${progBar}</td>
+          <td style="padding:4px 4px;color:#8b949e;font-size:9px">${p.pattern_type}</td>
+          <td style="padding:4px 4px;text-align:center">${badge}</td>
+        </tr>`;
+      }).join('');
+      el.innerHTML = hdr + rows + '</tbody></table>';
+    })
+    .catch(e => { if (el) el.innerHTML = `<div style="color:#f85149;font-size:11px;padding:8px">Error: ${e}</div>`; });
 }
 
 function _renderMainScanner(data) {

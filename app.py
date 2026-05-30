@@ -1555,43 +1555,60 @@ def api_scanner_progress():
 @app.route('/api/scanner/stage0')
 def api_scanner_stage0():
     """Run Stage 0 scanner and return JSON results for the dashboard."""
-    import subprocess, sys
-    scanner_path = Path.home() / 'Documents/EDGAR/scanner_engine.py'
     try:
+        import sys
+        sys.path.insert(0, str(Path.home() / 'Documents/EDGAR'))
+        from scanner_engine import run_scanner as _run
         syms_arg = request.args.get('syms', '')
-        cmd = [sys.executable, str(scanner_path), '--json', '--top', '30', '--longterm']
-        if syms_arg:
-            cmd += ['--sym'] + syms_arg.upper().split()
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
-        if result.stdout.strip():
-            data = json.loads(result.stdout)
-            candidates = data.get('candidates', [])
-            regime     = data.get('regime', {})
+        symbols = syms_arg.upper().split() if syms_arg else None
+        results, regime = _run(symbols=symbols, top_n=30)
 
-            tier1 = [c for c in candidates if c.get('conviction_score',0) >= 14 and c.get('stage0_gate_pass')]
-            tier2 = [c for c in candidates if 9 <= c.get('conviction_score',0) < 14 and c.get('stage0_gate_pass')]
+        tier1, tier2 = [], []
+        for r in results:
+            if not isinstance(r, dict): continue
+            s0 = r.get('stage0', {}) or {}
+            if not s0.get('gate_pass'): continue
+            score = s0.get('total', 0)
+            entry_tier = r.get('entry_tier', 'B')
+            rec = {
+                'sym':            r['sym'],
+                'price':          r.get('m_price') or r.get('last', 0),
+                'stage0_score':   min(score, 10),
+                'pattern_type':   r.get('pattern', 'UNKNOWN'),
+                'signals':        s0.get('signals', []),
+                'entry_tier':     entry_tier,
+                'entry_strategy': r.get('entry_strategy', ''),
+                'accts':          r.get('accts', 0),
+                'edgar_score':    r.get('edgar_score', 0),
+                'stage0_gate_pass': True,
+                'conviction_score': r.get('conviction_score', 0),
+            }
+            if entry_tier == 'A' or score >= 9:
+                tier1.append(rec)
+            else:
+                tier2.append(rec)
 
-            # Cluster alerts
-            from collections import defaultdict
-            clusters = defaultdict(list)
-            for c in candidates:
-                if c.get('cluster') and c.get('stage0_gate_pass'):
-                    clusters[c['cluster']].append(c['sym'])
-            alerts = {k: v for k, v in clusters.items() if len(v) >= 2}
+        from collections import defaultdict
+        clusters = defaultdict(list)
+        for r in results:
+            if isinstance(r, dict):
+                cl = r.get('cluster_name')
+                s0 = r.get('stage0', {}) or {}
+                if cl and s0.get('gate_pass'):
+                    clusters[cl].append(r['sym'])
+        alerts = {k: v for k, v in clusters.items() if len(v) >= 2}
 
-            return jsonify({
-                'regime':   regime.get('regime', 'UNKNOWN'),
-                'm_harsi':  regime.get('m_harsi'),
-                'tier1':    tier1,
-                'tier2':    tier2,
-                'clusters': alerts,
-                'total':    len(candidates),
-            })
-        return jsonify({'error': 'Scanner produced no output', 'tier1': [], 'tier2': []})
-    except subprocess.TimeoutExpired:
-        return jsonify({'error': 'Scanner timed out (>180s)', 'tier1': [], 'tier2': []})
+        return jsonify({
+            'regime':  regime.get('regime', 'UNKNOWN'),
+            'm_harsi': regime.get('m_harsi'),
+            'tier1':   tier1,
+            'tier2':   tier2,
+            'clusters': alerts,
+            'total':   len(results),
+        })
     except Exception as e:
-        return jsonify({'error': str(e), 'tier1': [], 'tier2': []})
+        import traceback
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()[:500], 'tier1': [], 'tier2': []})
 
 
 @app.route('/api/scanner/tracker')
@@ -1607,6 +1624,145 @@ def api_scanner_tracker():
         return jsonify({'log': result.stdout})
     except Exception as e:
         return jsonify({'log': f'Error: {e}'})
+
+
+@app.route('/api/scanner/performance')
+def api_scanner_performance():
+    """Return all tracked picks with current prices and P&L metrics."""
+    import sqlite3, requests as req, datetime as dt
+    DB_PATH = Path.home() / 'Documents' / 'Trading Vault' / 'signal_tracker.db'
+    DATA_URL = 'https://data.alpaca.markets/v2/stocks/trades/latest'
+    hdrs = {'APCA-API-KEY-ID': KEY, 'APCA-API-SECRET-KEY': SECRET}
+
+    try:
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.row_factory = sqlite3.Row
+        # One row per symbol: keep the entry with the highest stage0_score, ties broken by latest id
+        rows = conn.execute('''
+            SELECT s.symbol, s.date_picked, s.price_at_pick, s.pattern_type,
+                   s.stage0_score, s.hold_min_months, s.hold_max_months,
+                   s.outcome, s.notes
+            FROM signals s
+            INNER JOIN (
+                SELECT symbol, date_picked, MAX(stage0_score) as best_score
+                FROM signals
+                GROUP BY symbol, date_picked
+            ) best ON s.symbol = best.symbol
+                    AND s.date_picked = best.date_picked
+                    AND s.stage0_score = best.best_score
+            GROUP BY s.symbol, s.date_picked
+            ORDER BY s.date_picked DESC, s.stage0_score DESC
+        ''').fetchall()
+        conn.close()
+    except Exception as e:
+        return jsonify({'error': str(e), 'picks': []})
+
+    if not rows:
+        return jsonify({'picks': []})
+
+    syms = list({r['symbol'] for r in rows})
+    sym_prices = {}
+    try:
+        resp = req.get(DATA_URL, params={'symbols': ','.join(syms)},
+                       headers=hdrs, timeout=8)
+        if resp.ok:
+            trades = resp.json().get('trades', {})
+            sym_prices = {s: v['p'] for s, v in trades.items() if 'p' in v}
+    except Exception:
+        pass
+
+    today = dt.date.today()
+    picks = []
+    for r in rows:
+        sym = r['symbol']
+        try:
+            picked_dt = dt.date.fromisoformat(str(r['date_picked'])[:10])
+        except Exception:
+            picked_dt = today
+        days_held = (today - picked_dt).days
+        entry = r['price_at_pick'] or 0
+        current = sym_prices.get(sym)
+        pct_change = ((current - entry) / entry * 100) if (current and entry) else None
+        hold_min = r['hold_min_months'] or 3
+        hold_target_days = hold_min * 30
+        hold_progress = min(100, round(days_held / hold_target_days * 100, 1)) if hold_target_days else 0
+        notes_raw = r['notes'] or ''
+        picks.append({
+            'symbol': sym,
+            'date_picked': str(r['date_picked'])[:10],
+            'price_at_pick': round(entry, 2),
+            'pattern_type': r['pattern_type'] or 'UNKNOWN',
+            'stage0_score': r['stage0_score'],
+            'hold_min_months': hold_min,
+            'hold_max_months': r['hold_max_months'] or hold_min * 3,
+            'current_price': round(current, 2) if current else None,
+            'pct_change': round(pct_change, 2) if pct_change is not None else None,
+            'days_held': days_held,
+            'hold_target_days': hold_target_days,
+            'hold_progress_pct': hold_progress,
+            'status': r['outcome'] or 'PENDING',
+            'notes': notes_raw[:60],
+        })
+
+    return jsonify({'picks': picks})
+
+
+@app.route('/api/scanner/trajectory_inventory')
+def api_scanner_trajectory_inventory():
+    """Run trajectory_inventory.py and return JSON for the dashboard."""
+    import subprocess, glob as _glob
+    script = Path.home() / 'Documents/EDGAR/trajectory_inventory.py'
+    edgar_dir = Path.home() / 'Documents/EDGAR'
+
+    stdout_text = ''
+    error_text = None
+    payload = None
+
+    # Try running the script
+    try:
+        result = subprocess.run(
+            [sys.executable, str(script)],
+            capture_output=True, text=True, timeout=120
+        )
+        stdout_text = (result.stdout or '').strip()[-2000:]  # compact
+        if result.returncode != 0:
+            error_text = (result.stderr or '').strip()[-500:]
+    except subprocess.TimeoutExpired:
+        error_text = 'Script timed out after 120s'
+    except Exception as e:
+        error_text = str(e)
+
+    # Find the most recent JSON output (script writes dated filename)
+    json_files = sorted(_glob.glob(str(edgar_dir / 'trajectory_inventory_*.json')), reverse=True)
+    json_path = json_files[0] if json_files else str(edgar_dir / 'trajectory_inventory_2026-05-29.json')
+
+    # Find most recent markdown output
+    md_dir = Path.home() / 'Documents/Trading Vault/03_Stock_Analysis'
+    md_files = sorted(_glob.glob(str(md_dir / 'stage0_trajectory_inventory_*.md')), reverse=True)
+    markdown_path = md_files[0] if md_files else ''
+
+    # Load JSON output
+    try:
+        with open(json_path, 'r', encoding='utf-8') as f:
+            payload = json.load(f)
+    except Exception as e:
+        if not error_text:
+            error_text = f'Could not read JSON output: {e}'
+
+    summary = payload.get('summary', {}) if payload else {}
+    tickers = payload.get('tickers', []) if payload else []
+
+    resp = jsonify({
+        'ok': payload is not None,
+        'summary': summary,
+        'tickers': tickers,
+        'json_path': json_path,
+        'markdown_path': markdown_path,
+        'stdout': stdout_text,
+        'error': error_text,
+    })
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
 
 
 @app.route('/api/candle_trigger')
