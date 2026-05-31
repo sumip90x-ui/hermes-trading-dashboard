@@ -1441,6 +1441,32 @@ def api_candles():
         })
     return jsonify(candles)
 
+@app.route('/api/scanner/mf-scan', methods=['GET'])
+def api_scanner_mf_scan():
+    """Returns MF Screener ticker list as JSON for frontend to feed into scanner."""
+    import glob as _glob
+    mf_file = os.path.expanduser('~/Documents/Trading Vault/01_Watchlist/mf_tickers_latest.txt')
+    if not os.path.exists(mf_file) or os.path.getsize(mf_file) == 0:
+        return jsonify({'error': 'No MF ticker file found. Run mf_feed.py first.'}), 404
+
+    # Read tickers
+    with open(mf_file) as f:
+        tickers = [line.strip() for line in f if line.strip()]
+
+    if not tickers:
+        return jsonify({'error': 'MF ticker file is empty. Run mf_feed.py first.'}), 404
+
+    # Determine source file name from the most recent mf_screener_*.md
+    watchlist_dir = os.path.expanduser('~/Documents/Trading Vault/01_Watchlist')
+    md_files = sorted(_glob.glob(os.path.join(watchlist_dir, 'mf_screener_*.md')))
+    source_file = os.path.basename(md_files[-1]) if md_files else 'unknown'
+
+    return jsonify({
+        'tickers': tickers,
+        'count': len(tickers),
+        'source_file': source_file,
+    })
+
 @app.route('/api/scanner/progress')
 def api_scanner_progress():
     """SSE stream — sends progress updates as scanner runs each symbol."""

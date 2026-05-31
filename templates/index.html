@@ -641,6 +641,7 @@
           <div style="display:flex;gap:6px">
             <button class="btn-gold" style="font-size:11px;padding:4px 12px" onclick="runMainScanner()">▶ RUN FULL SCAN</button>
             <button class="btn-muted" style="font-size:11px;padding:4px 10px" onclick="runMainScannerLongterm()">📋 Long-Term Only</button>
+            <button id="btn-mf-screener" class="btn-muted" style="font-size:11px;padding:4px 10px;color:#00ccff;border-color:#00ccff66" onclick="runMFScreenerScan()">🧪 MF Screener</button>
           </div>
         </div>
 
@@ -2430,6 +2431,44 @@ function runMainScannerCustom() {
   const syms = document.getElementById('main-scanner-syms').value.trim();
   if (!syms) { runMainScanner(); return; }
   _startScannerStream('/api/scanner/progress?syms=' + encodeURIComponent(syms));
+}
+
+function runMFScreenerScan() {
+  const btn = document.getElementById('btn-mf-screener');
+  const regime = document.getElementById('main-scanner-regime');
+  const originalText = btn.innerHTML;
+  btn.innerHTML = '⏳ Loading MF list...';
+  btn.disabled = true;
+  btn.style.opacity = '0.6';
+  regime.innerHTML = '📡 Fetching MF Screener ticker list...';
+  regime.style.color = 'var(--muted)';
+
+  fetch('/api/scanner/mf-scan')
+    .then(r => {
+      if (!r.ok) return r.json().then(err => { throw new Error(err.error || 'Unknown error'); });
+      return r.json();
+    })
+    .then(data => {
+      if (data.tickers && data.tickers.length) {
+        const syms = data.tickers.join(' ');
+        document.getElementById('main-scanner-syms').value = syms;
+        regime.innerHTML = '🧪 MF Screener loaded: ' + data.count + ' tickers from ' + data.source_file;
+        regime.style.color = '#00ccff';
+        runMainScannerCustom();
+      } else {
+        regime.innerHTML = '❌ MF list is empty';
+        regime.style.color = '#f85149';
+      }
+    })
+    .catch(err => {
+      regime.innerHTML = '❌ MF error: ' + err.message;
+      regime.style.color = '#f85149';
+    })
+    .finally(() => {
+      btn.innerHTML = originalText;
+      btn.disabled = false;
+      btn.style.opacity = '1';
+    });
 }
 
 function runMainScannerTracker() {
