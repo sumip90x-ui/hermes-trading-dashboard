@@ -1459,6 +1459,9 @@ def api_scanner_progress():
 
     def generate():
         try:
+            from threading import Thread, Event
+            import queue as _queue
+
             proc = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 text=True, bufsize=1
@@ -1473,7 +1476,35 @@ def api_scanner_progress():
             def sse(obj):
                 return 'data: ' + _json.dumps(obj) + '\n\n'
 
+            # ── Watchdog: kill subprocess if no stderr line for 60s ──
+            watchdog_queue = _queue.Queue()
+            watchdog_killed = [False]
+
+            def _watchdog_thread():
+                while True:
+                    try:
+                        line = watchdog_queue.get(timeout=60)
+                        if line is None:  # sentinel
+                            return
+                    except _queue.Empty:
+                        # 60 seconds with no line — kill the subprocess
+                        try:
+                            proc.kill()
+                            watchdog_killed[0] = True
+                        except Exception:
+                            pass
+                        return
+
+            watchdog_t = Thread(target=_watchdog_thread, daemon=True)
+            watchdog_t.start()
+
             for line in proc.stderr:
+                # Reset watchdog timer
+                watchdog_queue.put(line)
+                if watchdog_killed[0]:
+                    yield sse({'type': 'error', 'msg': 'Scanner timed out — no progress for 60s. Subprocess killed.'})
+                    break
+
                 line = line.rstrip()
 
                 m_total = re.search(r'\[SCAN\]\s+(\d+)\s+candidates', line)
@@ -1505,6 +1536,13 @@ def api_scanner_progress():
                                    'harsi': float(m_reg.group(2))})
 
             # Now read stdout for final JSON
+            # Stop watchdog
+            try:
+                watchdog_queue.put(None)  # sentinel
+            except Exception:
+                pass
+            watchdog_t.join(timeout=2)
+
             stdout_data = proc.stdout.read()
             proc.wait()
 
