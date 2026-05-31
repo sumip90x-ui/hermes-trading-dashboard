@@ -1487,7 +1487,6 @@ def api_scanner_progress():
         try:
             from threading import Thread, Event
             import queue as _queue
-
             proc = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 text=True, bufsize=1
@@ -1523,6 +1522,16 @@ def api_scanner_progress():
 
             watchdog_t = Thread(target=_watchdog_thread, daemon=True)
             watchdog_t.start()
+
+            # Drain stdout in a background thread to prevent pipe-buffer deadlock.
+            # (322 stocks produce ~240 KB of JSON; Linux pipe buffer is only 64 KB.
+            #  Without this, the scanner blocks on stdout write and never closes stderr,
+            #  so the for-loop below hangs forever and results are never sent.)
+            _stdout_buf = []
+            def _drain_stdout():
+                _stdout_buf.append(proc.stdout.read())
+            _drain_t = Thread(target=_drain_stdout, daemon=True)
+            _drain_t.start()
 
             for line in proc.stderr:
                 # Reset watchdog timer
@@ -1569,8 +1578,10 @@ def api_scanner_progress():
                 pass
             watchdog_t.join(timeout=2)
 
-            stdout_data = proc.stdout.read()
+            # Wait for stdout drain thread
+            _drain_t.join()
             proc.wait()
+            stdout_data = _stdout_buf[0] if _stdout_buf else ''
 
             if stdout_data.strip():
                 try:
