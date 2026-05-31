@@ -1712,6 +1712,141 @@ def api_scanner_performance():
     return jsonify({'picks': picks})
 
 
+@app.route('/api/scanner/picks-html')
+def api_scanner_picks_html():
+    """Return scanner picks as a styled HTML table for inline dashboard view."""
+    import sqlite3, requests as req, datetime as dt
+    DB_PATH = Path.home() / 'Documents' / 'Trading Vault' / 'signal_tracker.db'
+    DATA_URL = 'https://data.alpaca.markets/v2/stocks/trades/latest'
+    hdrs = {'APCA-API-KEY-ID': KEY, 'APCA-API-SECRET-KEY': SECRET}
+
+    try:
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute('''
+            SELECT symbol, date_picked, price_at_pick, pattern_type,
+                   stage0_score, hold_min_months, hold_max_months,
+                   outcome, notes, bucket, catalyst, fidelity_accounts
+            FROM signals
+            WHERE outcome = 'PENDING'
+            ORDER BY bucket DESC, date_picked DESC, stage0_score DESC
+        ''').fetchall()
+        conn.close()
+    except Exception as e:
+        return f'<div style="padding:12px;color:#f85149;font-family:monospace">DB error: {e}</div>', 200
+
+    if not rows:
+        return '<div style="padding:16px;color:#8b949e;font-family:monospace;text-align:center">No pending picks tracked yet.</div>', 200
+
+    syms = list({r['symbol'] for r in rows})
+    sym_prices = {}
+    try:
+        resp = req.get(DATA_URL, params={'symbols': ','.join(syms)}, headers=hdrs, timeout=8)
+        if resp.ok:
+            trades = resp.json().get('trades', {})
+            sym_prices = {s: v['p'] for s, v in trades.items() if 'p' in v}
+    except Exception:
+        pass
+
+    today = dt.date.today()
+    picks = []
+    for r in rows:
+        sym = r['symbol']
+        try:
+            picked_dt = dt.date.fromisoformat(str(r['date_picked'])[:10])
+        except Exception:
+            picked_dt = today
+        days_held = (today - picked_dt).days
+        entry = r['price_at_pick'] or 0
+        current = sym_prices.get(sym)
+        pct = ((current - entry) / entry * 100) if (current and entry) else None
+        hold_min = r['hold_min_months'] or 3
+        picks.append({
+            'sym': sym,
+            'date': str(r['date_picked'])[:10],
+            'entry': entry,
+            'current': current,
+            'pct': pct,
+            'days': days_held,
+            'hold_min': hold_min,
+            'hold_max': r['hold_max_months'] or hold_min * 3,
+            'pattern': r['pattern_type'] or 'UNKNOWN',
+            'score': r['stage0_score'] or 0,
+            'bucket': r['bucket'] or 'CLASSIFIED',
+            'catalyst': (r['catalyst'] or '')[:100],
+            'fid_accts': r['fidelity_accounts'] or 0,
+        })
+
+    classified = [p for p in picks if p['bucket'] == 'CLASSIFIED']
+    accumulate = [p for p in picks if p['bucket'] == 'ACCUMULATE']
+
+    def pnl_color(pct):
+        if pct is None: return '#8b949e'
+        return '#3fb950' if pct >= 0 else '#f85149'
+
+    def render_row(p, row_bg):
+        pct_str = f"{p['pct']:+.1f}%" if p['pct'] is not None else '—'
+        cur_str = f"${p['current']:.2f}" if p['current'] else '—'
+        progress = min(100, round(p['days'] / (p['hold_min'] * 30) * 100)) if p['hold_min'] else 0
+        bar_fill = '#3fb950' if progress >= 100 else '#f5a623'
+        prog_bar = (
+            f'<div style="background:#21262d;border-radius:2px;height:4px;width:60px;display:inline-block;vertical-align:middle">'
+            f'<div style="background:{bar_fill};height:4px;width:{progress}%;border-radius:2px"></div></div>'
+            f'<span style="margin-left:4px;font-size:9px;color:#8b949e">{progress}%</span>'
+        )
+        catalyst_cell = f'<span style="color:#88ccff;font-size:9px">{p["catalyst"]}</span>' if p['catalyst'] else '—'
+        return (
+            f'<tr style="background:{row_bg};border-bottom:1px solid #21262d">'
+            f'<td style="padding:5px 8px;font-weight:700;color:#c9d1d9">{p["sym"]}</td>'
+            f'<td style="padding:5px 8px;color:#8b949e;font-size:10px">{p["date"]}</td>'
+            f'<td style="padding:5px 8px;text-align:right">${p["entry"]:.2f}</td>'
+            f'<td style="padding:5px 8px;text-align:right;color:#c9d1d9">{cur_str}</td>'
+            f'<td style="padding:5px 8px;text-align:right;font-weight:700;color:{pnl_color(p["pct"])}">{pct_str}</td>'
+            f'<td style="padding:5px 8px;text-align:center">{p["days"]}d</td>'
+            f'<td style="padding:5px 8px;text-align:center">{p["hold_min"]}–{p["hold_max"]}mo</td>'
+            f'<td style="padding:5px 8px;font-size:10px;color:#8b949e">{p["pattern"]}</td>'
+            f'<td style="padding:5px 8px;text-align:center;color:#f5a623;font-weight:700">{p["score"]}/20</td>'
+            f'<td style="padding:5px 8px;font-size:9px">{catalyst_cell}</td>'
+            f'<td style="padding:5px 8px">{prog_bar}</td>'
+            f'</tr>'
+        )
+
+    header = (
+        '<tr style="border-bottom:1px solid #30363d;color:#8b949e;font-size:10px;text-transform:uppercase">'
+        '<th style="padding:5px 8px;text-align:left">Symbol</th>'
+        '<th style="padding:5px 8px;text-align:left">Date</th>'
+        '<th style="padding:5px 8px;text-align:right">Entry</th>'
+        '<th style="padding:5px 8px;text-align:right">Current</th>'
+        '<th style="padding:5px 8px;text-align:right">P&amp;L</th>'
+        '<th style="padding:5px 8px;text-align:center">Days</th>'
+        '<th style="padding:5px 8px;text-align:center">Hold Window</th>'
+        '<th style="padding:5px 8px;text-align:left">Pattern</th>'
+        '<th style="padding:5px 8px;text-align:center">Score</th>'
+        '<th style="padding:5px 8px;text-align:left">Catalyst</th>'
+        '<th style="padding:5px 8px;text-align:left">Hold Progress</th>'
+        '</tr>'
+    )
+
+    def section_html(title, color, rows_data):
+        if not rows_data:
+            return ''
+        rows_html = ''.join(
+            render_row(p, '#0d1117' if i % 2 == 0 else '#090e14')
+            for i, p in enumerate(rows_data)
+        )
+        return (
+            f'<div style="margin-bottom:20px">'
+            f'<div style="font-size:12px;font-weight:700;color:{color};padding:8px 8px 6px;'
+            f'border-bottom:1px solid #21262d;background:#0d1117">{title} — {len(rows_data)} picks</div>'
+            f'<table style="width:100%;border-collapse:collapse;font-size:11px;font-family:monospace">'
+            f'<thead>{header}</thead><tbody>{rows_html}</tbody></table></div>'
+        )
+
+    updated_str = f'<div style="font-size:10px;color:#8b949e;text-align:right;padding:4px 8px">Live prices via Alpaca &nbsp;·&nbsp; Updated: {today}</div>'
+    body = updated_str + section_html('🟢 CLASSIFIED', '#3fb950', classified) + section_html('🟡 ACCUMULATE', '#f5a623', accumulate)
+    return f'<div style="background:#060e06;min-height:100%;color:#c9d1d9">{body}</div>', 200
+
+
 @app.route('/api/scanner/trajectory_inventory')
 def api_scanner_trajectory_inventory():
     """Run trajectory_inventory.py and return JSON for the dashboard."""

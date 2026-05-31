@@ -670,9 +670,25 @@
         <div id="main-scanner-clusters"></div>
 
         <!-- Tracking log -->
-        <div style="font-size:11px;color:var(--muted);font-weight:700;margin:10px 0 6px">📋 PERFORMANCE TRACKER</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin:10px 0 6px">
+          <div style="font-size:11px;color:var(--muted);font-weight:700">📋 PERFORMANCE TRACKER</div>
+          <button id="picks-sheet-btn" class="btn-muted"
+                  style="font-size:10px;padding:3px 10px;border-color:#f5a623;color:#f5a623"
+                  onclick="togglePicksSheet()">📊 View Picks Sheet</button>
+        </div>
         <div id="main-scanner-tracker" style="background:#0d1117;border-radius:6px;padding:6px;max-height:340px;overflow-y:auto">
           <div style="color:var(--muted);font-size:11px;padding:8px">Loading picks...</div>
+        </div>
+
+        <!-- Picks Sheet inline panel -->
+        <div id="picks-sheet-panel" style="display:none;margin-top:8px;border:1px solid #f5a62344;border-radius:6px;overflow:auto;max-height:480px;background:#060e06">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:#0d1117;border-bottom:1px solid #21262d">
+            <span style="font-size:11px;font-weight:700;color:#f5a623">📊 PICKS SHEET — Live Prices</span>
+            <button onclick="closePicksSheet()" style="background:transparent;border:none;color:#8b949e;cursor:pointer;font-size:13px;padding:0 4px">✕</button>
+          </div>
+          <div id="picks-sheet-content" style="min-height:80px">
+            <div style="padding:12px;color:#8b949e;font-family:monospace;font-size:11px">Loading...</div>
+          </div>
         </div>
 
         <!-- Trajectory Inventory -->
@@ -1526,6 +1542,39 @@ function loadScannerTracker() {
     .catch(() => {
       document.getElementById('scanner-tracker').textContent = 'Tracker unavailable';
     });
+}
+
+let _picksSheetOpen = false;
+function togglePicksSheet() {
+  if (_picksSheetOpen) {
+    closePicksSheet();
+  } else {
+    openPicksSheet();
+  }
+}
+function openPicksSheet() {
+  const panel = document.getElementById('picks-sheet-panel');
+  const content = document.getElementById('picks-sheet-content');
+  const btn = document.getElementById('picks-sheet-btn');
+  panel.style.display = 'block';
+  btn.textContent = '✕ Close Sheet';
+  btn.style.color = '#8b949e';
+  btn.style.borderColor = '#8b949e';
+  _picksSheetOpen = true;
+  content.innerHTML = '<div style="padding:12px;color:#8b949e;font-family:monospace;font-size:11px">⏳ Fetching live prices...</div>';
+  fetch('/api/scanner/picks-html', {cache: 'no-store'})
+    .then(r => r.text())
+    .then(html => { content.innerHTML = html; })
+    .catch(e => { content.innerHTML = `<div style="padding:12px;color:#f85149;font-family:monospace">Error: ${e.message}</div>`; });
+}
+function closePicksSheet() {
+  const panel = document.getElementById('picks-sheet-panel');
+  const btn = document.getElementById('picks-sheet-btn');
+  panel.style.display = 'none';
+  btn.textContent = '📊 View Picks Sheet';
+  btn.style.color = '#f5a623';
+  btn.style.borderColor = '#f5a623';
+  _picksSheetOpen = false;
 }
 
 function runTrajectoryInventory() {
