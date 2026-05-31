@@ -1650,17 +1650,10 @@ def api_scanner_performance():
         rows = conn.execute('''
             SELECT s.symbol, s.date_picked, s.price_at_pick, s.pattern_type,
                    s.stage0_score, s.hold_min_months, s.hold_max_months,
-                   s.outcome, s.notes
+                   s.outcome, s.notes, s.bucket, s.catalyst, s.fidelity_accounts
             FROM signals s
-            INNER JOIN (
-                SELECT symbol, date_picked, MAX(stage0_score) as best_score
-                FROM signals
-                GROUP BY symbol, date_picked
-            ) best ON s.symbol = best.symbol
-                    AND s.date_picked = best.date_picked
-                    AND s.stage0_score = best.best_score
-            GROUP BY s.symbol, s.date_picked
-            ORDER BY s.date_picked DESC, s.stage0_score DESC
+            WHERE s.outcome = 'PENDING'
+            ORDER BY s.bucket DESC, s.date_picked DESC, s.stage0_score DESC
         ''').fetchall()
         conn.close()
     except Exception as e:
@@ -1710,6 +1703,9 @@ def api_scanner_performance():
             'hold_target_days': hold_target_days,
             'hold_progress_pct': hold_progress,
             'status': r['outcome'] or 'PENDING',
+            'bucket': r['bucket'] or 'CLASSIFIED',
+            'catalyst': (r['catalyst'] or '')[:120],
+            'fidelity_accounts': r['fidelity_accounts'] or 0,
             'notes': notes_raw[:60],
         })
 
