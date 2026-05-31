@@ -1568,6 +1568,9 @@ def api_scanner_stage0():
             if not isinstance(r, dict): continue
             s0 = r.get('stage0', {}) or {}
             if not s0.get('gate_pass'): continue
+            # Skip UNCLASSIFIED patterns — scorecard is meaningless, don't surface in UI
+            if r.get('pattern', '').startswith('UNCLASSIFIED'):
+                continue
             score = s0.get('total', 0)
             entry_tier = r.get('entry_tier', 'B')
             rec = {
@@ -1579,9 +1582,15 @@ def api_scanner_stage0():
                 'entry_tier':     entry_tier,
                 'entry_strategy': r.get('entry_strategy', ''),
                 'accts':          r.get('accts', 0),
+                'fidelity_accts': r.get('accts', 0),    # frontend reads fidelity_accts
+                'hold_min':       r.get('hold_min', 12), # frontend reads hold_min
+                'hold_max':       r.get('hold_max', 24), # frontend reads hold_max
                 'edgar_score':    r.get('edgar_score', 0),
                 'stage0_gate_pass': True,
                 'conviction_score': r.get('conviction_score', 0),
+                # v2.5 scorecard fields for bear case / context
+                'model_class':    r.get('scorecard', {}).get('model_class', 'UNKNOWN'),
+                'scorecard_note': r.get('scorecard', {}).get('note', ''),
             }
             if entry_tier == 'A' or score >= 9:
                 tier1.append(rec)
