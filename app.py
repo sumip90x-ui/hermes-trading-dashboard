@@ -1727,6 +1727,7 @@ def api_scanner_performance():
         hold_target_days = hold_min * 30
         hold_progress = min(100, round(days_held / hold_target_days * 100, 1)) if hold_target_days else 0
         notes_raw = r['notes'] or ''
+        target = compute_price_target(sym)
         picks.append({
             'symbol': sym,
             'date_picked': str(r['date_picked'])[:10],
@@ -1745,9 +1746,85 @@ def api_scanner_performance():
             'catalyst': (r['catalyst'] or '')[:120],
             'fidelity_accounts': r['fidelity_accounts'] or 0,
             'notes': notes_raw[:60],
+            'target_conservative': target['conservative'] if target else None,
+            'target_base': target['base'] if target else None,
+            'target_bull': target['bull'] if target else None,
+            'target_prior_peak': target['prior_peak'] if target else None,
         })
 
     return jsonify({'picks': picks})
+
+
+# ── Price Target Cache ─────────────────────────────────────────────────────────
+_PRICE_TARGET_CACHE = {}
+
+def compute_price_target(sym):
+    """Compute price targets from the prior cycle peak (highest high before the trough).
+
+    Returns dict with keys: prior_peak, trough, conservative, base, bull, current_vs_base_pct
+    or None if bar data is unavailable.
+    """
+    if sym in _PRICE_TARGET_CACHE:
+        return _PRICE_TARGET_CACHE[sym]
+
+    bar_dir = Path.home() / 'Documents' / 'EDGAR' / 'bar_cache'
+    matches = sorted(bar_dir.glob('1Month_*.json'), reverse=True)
+    if not matches:
+        _PRICE_TARGET_CACHE[sym] = None
+        return None
+
+    try:
+        with open(matches[0]) as f:
+            all_bars = json.load(f)
+    except Exception:
+        _PRICE_TARGET_CACHE[sym] = None
+        return None
+
+    bars = all_bars.get(sym)
+    if not bars or not isinstance(bars, list) or len(bars) < 2:
+        _PRICE_TARGET_CACHE[sym] = None
+        return None
+
+    # Find trough (lowest low) index across all bars
+    trough_idx = 0
+    trough_low = float('inf')
+    for i, b in enumerate(bars):
+        low = b.get('l', float('inf'))
+        if low < trough_low:
+            trough_low = low
+            trough_idx = i
+
+    # Find prior cycle peak (highest high BEFORE the trough)
+    if trough_idx == 0:
+        # No bars before trough — can't compute prior peak
+        _PRICE_TARGET_CACHE[sym] = None
+        return None
+
+    prior_peak = 0.0
+    for b in bars[:trough_idx]:
+        high = b.get('h', 0)
+        if high > prior_peak:
+            prior_peak = high
+
+    if prior_peak <= 0:
+        _PRICE_TARGET_CACHE[sym] = None
+        return None
+
+    conservative = round(prior_peak * 0.75, 2)
+    base = round(prior_peak * 1.00, 2)
+    bull = round(prior_peak * 1.75, 2)
+
+    result = {
+        'prior_peak': round(prior_peak, 2),
+        'trough': round(trough_low, 2),
+        'conservative': conservative,
+        'base': base,
+        'bull': bull,
+        'current_vs_base_pct': None,  # filled by caller with current price
+    }
+
+    _PRICE_TARGET_CACHE[sym] = result
+    return result
 
 
 @app.route('/api/scanner/picks-html')
@@ -1799,6 +1876,12 @@ def api_scanner_picks_html():
         current = sym_prices.get(sym)
         pct = ((current - entry) / entry * 100) if (current and entry) else None
         hold_min = r['hold_min_months'] or 3
+        # Compute price targets
+        target = compute_price_target(sym)
+        vs_base = None
+        if target and current:
+            vs_base = ((current - target['base']) / target['base'] * 100)
+
         picks.append({
             'sym': sym,
             'date': str(r['date_picked'])[:10],
@@ -1813,6 +1896,8 @@ def api_scanner_picks_html():
             'bucket': r['bucket'] or 'CLASSIFIED',
             'catalyst': (r['catalyst'] or '')[:100],
             'fid_accts': r['fidelity_accounts'] or 0,
+            'target': target,
+            'vs_base': vs_base,
         })
 
     classified = [p for p in picks if p['bucket'] == 'CLASSIFIED']
@@ -1833,6 +1918,27 @@ def api_scanner_picks_html():
             f'<span style="margin-left:4px;font-size:9px;color:#8b949e">{progress}%</span>'
         )
         catalyst_cell = f'<span style="color:#88ccff;font-size:9px">{p["catalyst"]}</span>' if p['catalyst'] else '—'
+        # Price target columns
+        tgt = p.get('target')
+        if tgt:
+            cons_str = f"${tgt['conservative']:.2f}"
+            base_str = f"${tgt['base']:.2f}"
+            bull_str = f"${tgt['bull']:.2f}"
+            cur = p.get('current')
+            if cur:
+                if cur > tgt['base']:
+                    vs_color = '#3fb950'  # green — past base
+                elif cur > tgt['conservative']:
+                    vs_color = '#f5a623'  # gold — past conservative
+                else:
+                    vs_color = '#c9d1d9'  # white — room to conservative
+            else:
+                vs_color = '#8b949e'
+            vs_base_str = f"{p['vs_base']:+.1f}%" if p['vs_base'] is not None else '—'
+        else:
+            cons_str = base_str = bull_str = '—'
+            vs_color = '#8b949e'
+            vs_base_str = '—'
         return (
             f'<tr style="background:{row_bg};border-bottom:1px solid #21262d">'
             f'<td style="padding:5px 8px;font-weight:700;color:#c9d1d9">{p["sym"]}</td>'
@@ -1846,6 +1952,10 @@ def api_scanner_picks_html():
             f'<td style="padding:5px 8px;text-align:center;color:#f5a623;font-weight:700">{p["score"]}/20</td>'
             f'<td style="padding:5px 8px;font-size:9px">{catalyst_cell}</td>'
             f'<td style="padding:5px 8px">{prog_bar}</td>'
+            f'<td style="padding:5px 8px;text-align:right;color:#58a6ff;font-size:10px">{cons_str}</td>'
+            f'<td style="padding:5px 8px;text-align:right;color:#58a6ff;font-size:10px">{base_str}</td>'
+            f'<td style="padding:5px 8px;text-align:right;color:#58a6ff;font-size:10px">{bull_str}</td>'
+            f'<td style="padding:5px 8px;text-align:right;color:{vs_color};font-weight:700;font-size:10px">{vs_base_str}</td>'
             f'</tr>'
         )
 
@@ -1862,6 +1972,10 @@ def api_scanner_picks_html():
         '<th style="padding:5px 8px;text-align:center">Score</th>'
         '<th style="padding:5px 8px;text-align:left">Catalyst</th>'
         '<th style="padding:5px 8px;text-align:left">Hold Progress</th>'
+        '<th style="padding:5px 8px;text-align:right;color:#58a6ff">CONS</th>'
+        '<th style="padding:5px 8px;text-align:right;color:#58a6ff">BASE</th>'
+        '<th style="padding:5px 8px;text-align:right;color:#58a6ff">BULL</th>'
+        '<th style="padding:5px 8px;text-align:right;color:#58a6ff">vs BASE</th>'
         '</tr>'
     )
 
