@@ -241,12 +241,11 @@
   .rpanel-tabs { display: flex; border-bottom: 1px solid var(--border); }
   .rpanel-content { flex:1; overflow-y:auto; padding:10px; }
 
-  /* Chat Terminal — Matrix */
-  #panel-chat { display: flex; flex-direction: column; height: 100%; padding: 0; background: #000000; }
+  /* Chat Terminal — blended with dashboard palette */
+  #panel-chat { display: flex; flex-direction: column; height: 100%; padding: 0; background: #161b22; }
   #hermes-pty-terminal { flex: 1; width: 100%; min-height: 0; }
-  #hermes-pty-terminal .xterm { padding: 6px; }
-  #hermes-pty-terminal .xterm-viewport { background: #000000 !important; }
-  #hermes-pty-terminal .xterm-screen canvas { filter: drop-shadow(0 0 3px #00ff4188); }
+  #hermes-pty-terminal .xterm { padding: 8px 6px; }
+  #hermes-pty-terminal .xterm-viewport { background: #161b22 !important; }
   /* keep .msg classes for addChat() calls from other panels */
   .chat-messages { display: none; }
   .msg { display: none; }
@@ -6807,31 +6806,31 @@ function launchMiroShark() {
     if (!container || !window.Terminal || !window.FitAddon) return;
 
     _ptyTerm = new window.Terminal({
-      fontFamily: '"Fira Code", "Cascadia Code", "Courier New", monospace',
+      fontFamily: '"Segoe UI", system-ui, monospace',
       fontSize: 12,
-      lineHeight: 1.4,
+      lineHeight: 1.5,
       theme: {
-        background:          '#000000',
-        foreground:          '#00ff41',
-        cursor:              '#00ff41',
-        cursorAccent:        '#000000',
-        selectionBackground: '#00ff4133',
-        black:          '#000000',
-        brightBlack:    '#003b00',
-        red:            '#f85149',
-        brightRed:      '#ff6e6e',
-        green:          '#00ff41',
-        brightGreen:    '#39ff14',
-        yellow:         '#d4a017',
-        brightYellow:   '#ffe44d',
-        blue:           '#00b4d8',
-        brightBlue:     '#48cae4',
-        magenta:        '#00ff41',
-        brightMagenta:  '#39ff14',
-        cyan:           '#00ff9f',
-        brightCyan:     '#00ffcc',
-        white:          '#00cc33',
-        brightWhite:    '#00ff41',
+        background:          '#161b22',   // --panel (exact dashboard panel color)
+        foreground:          '#e6edf3',   // --text  (exact dashboard text color)
+        cursor:              '#3fb950',   // --green (dashboard green)
+        cursorAccent:        '#161b22',
+        selectionBackground: '#1f6feb44',
+        black:          '#0d1117',        // --bg
+        brightBlack:    '#8b949e',        // --muted
+        red:            '#f85149',        // --red
+        brightRed:      '#f85149',
+        green:          '#3fb950',        // --green
+        brightGreen:    '#56d364',
+        yellow:         '#d4a017',        // --gold
+        brightYellow:   '#e3b341',
+        blue:           '#58a6ff',        // --blue
+        brightBlue:     '#79c0ff',
+        magenta:        '#bc8cff',
+        brightMagenta:  '#d2a8ff',
+        cyan:           '#39c5cf',
+        brightCyan:     '#56d4dd',
+        white:          '#e6edf3',        // --text
+        brightWhite:    '#f0f6fc',
       },
       cursorBlink: true,
       scrollback: 2000,
