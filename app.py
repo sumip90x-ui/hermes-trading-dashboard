@@ -5386,24 +5386,24 @@ def api_markets_quote():
 # pty child process — closing the tab kills the child.
 
 import ptyprocess as _ptymod
+from flask_socketio import Namespace as _SioNS
+import flask as _flask
 
 _pty_sessions: dict = {}   # sid -> PtyProcess
 
-from flask_socketio import Namespace as _SioNS
-
 class _HermesPtyNS(_SioNS):
     def on_connect(self):
-        sid = self.environ.get('HTTP_X_FORWARDED_FOR', '') or self.sid
+        sid = _flask.request.sid
         log.info(f'[pty] connect sid={sid}')
         hermes_cmd = ['/home/sumith/.local/bin/hermes']
         try:
             proc = _ptymod.PtyProcess.spawn(hermes_cmd, dimensions=(40, 120))
         except Exception as e:
-            self.emit('pty_output', {'data': f'\r\n[ERROR] Could not start hermes: {e}\r\n'})
+            socketio.emit('pty_output', {'data': f'\r\n[ERROR] Could not start hermes: {e}\r\n'}, namespace='/pty', to=sid)
             return
-        _pty_sessions[self.sid] = proc
+        _pty_sessions[sid] = proc
 
-        def _reader():
+        def _reader(my_sid=sid):
             try:
                 while True:
                     try:
@@ -5413,26 +5413,28 @@ class _HermesPtyNS(_SioNS):
                     except Exception:
                         break
                     socketio.emit('pty_output', {'data': data.decode('utf-8', errors='replace')},
-                                  namespace='/pty', to=self.sid)
+                                  namespace='/pty', to=my_sid)
             finally:
                 proc.close(force=True)
-                _pty_sessions.pop(self.sid, None)
-                socketio.emit('pty_closed', {}, namespace='/pty', to=self.sid)
+                _pty_sessions.pop(my_sid, None)
+                socketio.emit('pty_closed', {}, namespace='/pty', to=my_sid)
 
         t = threading.Thread(target=_reader, daemon=True)
         t.start()
 
     def on_disconnect(self):
-        proc = _pty_sessions.pop(self.sid, None)
+        sid = _flask.request.sid
+        proc = _pty_sessions.pop(sid, None)
         if proc:
             try:
                 proc.close(force=True)
             except Exception:
                 pass
-        log.info(f'[pty] disconnect sid={self.sid}')
+        log.info(f'[pty] disconnect sid={sid}')
 
     def on_pty_input(self, data):
-        proc = _pty_sessions.get(self.sid)
+        sid = _flask.request.sid
+        proc = _pty_sessions.get(sid)
         if proc:
             try:
                 proc.write(data.get('data', '').encode())
@@ -5440,7 +5442,8 @@ class _HermesPtyNS(_SioNS):
                 log.warning(f'[pty] write error: {e}')
 
     def on_pty_resize(self, data):
-        proc = _pty_sessions.get(self.sid)
+        sid = _flask.request.sid
+        proc = _pty_sessions.get(sid)
         if proc:
             try:
                 cols = int(data.get('cols', 120))
