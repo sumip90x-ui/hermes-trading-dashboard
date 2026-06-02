@@ -5612,11 +5612,14 @@ def api_picks_score(sym):
         candidates = [candidates.get(sym, {})]
     found = None
     for c in candidates:
-        if isinstance(c, dict) and c.get('symbol', '').upper() == sym:
-            found = c
-            break
+        if isinstance(c, dict):
+            # scanner_engine.py uses 'sym'; older versions used 'symbol'
+            csym = (c.get('sym') or c.get('symbol') or '').upper()
+            if csym == sym:
+                found = c
+                break
     if not found:
-        return jsonify({'error': f'{sym} not found in scanner output'})
+        return jsonify({'error': f'{sym} not found in scanner output (keys: {list(candidates[0].keys()) if candidates else []})'}) 
 
     score = found.get('stage0_score', found.get('score', 0)) or 0
     if score >= 10:
@@ -5633,6 +5636,16 @@ def api_picks_score(sym):
     else:
         setup_type = 'WATCH'
 
+    # Derive current_cycle from cycle_data dict
+    cycle_data = found.get('cycle_data', {})
+    current_cycle = ''
+    if isinstance(cycle_data, dict):
+        cycles = cycle_data.get('cycles', [])
+        if cycles:
+            current_cycle = cycles[-1].get('cycle_label', '')
+    elif isinstance(cycle_data, list) and cycle_data:
+        current_cycle = cycle_data[-1].get('cycle_label', '') if isinstance(cycle_data[-1], dict) else ''
+
     return jsonify({
         'sym': sym,
         'conviction_score': found.get('conviction_score', found.get('conviction', 0)),
@@ -5641,17 +5654,17 @@ def api_picks_score(sym):
         'pattern': pattern,
         'setup_type': setup_type,
         'entry_strategy': found.get('entry_strategy', ''),
-        'hold_min': found.get('hold_min_months', found.get('hold_min', 3)),
-        'hold_max': found.get('hold_max_months', found.get('hold_max', 9)),
+        'hold_min': found.get('hold_min', found.get('hold_min_months', 3)),
+        'hold_max': found.get('hold_max', found.get('hold_max_months', 9)),
         'axis1': found.get('axis1', found.get('technical_score')),
-        'axis2': found.get('axis2', found.get('business_score')),
+        'axis2': found.get('axis2', found.get('business_score', found.get('edgar_score'))),
         'axis3': found.get('axis3', found.get('catalyst_score')),
-        'gate_pass': found.get('gate_pass', found.get('gate_status')),
+        'gate_pass': found.get('stage0_gate_pass', found.get('gate_pass', found.get('gate_status'))),
         'gate_notes': found.get('gate_notes', ''),
         'signals': found.get('signals', []),
-        'cycle_data': found.get('cycle_data', []),
-        'current_cycle': found.get('current_cycle', ''),
-        'drawdown': found.get('drawdown', found.get('max_drawdown')),
+        'cycle_data': cycle_data,
+        'current_cycle': current_cycle,
+        'drawdown': found.get('drawdown_pct', found.get('drawdown', found.get('max_drawdown'))),
         'm_harsi': found.get('m_harsi', found.get('harsi_score')),
         'm_price': found.get('m_price', found.get('model_price')),
     })
