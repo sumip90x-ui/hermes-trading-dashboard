@@ -5424,7 +5424,7 @@ def api_picks_list():
                    s.stage0_score, s.hold_min_months, s.hold_max_months,
                    s.outcome, s.notes, s.bucket, s.catalyst, s.fidelity_accounts,
                    s.gate_status, s.bear_case_strength, s.research_file,
-                   s.axis1, s.axis2, s.axis3, s.cycle_data_json, s.current_cycle
+                   s.axis1, s.axis2, s.axis3, s.cycle_data_json, s.current_cycle, s.scored_at, s.signals_json
             FROM signals s
             WHERE s.outcome = 'PENDING'
             ORDER BY s.bucket DESC, s.date_picked DESC, s.stage0_score DESC
@@ -5511,6 +5511,8 @@ def api_picks_list():
             'axis3': r['axis3'],
             'current_cycle': r['current_cycle'],
             'cycle_data': json.loads(r['cycle_data_json']) if r['cycle_data_json'] else {},
+            'scored_at': r['scored_at'],
+            'signals': json.loads(r['signals_json']) if r['signals_json'] else [],
         })
     return jsonify({'picks': picks})
 
@@ -5596,7 +5598,8 @@ def api_picks_score(sym):
     sym = sym.upper().strip()
     try:
         result = _sp.run(
-            ['python3', str(Path.home() / 'Documents' / 'EDGAR' / 'scanner_engine.py'), '--sym', sym, '--json'],
+            ['python3', str(Path.home() / 'Documents' / 'EDGAR' / 'scanner_engine.py'),
+             '--sym', sym, '--json', '--no-gate'],
             capture_output=True, text=True, timeout=90
         )
         if result.returncode != 0:
@@ -5658,12 +5661,13 @@ def api_picks_score(sym):
         _conn = _sq.connect(_DB)
         _conn.execute('''UPDATE signals SET
             axis1=?, axis2=?, axis3=?,
-            cycle_data_json=?, current_cycle=?, scored_at=?
+            cycle_data_json=?, current_cycle=?, scored_at=?, signals_json=?
             WHERE symbol=? AND outcome='PENDING'
         ''', (
             axis1, axis2, axis3,
             _js.dumps(cycle_data), current_cycle,
             _dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),
+            _js.dumps(found.get('signals', [])),
             sym
         ))
         _conn.commit()

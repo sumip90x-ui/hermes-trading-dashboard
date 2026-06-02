@@ -7083,7 +7083,11 @@ function launchMiroShark() {
     var tierClass = 'tier-' + tier.toLowerCase();
     var setupClass = 'setup-' + (p.setup_type||'watch').toLowerCase();
     var price = p.current_price ? '$' + p.current_price.toFixed(2) : '$' + (p.price_at_pick||0).toFixed(2);
-    var needsScore = !p.axis1 && !p.axis2;
+    // Use scored_at as truth — axis2 gets pre-filled with edgar_score before scoring
+    var hasBeenScored = !!p.scored_at;
+    var needsScore = !hasBeenScored;
+    // Show axis bars if any axis has data (axis1 is often null — scanner doesn't always produce it)
+    var hasAnyAxis = p.axis2 != null || p.axis1 != null || p.axis3 != null;
 
     return '<div class="picks-card ' + tierClass + ' ' + setupClass + '" id="picks-card-' + p.symbol + '">' +
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
@@ -7098,7 +7102,7 @@ function launchMiroShark() {
         '<div style="margin-bottom:3px;">' + cycleDots(p.cycle_data, p.current_cycle) + '</div>' +
         '<div style="font-size:10px;color:var(--muted);">' + synthesizedRead(p) + '</div>' +
       '</div>' +
-      (p.axis1 != null ? (
+      (hasAnyAxis && hasBeenScored ? (
         '<div style="display:grid;grid-template-columns:50px 1fr;gap:2px 6px;margin-bottom:4px;font-size:9px;color:var(--muted);">' +
           '<span>Technical</span>' + axisBar(p.axis1, 3, '#00ff88') +
           '<span>Business</span>' + axisBar(p.axis2, 5, '#4a9eff') +
@@ -7161,6 +7165,8 @@ function launchMiroShark() {
             setup_type: d.setup_type || p.setup_type,
             current_cycle: d.current_cycle,
             cycle_data: d.cycle_data,
+            signals: d.signals || p.signals,
+            scored_at: new Date().toISOString(),
           });
         });
         renderPicksList(_picksData);
@@ -7169,12 +7175,59 @@ function launchMiroShark() {
   }
 
   function openResearchFlow(sym) {
-    var scanTab = document.querySelector('.tab[onclick*="scanner"]');
-    if (scanTab) { switchChart('scanner', scanTab); }
-    setTimeout(function(){
-      var btns = document.querySelectorAll('[onclick*="bearCase(\'' + sym + '\'"]');
-      if (btns.length) btns[0].click();
-    }, 300);
+    // Find the pick data
+    var p = (_picksData || []).find(function(x){ return x.symbol === sym; });
+    if (!p) { alert('No data for ' + sym); return; }
+
+    // Build modal content inline — no tab jumping needed
+    var signals = (p.signals || []).join(', ') || 'Run ⚡ SCORE IT first';
+    var cycleNote = '';
+    if (p.cycle_data && p.cycle_data.cycle_note) cycleNote = p.cycle_data.cycle_note;
+    var bear  = p.target_conservative ? '$' + p.target_conservative.toFixed(2) : '—';
+    var base  = p.target_base        ? '$' + p.target_base.toFixed(2)         : '—';
+    var bull  = p.target_bull        ? '$' + p.target_bull.toFixed(2)         : '—';
+    var peak  = p.target_prior_peak  ? '$' + p.target_prior_peak.toFixed(2)   : '—';
+    var pnl   = p.pct_change != null ? (p.pct_change >= 0 ? '+' : '') + p.pct_change.toFixed(2) + '%' : '—';
+
+    var html = '<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.75);z-index:9999;display:flex;align-items:center;justify-content:center;" onclick="this.remove()">' +
+      '<div style="background:#131722;border:1px solid #252a36;border-radius:6px;padding:20px;max-width:520px;width:90%;max-height:80vh;overflow-y:auto;" onclick="event.stopPropagation()">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">' +
+          '<span style="font-size:15px;font-weight:700;color:#88cc88;">📋 ' + sym + ' Research</span>' +
+          '<button onclick="this.closest(\'[onclick]\').remove()" style="background:none;border:none;color:#8b949e;cursor:pointer;font-size:16px;">✕</button>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">' +
+          '<div style="background:#0b0e17;border-radius:4px;padding:8px;">' +
+            '<div style="font-size:9px;color:#ffaa00;font-weight:700;margin-bottom:4px;">PRICE TARGETS</div>' +
+            '<div style="font-size:11px;color:#8b949e;">Bear (resist) <span style="color:#f85149;float:right;">' + bear + '</span></div>' +
+            '<div style="font-size:11px;color:#8b949e;">Base (peak reclaim) <span style="color:#88cc88;float:right;">' + base + '</span></div>' +
+            '<div style="font-size:11px;color:#8b949e;">Bull (1.75× peak) <span style="color:#4a9eff;float:right;">' + bull + '</span></div>' +
+            '<div style="font-size:10px;color:#6b7280;margin-top:4px;">Prior peak: ' + peak + '</div>' +
+          '</div>' +
+          '<div style="background:#0b0e17;border-radius:4px;padding:8px;">' +
+            '<div style="font-size:9px;color:#ffaa00;font-weight:700;margin-bottom:4px;">POSITION</div>' +
+            '<div style="font-size:11px;color:#8b949e;">Entry <span style="color:#e6edf3;float:right;">$' + (p.price_at_pick||0).toFixed(2) + '</span></div>' +
+            '<div style="font-size:11px;color:#8b949e;">Current <span style="color:#e6edf3;float:right;">$' + (p.current_price||0).toFixed(2) + '</span></div>' +
+            '<div style="font-size:11px;color:#8b949e;">P&L <span style="color:' + (p.pct_change>=0?'#88cc88':'#f85149') + ';float:right;">' + pnl + '</span></div>' +
+            '<div style="font-size:10px;color:#6b7280;margin-top:4px;">' + p.days_held + 'd held · ' + (p.hold_min_months||'?') + '–' + (p.hold_max_months||'?') + 'mo target</div>' +
+          '</div>' +
+        '</div>' +
+        (cycleNote ? '<div style="background:#0b0e17;border-radius:4px;padding:8px;margin-bottom:10px;">' +
+          '<div style="font-size:9px;color:#ffaa00;font-weight:700;margin-bottom:4px;">CYCLE READ</div>' +
+          '<div style="font-size:10px;color:#c9d1d9;line-height:1.5;">' + cycleNote + '</div>' +
+        '</div>' : '') +
+        '<div style="background:#0b0e17;border-radius:4px;padding:8px;">' +
+          '<div style="font-size:9px;color:#ffaa00;font-weight:700;margin-bottom:6px;">SIGNALS</div>' +
+          '<div style="font-size:10px;color:#8b949e;line-height:1.8;">' +
+            (p.signals||[]).map(function(s){
+              var c = s.startsWith('FAILED') ? '#f85149' : s.includes('⚠') ? '#ffaa00' : '#4a9eff';
+              return '<span style="background:' + c + '22;color:' + c + ';border-radius:3px;padding:1px 5px;margin:1px;display:inline-block;">' + s + '</span>';
+            }).join('') || '<span style="color:#6b7280;">Run ⚡ SCORE IT to load signals</span>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+
+    document.body.insertAdjacentHTML('beforeend', html);
   }
 
   function openPrefilter() {
