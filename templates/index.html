@@ -241,11 +241,11 @@
   .rpanel-tabs { display: flex; border-bottom: 1px solid var(--border); }
   .rpanel-content { flex:1; overflow-y:auto; padding:10px; }
 
-  /* Chat Terminal — blended with dashboard palette */
-  #panel-chat { display: flex; flex-direction: column; height: 100%; padding: 0; background: #161b22; }
+  /* Chat Terminal — Research tab style */
+  #panel-chat { display: flex; flex-direction: column; height: 100%; padding: 0; background: #060e06; }
   #hermes-pty-terminal { flex: 1; width: 100%; min-height: 0; }
-  #hermes-pty-terminal .xterm { padding: 8px 6px; }
-  #hermes-pty-terminal .xterm-viewport { background: #161b22 !important; }
+  #hermes-pty-terminal .xterm { padding: 6px 8px; }
+  #hermes-pty-terminal .xterm-viewport { background: #060e06 !important; }
   /* keep .msg classes for addChat() calls from other panels */
   .chat-messages { display: none; }
   .msg { display: none; }
@@ -1285,7 +1285,7 @@
     </div>
 
     <!-- CHAT TERMINAL — real pty via xterm.js -->
-    <div class="rpanel-content" id="panel-chat" style="padding:0;display:flex;flex-direction:column;height:100%;background:#0d0d0d;">
+    <div class="rpanel-content" id="panel-chat" style="padding:0;display:flex;flex-direction:column;height:100%;">
       <div id="hermes-pty-terminal" style="flex:1;width:100%;min-height:0;"></div>
     </div>
 
@@ -6806,31 +6806,31 @@ function launchMiroShark() {
     if (!container || !window.Terminal || !window.FitAddon) return;
 
     _ptyTerm = new window.Terminal({
-      fontFamily: '"Segoe UI", system-ui, monospace',
+      fontFamily: '"Courier New", Courier, monospace',
       fontSize: 12,
       lineHeight: 1.5,
       theme: {
-        background:          '#161b22',   // --panel (exact dashboard panel color)
-        foreground:          '#e6edf3',   // --text  (exact dashboard text color)
-        cursor:              '#3fb950',   // --green (dashboard green)
-        cursorAccent:        '#161b22',
-        selectionBackground: '#1f6feb44',
-        black:          '#0d1117',        // --bg
-        brightBlack:    '#8b949e',        // --muted
-        red:            '#f85149',        // --red
-        brightRed:      '#f85149',
-        green:          '#3fb950',        // --green
-        brightGreen:    '#56d364',
-        yellow:         '#d4a017',        // --gold
-        brightYellow:   '#e3b341',
-        blue:           '#58a6ff',        // --blue
+        background:          '#060e06',   // Research tab bg
+        foreground:          '#88cc88',   // Research tab data text
+        cursor:              '#00ff88',   // Research tab Run EDGAR button green
+        cursorAccent:        '#060e06',
+        selectionBackground: '#1a3a1a88',
+        black:          '#060e06',
+        brightBlack:    '#446644',        // Research tab muted/dim text
+        red:            '#f85149',        // dashboard --red (losses)
+        brightRed:      '#ff6e6e',
+        green:          '#00ff88',        // Research tab bright green
+        brightGreen:    '#88cc88',        // Research tab soft green
+        yellow:         '#ffaa00',        // Research tab amber headers
+        brightYellow:   '#ffc844',
+        blue:           '#4a9eff',        // Research tab MiroShark blue
         brightBlue:     '#79c0ff',
-        magenta:        '#bc8cff',
+        magenta:        '#cc88ff',        // Research tab Create Seed purple
         brightMagenta:  '#d2a8ff',
-        cyan:           '#39c5cf',
-        brightCyan:     '#56d4dd',
-        white:          '#e6edf3',        // --text
-        brightWhite:    '#f0f6fc',
+        cyan:           '#00cc88',
+        brightCyan:     '#00ff88',
+        white:          '#88cc88',        // Research tab data text
+        brightWhite:    '#aaddaa',
       },
       cursorBlink: true,
       scrollback: 2000,
