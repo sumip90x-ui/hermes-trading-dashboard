@@ -5407,16 +5407,71 @@ class _HermesPtyNS(_SioNS):
         _pty_sessions[sid] = proc
 
         def _reader(my_sid=sid):
+            import re as _re
+            buf = ''
+            # Patterns to suppress entirely (tool previews, banner, spinners, dividers)
+            _SUPPRESS = _re.compile(
+                r'(\x9B|\x1B\[)[0-?]*[ -/]*[@-~]'   # ANSI sequences (strip then re-check)
+                , _re.MULTILINE
+            )
+            # Lines to drop — matched on plain text after stripping ANSI
+            _DROP_LINE = _re.compile(
+                r'^('
+                r'\s*[┊│]\s*[⚡💻📖🔍]\s*'           # tool preview lines
+                r'|.*Initializing agent\.\.\.'
+                r'|.*preparing mcp_'
+                r'|.*─{5,}'                           # long divider lines
+                r'|\s*●\s+[\w\-]+.*tools.*toolsets'   # startup status line
+                r'|Welcome to Hermes'
+                r'|✦\s+Tip:'
+                r'|╔[═╗]|║\s*⚕|╚[═╝]'              # banner box chars
+                r'|^\s*$'                              # blank lines during banner
+                r')'
+            )
+
+            def _strip_ansi(s):
+                return _re.sub(r'(\x9B|\x1B\[)[0-?]*[ -/]*[@-~]|\x1B[()][AB012]|\x1B=|\x1B>', '', s)
+
+            _in_banner = True  # suppress everything until first ❯ prompt
+            _banner_done = False
+
             try:
                 while True:
                     try:
-                        data = proc.read(4096)
+                        raw = proc.read(4096)
                     except EOFError:
                         break
                     except Exception:
                         break
-                    socketio.emit('pty_output', {'data': data.decode('utf-8', errors='replace')},
-                                  namespace='/pty', to=my_sid)
+
+                    text = raw.decode('utf-8', errors='replace')
+
+                    # Once the ❯ prompt appears, banner is done — pass everything through
+                    if _in_banner:
+                        plain = _strip_ansi(text)
+                        if '❯' in plain or '──────' in plain and '❯' in plain:
+                            _in_banner = False
+                            # Send just the prompt part
+                            idx = text.rfind('❯')
+                            if idx >= 0:
+                                socketio.emit('pty_output', {'data': text[idx:]},
+                                              namespace='/pty', to=my_sid)
+                        continue  # skip banner output
+
+                    # After banner: filter tool preview lines line-by-line
+                    lines = text.split('\n')
+                    out_lines = []
+                    for line in lines:
+                        plain = _strip_ansi(line)
+                        if _DROP_LINE.search(plain):
+                            continue
+                        out_lines.append(line)
+
+                    filtered = '\n'.join(out_lines)
+                    if filtered.strip() or '\r' in filtered:
+                        socketio.emit('pty_output', {'data': filtered},
+                                      namespace='/pty', to=my_sid)
+
             finally:
                 proc.close(force=True)
                 _pty_sessions.pop(my_sid, None)
