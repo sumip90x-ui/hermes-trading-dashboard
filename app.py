@@ -5398,7 +5398,7 @@ class _HermesPtyNS(_SioNS):
         # Don't spawn yet — wait for pty_start with actual measured cols/rows from the browser
 
     def _spawn(self, sid, cols, rows):
-        hermes_cmd = ['/home/sumith/.local/bin/hermes']
+        hermes_cmd = ['/home/sumith/.local/bin/hermes', 'chat', '-Q']
         try:
             proc = _ptymod.PtyProcess.spawn(hermes_cmd, dimensions=(rows, cols))
         except Exception as e:
