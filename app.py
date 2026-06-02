@@ -5395,9 +5395,12 @@ class _HermesPtyNS(_SioNS):
     def on_connect(self):
         sid = _flask.request.sid
         log.info(f'[pty] connect sid={sid}')
+        # Don't spawn yet — wait for pty_start with actual measured cols/rows from the browser
+
+    def _spawn(self, sid, cols, rows):
         hermes_cmd = ['/home/sumith/.local/bin/hermes']
         try:
-            proc = _ptymod.PtyProcess.spawn(hermes_cmd, dimensions=(40, 120))
+            proc = _ptymod.PtyProcess.spawn(hermes_cmd, dimensions=(rows, cols))
         except Exception as e:
             socketio.emit('pty_output', {'data': f'\r\n[ERROR] Could not start hermes: {e}\r\n'}, namespace='/pty', to=sid)
             return
@@ -5419,8 +5422,16 @@ class _HermesPtyNS(_SioNS):
                 _pty_sessions.pop(my_sid, None)
                 socketio.emit('pty_closed', {}, namespace='/pty', to=my_sid)
 
-        t = threading.Thread(target=_reader, daemon=True)
-        t.start()
+        threading.Thread(target=_reader, daemon=True).start()
+
+    def on_pty_start(self, data):
+        sid = _flask.request.sid
+        if sid in _pty_sessions:
+            return  # already running
+        cols = max(40, int(data.get('cols', 80)))
+        rows = max(10, int(data.get('rows', 24)))
+        log.info(f'[pty] start sid={sid} cols={cols} rows={rows}')
+        self._spawn(sid, cols, rows)
 
     def on_disconnect(self):
         sid = _flask.request.sid

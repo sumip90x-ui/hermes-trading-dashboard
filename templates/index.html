@@ -6842,49 +6842,47 @@ function launchMiroShark() {
     _ptyFit = new window.FitAddon.FitAddon();
     _ptyTerm.loadAddon(_ptyFit);
     _ptyTerm.open(container);
-    _ptyFit.fit();
 
-    // Connect SocketIO to /pty namespace
-    _ptySock = io('/pty', {transports: ['websocket']});
+    // Fit first so cols/rows are measured, THEN connect and start hermes at the right size
+    setTimeout(function() {
+      _ptyFit.fit();
 
-    _ptySock.on('connect', function() {
-      _ptyTerm.writeln('\x1b[2m[terminal connected — starting hermes...]\x1b[0m');
-    });
+      _ptySock = io('/pty', {transports: ['websocket']});
 
-    _ptySock.on('pty_output', function(d) {
-      _ptyTerm.write(d.data);
-    });
+      _ptySock.on('connect', function() {
+        _ptyTerm.writeln('\x1b[2m[connecting to hermes...]\x1b[0m');
+        var dims = {cols: _ptyTerm.cols || 80, rows: _ptyTerm.rows || 24};
+        _ptySock.emit('pty_start', dims);
+      });
 
-    _ptySock.on('pty_closed', function() {
-      _ptyTerm.writeln('\r\n\x1b[33m[hermes session ended — reload tab to restart]\x1b[0m');
-    });
+      _ptySock.on('pty_output', function(d) {
+        _ptyTerm.write(d.data);
+      });
 
-    _ptySock.on('disconnect', function() {
-      _ptyTerm.writeln('\r\n\x1b[31m[disconnected from server]\x1b[0m');
-    });
+      _ptySock.on('pty_closed', function() {
+        _ptyTerm.writeln('\r\n\x1b[33m[hermes session ended — reload tab to restart]\x1b[0m');
+      });
 
-    // Forward keypresses to pty
-    _ptyTerm.onData(function(data) {
-      if (_ptySock && _ptySock.connected) {
-        _ptySock.emit('pty_input', {data: data});
+      _ptySock.on('disconnect', function() {
+        _ptyTerm.writeln('\r\n\x1b[31m[disconnected from server]\x1b[0m');
+      });
+
+      _ptyTerm.onData(function(data) {
+        if (_ptySock && _ptySock.connected) _ptySock.emit('pty_input', {data: data});
+      });
+
+      _ptyTerm.onResize(function(sz) {
+        if (_ptySock && _ptySock.connected) _ptySock.emit('pty_resize', {cols: sz.cols, rows: sz.rows});
+      });
+
+      if (window.ResizeObserver) {
+        new ResizeObserver(function() {
+          if (_ptyFit) { try { _ptyFit.fit(); } catch(e) {} }
+        }).observe(container);
       }
-    });
 
-    // Handle resize
-    _ptyTerm.onResize(function(sz) {
-      if (_ptySock && _ptySock.connected) {
-        _ptySock.emit('pty_resize', {cols: sz.cols, rows: sz.rows});
-      }
-    });
-
-    // Resize observer so panel size changes fit the terminal
-    if (window.ResizeObserver) {
-      new ResizeObserver(function() {
-        if (_ptyFit) { try { _ptyFit.fit(); } catch(e) {} }
-      }).observe(container);
-    }
-
-    _ptyReady = true;
+      _ptyReady = true;
+    }, 100);
   }
 
   // Hook into switchPanel — init terminal the first time Chat tab is shown
