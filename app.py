@@ -12,7 +12,7 @@ Run: python3 ~/trading_dashboard/app.py
 Open: http://localhost:6060
 """
 
-import os, sys, json, re, time, subprocess, threading, requests, logging, glob, urllib.parse, shutil
+import os, sys, json, re, time, subprocess, threading, requests, logging, glob, urllib.parse, shutil, struct, fcntl, termios
 
 # Load env files so keys are available regardless of how the app is launched
 def _load_env_file(path):
@@ -5379,6 +5379,77 @@ def api_markets_quote():
     except Exception as e:
         log.error(f'[markets/quote] {sym}: {e}')
         return jsonify({'error': str(e), 'sym': sym}), 500
+
+# ── Hermes PTY Terminal ────────────────────────────────────────────────────────
+# Spawns a real pty running the hermes CLI and bridges it to the browser via
+# SocketIO events on the /pty namespace.  Each browser connection gets its own
+# pty child process — closing the tab kills the child.
+
+import ptyprocess as _ptymod
+
+_pty_sessions: dict = {}   # sid -> PtyProcess
+
+from flask_socketio import Namespace as _SioNS
+
+class _HermesPtyNS(_SioNS):
+    def on_connect(self):
+        sid = self.environ.get('HTTP_X_FORWARDED_FOR', '') or self.sid
+        log.info(f'[pty] connect sid={sid}')
+        hermes_cmd = ['/home/sumith/.local/bin/hermes']
+        try:
+            proc = _ptymod.PtyProcess.spawn(hermes_cmd, dimensions=(40, 120))
+        except Exception as e:
+            self.emit('pty_output', {'data': f'\r\n[ERROR] Could not start hermes: {e}\r\n'})
+            return
+        _pty_sessions[self.sid] = proc
+
+        def _reader():
+            try:
+                while True:
+                    try:
+                        data = proc.read(4096)
+                    except EOFError:
+                        break
+                    except Exception:
+                        break
+                    socketio.emit('pty_output', {'data': data.decode('utf-8', errors='replace')},
+                                  namespace='/pty', to=self.sid)
+            finally:
+                proc.close(force=True)
+                _pty_sessions.pop(self.sid, None)
+                socketio.emit('pty_closed', {}, namespace='/pty', to=self.sid)
+
+        t = threading.Thread(target=_reader, daemon=True)
+        t.start()
+
+    def on_disconnect(self):
+        proc = _pty_sessions.pop(self.sid, None)
+        if proc:
+            try:
+                proc.close(force=True)
+            except Exception:
+                pass
+        log.info(f'[pty] disconnect sid={self.sid}')
+
+    def on_pty_input(self, data):
+        proc = _pty_sessions.get(self.sid)
+        if proc:
+            try:
+                proc.write(data.get('data', '').encode())
+            except Exception as e:
+                log.warning(f'[pty] write error: {e}')
+
+    def on_pty_resize(self, data):
+        proc = _pty_sessions.get(self.sid)
+        if proc:
+            try:
+                cols = int(data.get('cols', 120))
+                rows = int(data.get('rows', 40))
+                proc.setwinsize(rows, cols)
+            except Exception:
+                pass
+
+socketio.on_namespace(_HermesPtyNS('/pty'))
 
 # ── Launch ────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':

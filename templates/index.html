@@ -13,6 +13,10 @@
 <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+<!-- xterm.js — real terminal emulator -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css"/>
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
 <style>
   :root {
     --bg:     #0d1117;
@@ -1291,22 +1295,9 @@
       <div class="tab" onclick="switchPanel('markets',this)">📈 <span class="rtab-lbl">Markets</span></div>
     </div>
 
-    <!-- CHAT TERMINAL -->
-    <div class="rpanel-content" id="panel-chat">
-      <div class="term-titlebar">
-        <div class="term-dot red"></div>
-        <div class="term-dot yellow"></div>
-        <div class="term-dot green"></div>
-        <span class="term-title">hermes@projectj ~ $</span>
-      </div>
-      <div class="chat-messages" id="chat-messages">
-        <div class="msg system">[SYS] Hermes is live. Ask anything about your portfolio.</div>
-      </div>
-      <div class="chat-input">
-        <span class="term-prompt">❯</span>
-        <input type="text" id="chat-in" placeholder="type a command..." onkeydown="if(event.key==='Enter')sendChat()">
-        <button class="btn-blue" onclick="sendChat()">⏎</button>
-      </div>
+    <!-- CHAT TERMINAL — real pty via xterm.js -->
+    <div class="rpanel-content" id="panel-chat" style="padding:0;display:flex;flex-direction:column;height:100%;background:#0d0d0d;">
+      <div id="hermes-pty-terminal" style="flex:1;width:100%;min-height:0;"></div>
     </div>
 
     <!-- TRADE -->
@@ -6811,6 +6802,111 @@ function launchMiroShark() {
   window.executeFreeCash   = executeFreeCash;
   window.updateFreeCashBtn = updateFreeCashBtn;
 
+})();
+
+// ── Hermes PTY Terminal (xterm.js) ──────────────────────────────────────────
+(function() {
+  var _ptyTerm   = null;
+  var _ptyFit    = null;
+  var _ptySock   = null;
+  var _ptyReady  = false;
+
+  function _initPty() {
+    if (_ptyReady) return;
+    var container = document.getElementById('hermes-pty-terminal');
+    if (!container || !window.Terminal || !window.FitAddon) return;
+
+    _ptyTerm = new window.Terminal({
+      fontFamily: '"Fira Code", "Cascadia Code", "Courier New", monospace',
+      fontSize: 12,
+      lineHeight: 1.3,
+      theme: {
+        background: '#0d0d0d',
+        foreground: '#c9d1d9',
+        cursor:     '#39d353',
+        cursorAccent: '#0d0d0d',
+        black:   '#0d0d0d', brightBlack:   '#4d4d4d',
+        red:     '#ff5f57', brightRed:     '#ff6b6b',
+        green:   '#39d353', brightGreen:   '#57ff6e',
+        yellow:  '#f5a623', brightYellow:  '#fbbf24',
+        blue:    '#58a6ff', brightBlue:    '#79c0ff',
+        magenta: '#bc8cff', brightMagenta: '#d2a8ff',
+        cyan:    '#56d364', brightCyan:    '#76e3a8',
+        white:   '#c9d1d9', brightWhite:   '#f0f6fc',
+      },
+      cursorBlink: true,
+      scrollback: 2000,
+      allowProposedApi: true,
+    });
+
+    _ptyFit = new window.FitAddon.FitAddon();
+    _ptyTerm.loadAddon(_ptyFit);
+    _ptyTerm.open(container);
+    _ptyFit.fit();
+
+    // Connect SocketIO to /pty namespace
+    _ptySock = io('/pty', {transports: ['websocket']});
+
+    _ptySock.on('connect', function() {
+      _ptyTerm.writeln('\x1b[2m[terminal connected — starting hermes...]\x1b[0m');
+    });
+
+    _ptySock.on('pty_output', function(d) {
+      _ptyTerm.write(d.data);
+    });
+
+    _ptySock.on('pty_closed', function() {
+      _ptyTerm.writeln('\r\n\x1b[33m[hermes session ended — reload tab to restart]\x1b[0m');
+    });
+
+    _ptySock.on('disconnect', function() {
+      _ptyTerm.writeln('\r\n\x1b[31m[disconnected from server]\x1b[0m');
+    });
+
+    // Forward keypresses to pty
+    _ptyTerm.onData(function(data) {
+      if (_ptySock && _ptySock.connected) {
+        _ptySock.emit('pty_input', {data: data});
+      }
+    });
+
+    // Handle resize
+    _ptyTerm.onResize(function(sz) {
+      if (_ptySock && _ptySock.connected) {
+        _ptySock.emit('pty_resize', {cols: sz.cols, rows: sz.rows});
+      }
+    });
+
+    // Resize observer so panel size changes fit the terminal
+    if (window.ResizeObserver) {
+      new ResizeObserver(function() {
+        if (_ptyFit) { try { _ptyFit.fit(); } catch(e) {} }
+      }).observe(container);
+    }
+
+    _ptyReady = true;
+  }
+
+  // Hook into switchPanel — init terminal the first time Chat tab is shown
+  var _origSwitchPanel = window.switchPanel;
+  window.switchPanel = function(panel, el) {
+    if (typeof _origSwitchPanel === 'function') _origSwitchPanel(panel, el);
+    if (panel === 'chat') {
+      setTimeout(function() {
+        _initPty();
+        if (_ptyFit) { try { _ptyFit.fit(); } catch(e) {} }
+        if (_ptyTerm) { try { _ptyTerm.focus(); } catch(e) {} }
+      }, 80);
+    }
+  };
+
+  // Also init immediately if chat panel is already active on load
+  document.addEventListener('DOMContentLoaded', function() {
+    var chatPanel = document.getElementById('panel-chat');
+    if (chatPanel && chatPanel.style.display !== 'none') {
+      setTimeout(_initPty, 300);
+    }
+  });
 })();
 </script>
         <div id="sync-modal-overlay" style="
