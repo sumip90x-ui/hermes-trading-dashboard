@@ -726,13 +726,17 @@
           </div>
         </div>
 
-        <!-- Trajectory Inventory -->
-        <div style="font-size:11px;color:var(--muted);font-weight:700;margin:14px 0 6px">🧬 TRAJECTORY INVENTORY</div>
-        <div style="display:flex;gap:6px;margin-bottom:8px">
-          <button class="btn-blue" style="font-size:11px;padding:4px 14px" onclick="runTrajectoryInventory()">🧬 Run Trajectory Inventory</button>
-          <span id="traj-status" style="font-size:10px;color:var(--muted);align-self:center"></span>
-        </div>
-        <div id="traj-result" style="display:none;background:#0d1117;border-radius:6px;padding:8px;font-size:11px;overflow-x:auto"></div>
+        <!-- Trajectory Inventory — collapsed by default (maintenance tool, not daily workflow) -->
+        <details style="margin-top:10px">
+          <summary style="font-size:10px;color:#6e7681;cursor:pointer;user-select:none;padding:3px 0">
+            🧬 Trajectory Inventory (maintenance)
+          </summary>
+          <div style="margin-top:6px;display:flex;gap:6px">
+            <button class="btn-blue" style="font-size:10px;padding:3px 10px" onclick="runTrajectoryInventory()">🧬 Run</button>
+            <span id="traj-status" style="font-size:10px;color:var(--muted);align-self:center"></span>
+          </div>
+          <div id="traj-result" style="display:none;background:#0d1117;border-radius:6px;padding:8px;font-size:10px;overflow-x:auto;margin-top:6px"></div>
+        </details>
 
         <!-- Keep hidden candleChart so existing JS doesn't break -->
         <canvas id="candleChart" style="display:none" height="1"></canvas>
@@ -1499,7 +1503,22 @@ function renderScannerResults(data) {
   if (!data.tier1 || data.tier1.length === 0) {
     t1.innerHTML = '<span style="color:var(--muted)">None — no stocks meet Tier 1 criteria</span>';
   } else {
-    t1.innerHTML = data.tier1.map(c => `
+    t1.innerHTML = data.tier1.map(c => {
+      const cd = c.cycle_data || {};
+      const cycleLabel  = cd.current_cycle  || 'A';
+      const cycleStatus = cd.current_status || '';
+      const nCompleted  = cd.completed_cycle_count || 0;
+      const statusColor = {'FIRST_SETUP':'#3fb950','BASE':'#3fb950','MID_RUN':'#58a6ff','PULLBACK':'#f5a623','WATCH':'#8b949e'}[cycleStatus] || '#8b949e';
+      const statusEmoji = {'FIRST_SETUP':'🌱','BASE':'🟢','MID_RUN':'🔵','PULLBACK':'🟡','WATCH':'⚪'}[cycleStatus] || '⚪';
+      let actionMsg = '';
+      if (cycleStatus === 'FIRST_SETUP' || cycleStatus === 'BASE') {
+        actionMsg = `<div style="color:#3fb950;font-size:9px;margin-top:3px">▶ ${cycleStatus==='FIRST_SETUP'?'Cycle A — First Setup':'Cycle '+cycleLabel+' Base'} — Start position, accumulate on dips</div>`;
+      } else if (cycleStatus === 'PULLBACK') {
+        actionMsg = `<div style="color:#f5a623;font-size:9px;margin-top:3px">🟡 Pullback — fractional starter OK if HARSI turning</div>`;
+      } else if (cycleStatus === 'MID_RUN') {
+        actionMsg = `<div style="color:#58a6ff;font-size:9px;margin-top:3px">🔵 Mid-Run — hold if in, wait for pullback if not</div>`;
+      }
+      return `
       <div style="background:#0d1117;border:1px solid #238636;border-radius:4px;padding:6px 8px;margin-bottom:6px">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <span style="color:#3fb950;font-weight:700;font-size:12px">${c.sym}</span>
@@ -1509,6 +1528,8 @@ function renderScannerResults(data) {
           ${c.pattern_type} · $${c.price.toFixed(2)} · ${c.hold_min}-${c.hold_max}mo hold · ${c.fidelity_accts} accts
         </div>
         <div style="font-size:9px;color:var(--muted);margin-top:2px">${(c.signals || []).slice(0,4).join(' · ')}</div>
+        <div style="font-size:9px;margin-top:2px"><span style="color:${statusColor}">${statusEmoji} Cycle ${cycleLabel} · ${cycleStatus}</span>${nCompleted>0?` <span style="color:var(--muted)">(${nCompleted} prior)</span>`:''}</div>
+        ${actionMsg}
         <div style="display:flex;gap:4px;margin-top:5px">
           <button class="btn-green" style="font-size:9px;padding:2px 8px"
             onclick="document.getElementById('chat-in').value='Buy $5 ${c.sym}';document.querySelector('.chat-input button').click()">
@@ -1519,7 +1540,8 @@ function renderScannerResults(data) {
             🐻 Bear Case
           </button>
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
   }
 
   // Tier 2
@@ -2658,61 +2680,166 @@ function runMainScannerTracker() {
       const picks = data.picks || [];
       if (!picks.length) { el.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:8px">No picks tracked yet.</div>'; return; }
 
-      const classified = picks.filter(p => (p.bucket || 'CLASSIFIED') === 'CLASSIFIED');
-      const accumulate = picks.filter(p => p.bucket === 'ACCUMULATE');
+      // ── Split: Scanner Picks vs Manual Watchlist ──────────────────
+      // Scanner Pick = gate_status BEAR_CASE_COMPLETE + pattern not UNCLASSIFIED/UNKNOWN
+      // Everything else = Manual Watchlist
+      const isScanner = p => {
+        const gate    = p.gate_status || '';
+        const pattern = p.pattern_type || '';
+        return gate === 'BEAR_CASE_COMPLETE' ||
+               (!pattern.startsWith('UNCLASSIFIED') && pattern !== 'UNKNOWN' && gate !== 'LEGACY');
+      };
 
-      function buildSection(label, items, headerColor) {
-        if (!items.length) return '';
-        const hdr = `
-          <div style="color:${headerColor};font-weight:700;font-size:11px;padding:6px 0 3px">${label} (${items.length})</div>
-          <table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:10px">
-          <thead><tr style="color:#8b949e;border-bottom:1px solid #21262d">
-            <th style="padding:4px 6px;text-align:left">SYM</th>
-            <th style="padding:4px 4px;text-align:left">PICKED</th>
-            <th style="padding:4px 4px;text-align:right">ENTRY</th>
-            <th style="padding:4px 4px;text-align:right">NOW</th>
-            <th style="padding:4px 4px;text-align:right">P&amp;L%</th>
-            <th style="padding:4px 4px;text-align:right">DAYS</th>
-            <th style="padding:4px 4px;text-align:left">HOLD</th>
-            <th style="padding:4px 4px;text-align:left">PATTERN / CATALYST</th>
-          </tr></thead><tbody>`;
+      const scannerPicks = picks.filter(p => isScanner(p));
+      const manualWatch  = picks.filter(p => !isScanner(p));
 
-        const rows = items.map(p => {
-          const pnl = p.pct_change;
-          const isAccum = p.bucket === 'ACCUMULATE';
-          let borderColor = isAccum ? '#d29922' : '#30363d';
-          if (pnl !== null && pnl > 5)  borderColor = '#238636';
-          else if (pnl !== null && pnl < -10) borderColor = '#da3633';
-          const pnlStr = pnl === null ? '<span style="color:#8b949e">—</span>'
-            : `<span style="color:${pnl>=0?'#3fb950':'#f85149'};font-weight:700">${pnl>=0?'+':''}${pnl.toFixed(1)}%</span>`;
-          const nowStr = p.current_price !== null ? `$${p.current_price.toFixed(2)}` : '<span style="color:#8b949e">—</span>';
-          const prog = p.hold_progress_pct || 0;
-          const progBar = `<div style="background:#21262d;border-radius:2px;height:3px;margin-top:2px;width:60px">
-            <div style="background:${isAccum?'#d29922':'#3fb950'};height:3px;border-radius:2px;width:${Math.min(100,prog)}%"></div></div>`;
-          const holdLabel = `${p.hold_min_months}-${p.hold_max_months}mo`;
-          const catalyst = p.catalyst ? `<span style="color:#d29922;font-size:8px"> ⚡${p.catalyst.substring(0,50)}…</span>` : '';
-          const patternCell = isAccum
-            ? `<span style="color:#d29922;font-size:9px">${p.pattern_type}</span>${catalyst}`
-            : `<span style="color:#8b949e;font-size:9px">${p.pattern_type}</span>`;
-          return `<tr style="border-left:2px solid ${borderColor};border-bottom:1px solid #161b22">
-            <td style="padding:4px 6px;color:#e6edf3;font-weight:700">${p.symbol}</td>
-            <td style="padding:4px 4px;color:#8b949e">${p.date_picked}</td>
-            <td style="padding:4px 4px;text-align:right;color:#8b949e">$${p.price_at_pick.toFixed(2)}</td>
-            <td style="padding:4px 4px;text-align:right">${nowStr}</td>
-            <td style="padding:4px 4px;text-align:right">${pnlStr}</td>
-            <td style="padding:4px 4px;text-align:right;color:#8b949e">${p.days_held}d</td>
-            <td style="padding:4px 4px">${holdLabel}${progBar}</td>
-            <td style="padding:4px 4px">${patternCell}</td>
-          </tr>`;
-        }).join('');
-        return hdr + rows + '</tbody></table>';
+      // ── Pattern label — human readable ───────────────────────────
+      function patternLabel(p) {
+        const pat = p.pattern_type || '—';
+        if (pat.startsWith('UNCLASSIFIED:PHARMA') || pat.startsWith('UNCLASSIFIED:BIOTECH')) {
+          return '<span style="color:#8b949e;font-size:9px">PHARMA — framework not validated</span>';
+        }
+        if (pat.startsWith('UNCLASSIFIED:CONSUMER')) {
+          return '<span style="color:#8b949e;font-size:9px">CONSUMER — framework not validated</span>';
+        }
+        if (pat.startsWith('UNCLASSIFIED:')) {
+          const sub = pat.replace('UNCLASSIFIED:','').replace(/_/g,' ').toLowerCase();
+          return `<span style="color:#8b949e;font-size:9px">${sub} — framework not validated</span>`;
+        }
+        if (pat === 'UNKNOWN') {
+          return '<span style="color:#8b949e;font-size:9px">PATTERN UNKNOWN — manual entry</span>';
+        }
+        return `<span style="color:#8b949e;font-size:9px">${pat}</span>`;
       }
 
+      // ── Gate status icon ─────────────────────────────────────────
+      function gateIcon(p) {
+        const gate = p.gate_status || '';
+        if (gate === 'BEAR_CASE_COMPLETE') return '<span title="Bear case complete">✅</span>';
+        if (gate === 'LEGACY')             return '<span title="Logged before bear case gate">🔒</span>';
+        return '<span title="' + gate + '">🔒</span>';
+      }
+
+      // ── Bear case badge ──────────────────────────────────────────
+      function bearBadge(p) {
+        const s = p.bear_case_strength;
+        if (!s) return '';
+        const col = s === 'STRONG' ? '#f85149' : s === 'MODERATE' ? '#f5a623' : '#8b949e';
+        return ` <span style="color:${col};font-size:8px">${s}</span>`;
+      }
+
+      // ── Row builder ───────────────────────────────────────────────
+      function buildRow(p) {
+        const pnl = p.pct_change;
+        let borderColor = '#30363d';
+        if (pnl !== null && pnl > 5)   borderColor = '#238636';
+        else if (pnl !== null && pnl < -10) borderColor = '#da3633';
+        else if (p.bucket === 'ACCUMULATE') borderColor = '#9e6a03';
+
+        const pnlStr = pnl === null
+          ? '<span style="color:#8b949e">—</span>'
+          : `<span style="color:${pnl>=0?'#3fb950':'#f85149'};font-weight:700">${pnl>=0?'+':''}${pnl.toFixed(1)}%</span>`;
+        const nowStr  = p.current_price !== null ? `$${p.current_price.toFixed(2)}` : '<span style="color:#8b949e">—</span>';
+        const prog    = p.hold_progress_pct || 0;
+        const progBar = `<div style="background:#21262d;border-radius:2px;height:3px;margin-top:2px;width:50px">
+          <div style="background:#3fb950;height:3px;border-radius:2px;width:${Math.min(100,prog)}%"></div></div>`;
+        const holdLabel = `${p.hold_min_months}-${p.hold_max_months}mo`;
+
+        return `<tr style="border-left:2px solid ${borderColor};border-bottom:1px solid #161b22">
+          <td style="padding:3px 6px;color:#e6edf3;font-weight:700;white-space:nowrap">${gateIcon(p)} ${p.symbol}</td>
+          <td style="padding:3px 4px;color:#8b949e;font-size:9px">${p.date_picked}</td>
+          <td style="padding:3px 4px;text-align:right;color:#8b949e;font-size:10px">$${p.price_at_pick.toFixed(2)}</td>
+          <td style="padding:3px 4px;text-align:right;font-size:10px">${nowStr}</td>
+          <td style="padding:3px 4px;text-align:right;font-size:10px">${pnlStr}</td>
+          <td style="padding:3px 4px;text-align:right;color:#8b949e;font-size:9px">${p.days_held}d</td>
+          <td style="padding:3px 4px;font-size:9px">${holdLabel}${progBar}</td>
+          <td style="padding:3px 4px">${patternLabel(p)}${bearBadge(p)}</td>
+        </tr>`;
+      }
+
+      // ── Section builder ───────────────────────────────────────────
+      function buildSection(label, labelColor, labelDesc, items) {
+        if (!items.length) return '';
+        return `
+          <div style="display:flex;align-items:baseline;gap:8px;padding:8px 0 3px">
+            <span style="color:${labelColor};font-weight:700;font-size:11px">${label}</span>
+            <span style="color:#8b949e;font-size:9px">${labelDesc}</span>
+            <span style="color:#8b949e;font-size:9px">(${items.length})</span>
+          </div>
+          <table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:4px">
+            <thead><tr style="color:#8b949e;border-bottom:1px solid #21262d">
+              <th style="padding:3px 6px;text-align:left">SYM</th>
+              <th style="padding:3px 4px;text-align:left">DATE</th>
+              <th style="padding:3px 4px;text-align:right">ENTRY</th>
+              <th style="padding:3px 4px;text-align:right">NOW</th>
+              <th style="padding:3px 4px;text-align:right">P&amp;L%</th>
+              <th style="padding:3px 4px;text-align:right">DAYS</th>
+              <th style="padding:3px 4px;text-align:left">HOLD</th>
+              <th style="padding:3px 4px;text-align:left">PATTERN</th>
+            </tr></thead>
+            <tbody>${items.map(buildRow).join('')}</tbody>
+          </table>`;
+      }
+
+      // ── Divider ───────────────────────────────────────────────────
+      const divider = manualWatch.length > 0
+        ? '<div style="border-top:1px dashed #21262d;margin:8px 0 4px;opacity:0.6"></div>'
+        : '';
+
       el.innerHTML =
-        buildSection('🟢 CLASSIFIED — Pattern Holds', classified, '#3fb950') +
-        buildSection('🟡 ACCUMULATE — Wait for Catalyst', accumulate, '#d29922');
+        buildSection(
+          '── SCANNER PICKS',
+          '#3fb950',
+          'bear case complete · pattern validated by framework',
+          scannerPicks
+        ) +
+        divider +
+        buildSection(
+          '── MANUAL WATCHLIST',
+          '#8b949e',
+          'UNCLASSIFIED or no bear case — outside the framework',
+          manualWatch
+        );
     })
     .catch(e => { if (el) el.innerHTML = `<div style="color:#f85149;font-size:11px;padding:8px">Error: ${e}</div>`; });
+}
+
+function _autoLoadLastScan() {
+  const t1 = document.getElementById('main-scanner-tier1');
+  const t2 = document.getElementById('main-scanner-tier2');
+  const regime = document.getElementById('main-scanner-regime');
+  if (!t1 || !t2) return;
+
+  // Only auto-load when the results area is empty (don't overwrite a live scan)
+  const isEmpty = t1.children.length === 0 ||
+    t1.innerHTML.includes('Run the scanner') ||
+    t1.innerHTML.includes('Click RUN');
+  if (!isEmpty) return;
+
+  regime.style.color = '#8b949e';
+  regime.textContent = 'Loading last scan results...';
+
+  fetch('/api/scanner/last_results')
+    .then(r => r.json())
+    .then(data => {
+      if (!data.tier1 && !data.tier2) {
+        regime.textContent = 'No previous scan results. Click RUN FULL SCAN to start.';
+        return;
+      }
+      _renderMainScanner(data);
+      // Override the regime line to show this is auto-loaded, not a fresh scan
+      const d = data.scan_date || '—';
+      const n = data.total || 0;
+      const reg = data.regime || '—';
+      const harsi = data.m_harsi != null ? data.m_harsi.toFixed(1) : '?';
+      regime.style.color = '#8b949e';
+      regime.textContent =
+        `Auto-loaded: ${d} · Regime ${reg} (HARSI ${harsi}) · ${n} candidates · click RUN to refresh`;
+    })
+    .catch(() => {
+      regime.style.color = '#8b949e';
+      regime.textContent = 'Could not load last results. Click RUN FULL SCAN.';
+    });
 }
 
 function _renderMainScanner(data) {
@@ -2730,25 +2857,100 @@ function _renderMainScanner(data) {
   if (!data.tier1 || data.tier1.length === 0) {
     t1.innerHTML = '<div style="color:var(--muted);padding:8px">No Tier 1 candidates — try a custom symbol scan</div>';
   } else {
-    t1.innerHTML = data.tier1.map(c => `
-      <div style="background:#0d1117;border:1px solid #238636;border-radius:6px;padding:8px 10px;margin-bottom:8px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-          <span style="color:#3fb950;font-weight:700;font-size:14px">${c.sym}</span>
-          <span style="font-size:11px;color:var(--muted)">Conv ${c.conviction_score}/20 · S0 ${c.stage0_score}/12</span>
+    t1.innerHTML = data.tier1.map(c => {
+      const cd = c.cycle_data || {};
+      const cycleLabel   = cd.current_cycle  || 'A';
+      const cycleStatus  = cd.current_status || 'UNKNOWN';
+      const cycleHold    = cd.recommended_hold_months || [c.hold_min, c.hold_max];
+      const cyclePct     = cd.off_recent_peak_pct;
+      const cycleLowPct  = cd.off_recent_low_pct;
+      const nCompleted   = cd.completed_cycle_count || 0;
+      const priorCycles  = cd.cycles || [];
+      const lr           = c.last_research || null;
+
+      // Muted left border color by status — indicator only, not a signal
+      const borderColor = {
+        'FIRST_SETUP': '#2ea043',
+        'BASE':        '#2ea043',
+        'PULLBACK':    '#9e6a03',
+        'MID_RUN':     '#1f6feb',
+        'WATCH':       '#30363d',
+      }[cycleStatus] || '#30363d';
+
+      // Entry window — one fact, no directive
+      const entryWindow = {
+        'FIRST_SETUP': 'OPEN — Cycle A first setup',
+        'BASE':        `OPEN — Cycle ${cycleLabel} base`,
+        'PULLBACK':    `WATCH — ${cyclePct !== undefined ? cyclePct.toFixed(1) : '?'}% off peak, not at base depth`,
+        'MID_RUN':     'CLOSED — already running',
+        'WATCH':       'UNCLEAR — needs confirmation',
+      }[cycleStatus] || '—';
+
+      const holdStr = cycleHold && cycleHold[1] > 0
+        ? `${cycleHold[0]}-${cycleHold[1]}mo`
+        : `${c.hold_min}-${c.hold_max}mo`;
+
+      // Cycle history — compact, dated, factual
+      const historyLines = priorCycles.length > 0
+        ? priorCycles.map(cy => {
+            const gainColor = cy.gain_pct >= 0 ? '#3fb950' : '#f85149';
+            const statusMark = cy.status === 'COMPLETED' ? '✓' : '…';
+            return `<span style="color:#8b949e;font-size:9px;margin-right:12px">${statusMark} ${cy.cycle_label}: ${cy.trough_date.slice(0,7)}→${cy.peak_date.slice(0,7)} <span style="color:${gainColor}">${cy.gain_pct >= 0 ? '+' : ''}${cy.gain_pct.toFixed(0)}%</span> ${cy.hold_months}mo</span>`
+          }).join('')
+        : '<span style="color:#8b949e;font-size:9px">No prior cycles on record</span>';
+
+      // Price context row — three numbers
+      const priceRow = cyclePct !== undefined && cycleLowPct !== undefined
+        ? `$${c.price.toFixed(2)} current &nbsp;·&nbsp; ${cyclePct.toFixed(1)}% off recent peak &nbsp;·&nbsp; +${cycleLowPct.toFixed(1)}% off recent trough`
+        : `$${c.price.toFixed(2)}`;
+
+      // Last research row — only shows if we have tracker data
+      let lastResearchRow = '';
+      if (lr) {
+        const bearLabel = lr.bear_strength || '—';
+        const gateLabel = lr.gate_status   || '—';
+        const priceLabel = lr.price_at_pick ? `$${lr.price_at_pick.toFixed(2)}` : '—';
+        lastResearchRow = `
+          <div style="border-top:1px solid #21262d;margin-top:6px;padding-top:5px;font-size:9px;color:#8b949e">
+            Last research: ${lr.date || '—'} &nbsp;·&nbsp;
+            Logged at: ${priceLabel} &nbsp;·&nbsp;
+            Bear: <span style="color:${bearLabel==='STRONG'?'#f85149':bearLabel==='MODERATE'?'#f5a623':'#8b949e'}">${bearLabel}</span> &nbsp;·&nbsp;
+            Status: ${gateLabel}
+            ${lr.research_file ? `&nbsp;·&nbsp; <a href="/api/research/open?ticker=${c.sym}" style="color:#58a6ff;text-decoration:none">📄 ${lr.research_file}</a>` : ''}
+          </div>`;
+      }
+
+      return `
+      <div style="background:#0d1117;border:1px solid #21262d;border-left:3px solid ${borderColor};border-radius:4px;padding:8px 10px;margin-bottom:8px">
+
+        <!-- Header row -->
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px">
+          <span style="color:#e6edf3;font-weight:700;font-size:13px">${c.sym}</span>
+          <span style="font-size:10px;color:#8b949e">${c.pattern_type} &nbsp;·&nbsp; ${c.fidelity_accts} accts &nbsp;·&nbsp; S0 ${c.stage0_score}/12 &nbsp;·&nbsp; Conv ${c.conviction_score}/20</span>
         </div>
-        <div style="font-size:11px;color:#8b949e;margin-bottom:4px">
-          ${c.pattern_type} · $${c.price.toFixed(2)} · Hold ${c.hold_min}-${c.hold_max} months · ${c.fidelity_accts} Fidelity accts
+
+        <!-- Cycle status — factual, no directive -->
+        <div style="font-size:11px;color:#8b949e;margin-bottom:3px">
+          Cycle ${cycleLabel} &nbsp;·&nbsp;
+          <span style="color:${borderColor}">${cycleStatus}</span> &nbsp;·&nbsp;
+          Entry window: <span style="color:${borderColor};font-weight:600">${entryWindow}</span> &nbsp;·&nbsp;
+          Hold: ${holdStr}
         </div>
-        <div style="font-size:10px;color:var(--muted);margin-bottom:6px">${(c.signals||[]).slice(0,5).join(' · ')}</div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <button class="btn-green" style="font-size:11px;padding:3px 12px"
-            onclick="document.getElementById('chat-in').value='Buy $5 ${c.sym}. Pattern: ${c.pattern_type}. Hold ${c.hold_min}-${c.hold_max} months.';sendChat()">
-            ⚡ Buy $5
-          </button>
-          <button class="btn-muted" style="font-size:11px;padding:3px 12px"
-            onclick="document.getElementById('chat-in').value='Write a 3 sentence bear case for ${c.sym} — assume it goes to zero in 24 months, what is the most plausible path?';sendChat()">
-            🐻 Bear Case
-          </button>
+
+        <!-- Price context -->
+        <div style="font-size:10px;color:#8b949e;margin-bottom:5px;font-family:monospace">${priceRow}</div>
+
+        <!-- Cycle history -->
+        <div style="margin-bottom:5px;line-height:1.8">${historyLines}</div>
+
+        <!-- Signals -->
+        <div style="font-size:9px;color:#6e7681;margin-bottom:6px">${(c.signals||[]).slice(0,6).join(' · ')}</div>
+
+        <!-- Last research row (only if exists) -->
+        ${lastResearchRow}
+
+        <!-- Actions — research package is the primary path -->
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:7px">
           <button class="btn-muted" style="font-size:11px;padding:3px 12px;border-color:#f5a623;color:#f5a623"
             onclick="generateResearchPackage('${c.sym}', ${c.price})">
             📋 Research Package
@@ -2757,8 +2959,13 @@ function _renderMainScanner(data) {
             onclick="logToTracker('${c.sym}', ${c.price})">
             📝 Log to Tracker
           </button>
+          <button class="btn-muted" style="font-size:11px;padding:3px 12px"
+            onclick="document.getElementById('chat-in').value='Write a 3 sentence bear case for ${c.sym} — what is the most plausible path to permanent capital loss?';sendChat()">
+            🐻 Bear Case
+          </button>
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
   }
 
   const t2 = document.getElementById('main-scanner-tier2');
@@ -2766,21 +2973,44 @@ function _renderMainScanner(data) {
     t2.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:4px">None</div>';
   } else {
     t2.innerHTML = '<table style="width:100%;font-size:11px;border-collapse:collapse">' +
-      '<tr style="color:var(--muted);border-bottom:1px solid var(--border)"><th style="padding:4px;text-align:left">Symbol</th><th>Pattern</th><th>Price</th><th>Conv</th><th>Hold</th><th>Accts</th><th>Actions</th></tr>' +
-      data.tier2.map(c => `<tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:5px;color:#f5a623;font-weight:700">${c.sym}</td>
-        <td style="padding:5px;color:var(--muted)">${c.pattern_type}</td>
-        <td style="padding:5px">$${c.price.toFixed(2)}</td>
-        <td style="padding:5px">${c.conviction_score}/20</td>
-        <td style="padding:5px">${c.hold_min}-${c.hold_max}mo</td>
-        <td style="padding:5px">${c.fidelity_accts}</td>
-        <td style="padding:5px">
-          <button class="btn-muted" style="font-size:9px;padding:2px 6px;border-color:#f5a623;color:#f5a623"
-            onclick="generateResearchPackage('${c.sym}', ${c.price})">📋</button>
-          <button class="btn-muted" style="font-size:9px;padding:2px 6px;border-color:#3fb950;color:#3fb950;margin-left:2px"
-            onclick="logToTracker('${c.sym}', ${c.price})">📝</button>
-        </td>
-      </tr>`).join('') + '</table>';
+      '<thead><tr style="color:var(--muted);border-bottom:1px solid var(--border);font-size:10px">' +
+      '<th style="padding:4px 5px;text-align:left">SYM</th>' +
+      '<th style="padding:4px 5px;text-align:left">Pattern</th>' +
+      '<th style="padding:4px 5px;text-align:left">Cycle</th>' +
+      '<th style="padding:4px 5px;text-align:left">Entry Window</th>' +
+      '<th style="padding:4px 5px;text-align:right">Price</th>' +
+      '<th style="padding:4px 5px;text-align:left">Hold</th>' +
+      '<th style="padding:4px 5px;text-align:right">Conv</th>' +
+      '<th style="padding:4px 5px;text-align:right">Accts</th>' +
+      '<th style="padding:4px 5px;text-align:left">Actions</th>' +
+      '</tr></thead><tbody>' +
+      data.tier2.map(c => {
+        const cd = c.cycle_data || {};
+        const cycleLabel  = cd.current_cycle  || 'A';
+        const cycleStatus = cd.current_status || '';
+        const cyclePct    = cd.off_recent_peak_pct;
+        const lr          = c.last_research || null;
+        const borderColor = {'FIRST_SETUP':'#2ea043','BASE':'#2ea043','PULLBACK':'#9e6a03','MID_RUN':'#1f6feb','WATCH':'#30363d'}[cycleStatus] || '#30363d';
+        const entryWindow = {'FIRST_SETUP':'OPEN','BASE':'OPEN','PULLBACK':'WATCH','MID_RUN':'CLOSED','WATCH':'UNCLEAR'}[cycleStatus] || '—';
+        const ewColor     = {'OPEN':'#2ea043','WATCH':'#9e6a03','CLOSED':'#1f6feb','UNCLEAR':'#30363d'}[entryWindow] || '#8b949e';
+        const bearBadge   = lr?.bear_strength ? `<span style="color:${lr.bear_strength==='STRONG'?'#f85149':lr.bear_strength==='MODERATE'?'#f5a623':'#8b949e'};font-size:9px"> ${lr.bear_strength}</span>` : '';
+        return `<tr style="border-bottom:1px solid var(--border);border-left:2px solid ${borderColor}">
+          <td style="padding:4px 5px;color:#e6edf3;font-weight:700">${c.sym}</td>
+          <td style="padding:4px 5px;color:#8b949e;font-size:10px">${c.pattern_type}</td>
+          <td style="padding:4px 5px;font-size:10px;color:${borderColor};font-weight:600">${cycleLabel}</td>
+          <td style="padding:4px 5px;font-size:10px;color:${ewColor};font-weight:600">${entryWindow}${bearBadge}</td>
+          <td style="padding:4px 5px;text-align:right;font-family:monospace">$${c.price.toFixed(2)}</td>
+          <td style="padding:4px 5px;color:#8b949e">${c.hold_min}-${c.hold_max}mo</td>
+          <td style="padding:4px 5px;text-align:right;color:#8b949e">${c.conviction_score}/20</td>
+          <td style="padding:4px 5px;text-align:right;color:#8b949e">${c.fidelity_accts}</td>
+          <td style="padding:4px 5px">
+            <button class="btn-muted" style="font-size:9px;padding:2px 6px;border-color:#f5a623;color:#f5a623"
+              onclick="generateResearchPackage('${c.sym}', ${c.price})">📋</button>
+            <button class="btn-muted" style="font-size:9px;padding:2px 6px;border-color:#3fb950;color:#3fb950;margin-left:2px"
+              onclick="logToTracker('${c.sym}', ${c.price})">📝</button>
+          </td>
+        </tr>`;
+      }).join('') + '</tbody></table>';
   }
 
   const cl = document.getElementById('main-scanner-clusters');
@@ -3662,7 +3892,10 @@ function switchChart(view, el) {
   }
 
   if (view === 'positions') loadPositions();
-  if (view === 'scanner')   { runMainScannerTracker(); }
+  if (view === 'scanner')   {
+    runMainScannerTracker();
+    _autoLoadLastScan();   // auto-load last scan results if results area is empty
+  }
   if (view === 'research') {
     loadEdgarTickers();
     loadSimHistory();

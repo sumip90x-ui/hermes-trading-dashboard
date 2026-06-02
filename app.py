@@ -1585,10 +1585,32 @@ def api_scanner_progress():
 
             if stdout_data.strip():
                 try:
-                    import json as _json
+                    import json as _json, sqlite3 as _sq
                     data = _json.loads(stdout_data)
                     candidates = data.get('candidates', [])
                     regime     = data.get('regime', {})
+
+                    # Load last research from signal tracker
+                    _last_res = {}
+                    try:
+                        _db = str(Path.home() / 'Documents/Trading Vault/signal_tracker.db')
+                        _conn = _sq.connect(_db)
+                        _conn.row_factory = _sq.Row
+                        for _r in _conn.execute('SELECT symbol, date_picked, price_at_pick, bear_case_strength, gate_status, research_file FROM signals ORDER BY id DESC').fetchall():
+                            if _r['symbol'] not in _last_res:
+                                _last_res[_r['symbol']] = {
+                                    'date': _r['date_picked'], 'price_at_pick': _r['price_at_pick'],
+                                    'bear_strength': _r['bear_case_strength'],
+                                    'gate_status': _r['gate_status'], 'research_file': _r['research_file'],
+                                }
+                        _conn.close()
+                    except Exception:
+                        pass
+
+                    # Inject last_research into each candidate
+                    for c in candidates:
+                        c['last_research'] = _last_res.get(c.get('sym'))
+
                     from collections import defaultdict
                     clusters = defaultdict(list)
                     for c in candidates:
@@ -1631,12 +1653,38 @@ def api_scanner_progress():
 def api_scanner_stage0():
     """Run Stage 0 scanner and return JSON results for the dashboard."""
     try:
-        import sys
+        import sys, sqlite3
         sys.path.insert(0, str(Path.home() / 'Documents/EDGAR'))
         from scanner_engine import run_scanner as _run
         syms_arg = request.args.get('syms', '')
         symbols = syms_arg.upper().split() if syms_arg else None
         results, regime = _run(symbols=symbols, top_n=30)
+
+        # Pre-load last research record per symbol from signal tracker
+        db_path = Path.home() / 'Documents/Trading Vault/signal_tracker.db'
+        last_research = {}
+        try:
+            conn = sqlite3.connect(str(db_path))
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute('''
+                SELECT symbol, date_picked, price_at_pick, bear_case_strength,
+                       gate_status, research_file
+                FROM signals
+                ORDER BY id DESC
+            ''').fetchall()
+            for r in rows:
+                sym = r['symbol']
+                if sym not in last_research:
+                    last_research[sym] = {
+                        'date':            r['date_picked'],
+                        'price_at_pick':   r['price_at_pick'],
+                        'bear_strength':   r['bear_case_strength'],
+                        'gate_status':     r['gate_status'],
+                        'research_file':   r['research_file'],
+                    }
+            conn.close()
+        except Exception:
+            pass
 
         tier1, tier2 = [], []
         for r in results:
@@ -1666,6 +1714,10 @@ def api_scanner_stage0():
                 # v2.5 scorecard fields for bear case / context
                 'model_class':    r.get('scorecard', {}).get('model_class', 'UNKNOWN'),
                 'scorecard_note': r.get('scorecard', {}).get('note', ''),
+                # cycle A/B/C labels
+                'cycle_data':     r.get('cycle_data') or {},
+                # last research record from signal tracker
+                'last_research':  last_research.get(r['sym']),
             }
             if entry_tier == 'A' or score >= 9:
                 tier1.append(rec)
@@ -1693,6 +1745,69 @@ def api_scanner_stage0():
     except Exception as e:
         import traceback
         return jsonify({'error': str(e), 'trace': traceback.format_exc()[:500], 'tier1': [], 'tier2': []})
+
+
+@app.route('/api/scanner/last_results')
+def api_scanner_last_results():
+    """Return most recent scan results from JSON cache — no re-scan needed."""
+    import glob, sqlite3 as _sq
+
+    reports_dir = Path.home() / 'Documents' / 'Trading Vault' / 'Reports'
+    files = sorted(reports_dir.glob('scan_*.json'))
+    if not files:
+        return jsonify({'candidates': [], 'tier1': [], 'tier2': [],
+                        'scan_date': None, 'regime': 'UNKNOWN', 'm_harsi': None, 'total': 0})
+
+    latest = files[-1]
+    scan_date = latest.stem.replace('scan_', '')
+
+    try:
+        with open(latest) as f:
+            cached = json.load(f)
+    except Exception as e:
+        return jsonify({'error': str(e), 'tier1': [], 'tier2': [], 'total': 0})
+
+    candidates = cached.get('candidates', [])
+    regime     = cached.get('regime', {})
+
+    # Merge last_research from signal tracker
+    last_research = {}
+    try:
+        db_path = Path.home() / 'Documents' / 'Trading Vault' / 'signal_tracker.db'
+        conn = _sq.connect(str(db_path))
+        conn.row_factory = _sq.Row
+        for r in conn.execute(
+            'SELECT symbol, date_picked, price_at_pick, bear_case_strength, gate_status, research_file '
+            'FROM signals ORDER BY id DESC'
+        ).fetchall():
+            sym = r['symbol']
+            if sym not in last_research:
+                last_research[sym] = {
+                    'date':          r['date_picked'],
+                    'price_at_pick': r['price_at_pick'],
+                    'bear_strength': r['bear_case_strength'],
+                    'gate_status':   r['gate_status'],
+                    'research_file': r['research_file'],
+                }
+        conn.close()
+    except Exception:
+        pass
+
+    for c in candidates:
+        c['last_research'] = last_research.get(c.get('sym'))
+
+    tier1 = [c for c in candidates if c.get('conviction_score', 0) >= 14]
+    tier2 = [c for c in candidates if 9 <= c.get('conviction_score', 0) < 14]
+
+    return jsonify({
+        'tier1':     tier1,
+        'tier2':     tier2,
+        'scan_date': scan_date,
+        'regime':    regime.get('regime', 'UNKNOWN') if isinstance(regime, dict) else str(regime),
+        'm_harsi':   regime.get('m_harsi') if isinstance(regime, dict) else None,
+        'total':     len(candidates),
+        'auto_loaded': True,
+    })
 
 
 @app.route('/api/scanner/tracker')
@@ -1725,7 +1840,8 @@ def api_scanner_performance():
         rows = conn.execute('''
             SELECT s.symbol, s.date_picked, s.price_at_pick, s.pattern_type,
                    s.stage0_score, s.hold_min_months, s.hold_max_months,
-                   s.outcome, s.notes, s.bucket, s.catalyst, s.fidelity_accounts
+                   s.outcome, s.notes, s.bucket, s.catalyst, s.fidelity_accounts,
+                   s.gate_status, s.bear_case_strength, s.research_file
             FROM signals s
             WHERE s.outcome = 'PENDING'
             ORDER BY s.bucket DESC, s.date_picked DESC, s.stage0_score DESC
@@ -1787,6 +1903,9 @@ def api_scanner_performance():
             'target_base': target['base'] if target else None,
             'target_bull': target['bull'] if target else None,
             'target_prior_peak': target['prior_peak'] if target else None,
+            'gate_status': r['gate_status'] or 'LEGACY',
+            'bear_case_strength': r['bear_case_strength'],
+            'research_file': r['research_file'],
         })
 
     return jsonify({'picks': picks})
