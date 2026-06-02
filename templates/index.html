@@ -19,15 +19,15 @@
 <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
 <style>
   :root {
-    --bg:     #060e06;
-    --panel:  #0a120a;
-    --border: #1a3a1a;
+    --bg:     #131722;
+    --panel:  #1E222D;
+    --border: #363A45;
     --green:  #00ff88;
     --red:    #f85149;
     --blue:   #4a9eff;
     --gold:   #ffaa00;
     --text:   #88cc88;
-    --muted:  #446644;
+    --muted:  #6b7280;
     --accent: #00cc88;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -54,10 +54,10 @@
   .metric2 .lbl2 { font-size: 9px; color: var(--muted); letter-spacing: .3px; }
   .metric2.big .val2 { font-size: 17px; }
   .metric2.big .lbl2 { font-size: 9px; }
-  .ai-switch { display:flex; align-items:center; gap:5px; margin-left:4px; padding:3px 7px; border:1px solid #1a3a1a; border-radius:6px; background:#060e06; white-space:nowrap; }
+  .ai-switch { display:flex; align-items:center; gap:5px; margin-left:4px; padding:3px 7px; border:1px solid #363A45; border-radius:6px; background:#131722; white-space:nowrap; }
   .ai-switch label { font-size:9px; color:var(--muted); letter-spacing:.04em; }
-  .ai-switch select { background:#0a120a; color:var(--text); border:1px solid #1a3a1a; border-radius:4px; padding:2px 5px; font-size:10px; font-family:inherit; max-width:132px; }
-  .ai-switch button { padding:2px 6px; font-size:10px; border:1px solid #1a3a1a; background:#0d180d; color:var(--muted); }
+  .ai-switch select { background:#1E222D; color:var(--text); border:1px solid #363A45; border-radius:4px; padding:2px 5px; font-size:10px; font-family:inherit; max-width:132px; }
+  .ai-switch button { padding:2px 6px; font-size:10px; border:1px solid #363A45; background:#2A2E39; color:var(--muted); }
   .ai-switch .ai-note { font-size:9px; color:var(--gold); }
   .green { color: var(--green); }
   .red   { color: var(--red); }
@@ -68,7 +68,7 @@
   .ath-badge { margin-left: auto; padding: 6px 14px; border-radius: 20px; font-weight: 700; font-size: 13px; border: 2px solid; cursor: pointer; background: none; font-family: inherit; transition: transform .1s; }
   .ath-badge:hover { transform: scale(1.05); }
   .ath-badge:active { transform: scale(.97); }
-  .ath-badge.triggered  { border-color: var(--green); color: var(--green); background: #0d2818; animation: pulse 1s infinite; }
+  .ath-badge.triggered  { border-color: var(--green); color: var(--green); background: #1E222D; animation: pulse 1s infinite; }
   .ath-badge.triggered:hover { background: #133d22; }
   .ath-badge.pulled_back { border-color: var(--gold); color: var(--gold); background: #1c1a08; animation: none; }
   .ath-badge.pulled_back:hover { background: #2a2510; }
@@ -87,7 +87,7 @@
   /* Buy list panel — below chart, vertical scroll */
   .buy-bar {
     border-top: 2px solid var(--gold);
-    background: #060e06;
+    background: #131722;
     flex-shrink: 0;
     height: 220px;
     display: flex;
@@ -97,7 +97,7 @@
     display: flex; align-items: center; justify-content: space-between;
     padding: 6px 12px;
     border-bottom: 1px solid var(--border);
-    background: #0a120a;
+    background: #1E222D;
     flex-shrink: 0;
   }
   .buy-bar-header span { color: var(--gold); font-weight: 700; font-size: 12px; letter-spacing: .5px; }
@@ -112,11 +112,11 @@
   /* Each row in the buy list */
   .buy-row {
     display: flex; align-items: center; gap: 0;
-    border-bottom: 1px solid #0b140b;
+    border-bottom: 1px solid #1E222D;
     padding: 5px 10px;
     transition: background .15s;
   }
-  .buy-row:hover { background: #0a120a; }
+  .buy-row:hover { background: #1E222D; }
   .buy-row.mf-row  { border-left: 3px solid var(--gold);  }
   .buy-row.gap-row { border-left: 3px solid var(--green); }
   .buy-row.hi-row  { border-left: 3px solid var(--blue);  }
@@ -138,7 +138,7 @@
                          background:rgba(0,0,0,0.75); z-index:9999;
                          align-items:center; justify-content:center; }
   #intel-modal-overlay.visible { display:flex; }
-  #intel-modal { background:#080f08; border:1px solid #f5a623;
+  #intel-modal { background:#1E222D; border:1px solid #f5a623;
                  border-radius:8px; padding:24px; max-width:420px;
                  width:90%; font-size:13px; color:#e0e0e0; }
   #intel-modal h3 { margin:0 0 16px; font-size:15px; color:#f5a623; }
@@ -157,11 +157,11 @@
   #intel-modal .im-execute:hover { background:#f5a62344; }
   #intel-modal .im-cancel { flex:1; padding:10px; font-size:13px; background:transparent;
                              color:#666; border:1px solid #444; border-radius:4px; cursor:pointer; }
-  #intel-modal .im-cancel:hover { background:#0a120a; color:#446644; }
+  #intel-modal .im-cancel:hover { background:#1E222D; color:#446644; }
   #intel-modal .im-empty { text-align:center; color:#666; padding:16px 0; font-size:13px; }
 
   /* Priority Research cards */
-  .pq-card { background:#060e06; border:1px solid var(--border); border-radius:6px;
+  .pq-card { background:#131722; border:1px solid var(--border); border-radius:6px;
              padding:8px 10px; display:flex; flex-direction:column; gap:4px; }
   .pq-card.has-excel  { border-left:3px solid #f5a623; }
   .pq-card.needs-dl   { border-left:3px solid #ff6666; }
@@ -189,7 +189,7 @@
   #rbuy-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75);
                   z-index:9999; align-items:center; justify-content:center; }
   #rbuy-overlay.visible { display:flex; }
-  #rbuy-modal { background:#080f08; border:1px solid #00ccff; border-radius:8px;
+  #rbuy-modal { background:#1E222D; border:1px solid #00ccff; border-radius:8px;
                 padding:22px; max-width:400px; width:90%; font-size:13px; color:#e0e0e0; }
   #rbuy-modal h3 { margin:0 0 14px; font-size:14px; color:#00ccff; }
   #rbuy-modal .rm-row { display:flex; justify-content:space-between; margin:5px 0;
@@ -206,7 +206,7 @@
   #rbuy-modal .rm-execute:hover { background:#00ccff44; }
   #rbuy-modal .rm-cancel { flex:1; padding:9px; font-size:13px; background:transparent;
                            color:#666; border:1px solid #444; border-radius:4px; cursor:pointer; }
-  #rbuy-modal .rm-cancel:hover { background:#0a120a; color:#446644; }
+  #rbuy-modal .rm-cancel:hover { background:#1E222D; color:#446644; }
   .br-sym  { font-weight: 700; font-size: 13px; width: 58px; }
   .br-amt  { color: var(--green); font-size: 13px; font-weight: 600; width: 56px; }
   .br-accts { color: var(--muted); font-size: 11px; width: 46px; }
@@ -215,17 +215,17 @@
   .br-edgar  { font-size: 10px; width: 54px; text-align: right; padding-right: 8px; }
   .br-buy { background: #1a4731; color: var(--green); border: 1px solid var(--green); border-radius: 4px; padding: 3px 10px; font-size: 11px; font-weight: 700; cursor: pointer; margin-right: 6px; }
   .br-buy:hover { background: #2ea04333; }
-  .br-del { background: none; border: 1px solid #1a3a1a; color: var(--muted); font-size: 13px; cursor: pointer; padding: 2px 7px; border-radius: 4px; line-height: 1; }
+  .br-del { background: none; border: 1px solid #363A45; color: var(--muted); font-size: 13px; cursor: pointer; padding: 2px 7px; border-radius: 4px; line-height: 1; }
   .br-del:hover { color: var(--red); border-color: var(--red); }
   .buy-bar-empty { color: var(--muted); font-size: 12px; text-align: center; padding: 30px 12px; }
 
   /* Buy/Sell tab toggle */
   .bs-tab { padding: 5px 14px; font-size: 11px; font-weight: 700; cursor: pointer; background: none; color: var(--muted); border: none; font-family: inherit; transition: background .15s, color .15s; }
-  .bs-tab.active { background: #0b140b; color: var(--text); }
-  .bs-tab:hover:not(.active) { background: #0d180d; }
+  .bs-tab.active { background: #1E222D; color: var(--text); }
+  .bs-tab:hover:not(.active) { background: #2A2E39; }
 
   /* Sell row */
-  .sell-row { display: flex; align-items: center; gap: 0; border-bottom: 1px solid #0b140b; padding: 5px 10px; transition: background .15s; border-left: 3px solid var(--red); }
+  .sell-row { display: flex; align-items: center; gap: 0; border-bottom: 1px solid #1E222D; padding: 5px 10px; transition: background .15s; border-left: 3px solid var(--red); }
   .sell-row:hover { background: #1c1515; }
   .sr-sym   { font-weight: 700; font-size: 13px; width: 58px; color: var(--red); }
   .sr-amt   { color: var(--red); font-size: 13px; font-weight: 600; width: 72px; }
@@ -233,7 +233,7 @@
   .sr-reason { color: var(--muted); font-size: 10px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 6px; }
   .sr-sell  { background: #2d0f0f; color: var(--red); border: 1px solid var(--red); border-radius: 4px; padding: 3px 10px; font-size: 11px; font-weight: 700; cursor: pointer; margin-right: 6px; }
   .sr-sell:hover { background: #4a1a1a; }
-  .sr-del   { background: none; border: 1px solid #1a3a1a; color: var(--muted); font-size: 13px; cursor: pointer; padding: 2px 7px; border-radius: 4px; line-height: 1; }
+  .sr-del   { background: none; border: 1px solid #363A45; color: var(--muted); font-size: 13px; cursor: pointer; padding: 2px 7px; border-radius: 4px; line-height: 1; }
   .sr-del:hover { color: var(--red); border-color: var(--red); }
 
   /* Right panel — tabbed */
@@ -242,10 +242,10 @@
   .rpanel-content { flex:1; overflow-y:auto; padding:10px; }
 
   /* Chat Terminal — Research tab style */
-  #panel-chat { display: flex; flex-direction: column; height: 100%; padding: 0; background: #060e06; }
+  #panel-chat { display: flex; flex-direction: column; height: 100%; padding: 0; background: #131722; }
   #hermes-pty-terminal { flex: 1; width: 100%; min-height: 0; }
   #hermes-pty-terminal .xterm { padding: 6px 8px; }
-  #hermes-pty-terminal .xterm-viewport { background: #060e06 !important; }
+  #hermes-pty-terminal .xterm-viewport { background: #131722 !important; }
   /* keep .msg classes for addChat() calls from other panels */
   .chat-messages { display: none; }
   .msg { display: none; }
@@ -257,31 +257,31 @@
   .btn-green  { background: #1a4731; color: var(--green); border: 1px solid var(--green); }
   .btn-red    { background: #2d0f0f; color: var(--red); border: 1px solid var(--red); }
   .btn-gold   { background: #2d2008; color: var(--gold); border: 1px solid var(--gold); }
-  .btn-muted  { background: #0d180d; color: var(--muted); }
+  .btn-muted  { background: #2A2E39; color: var(--muted); }
   button:hover { opacity: .85; }
 
   /* Trade panel */
   .trade-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
-  .trade-row input, .trade-row select { background: #060e06; border: 1px solid var(--border); color: var(--text); border-radius: 4px; padding: 6px 8px; font-size: 12px; }
+  .trade-row input, .trade-row select { background: #131722; border: 1px solid var(--border); color: var(--text); border-radius: 4px; padding: 6px 8px; font-size: 12px; }
   .trade-row input { flex: 1; }
 
   /* Candidates table */
   .candidates table { width: 100%; border-collapse: collapse; font-size: 11px; }
   .candidates th { color: var(--muted); padding: 4px 6px; text-align: left; border-bottom: 1px solid var(--border); }
-  .candidates td { padding: 4px 6px; border-bottom: 1px solid #0b140b; }
-  .candidates tr:hover td { background: #0b140b; }
+  .candidates td { padding: 4px 6px; border-bottom: 1px solid #1E222D; }
+  .candidates tr:hover td { background: #1E222D; }
   .badge-mf   { background: #2d2008; color: var(--gold); border-radius: 3px; padding: 1px 4px; font-size: 10px; }
-  .badge-gap  { background: #0d2818; color: var(--green); border-radius: 3px; padding: 1px 4px; font-size: 10px; }
+  .badge-gap  { background: #1E222D; color: var(--green); border-radius: 3px; padding: 1px 4px; font-size: 10px; }
 
   /* Positions */
-  .pos-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #0b140b; }
+  .pos-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #1E222D; }
   .pos-sym { font-weight: 700; width: 60px; }
   .pos-bar { flex:1; height:4px; border-radius:2px; align-self:center; margin: 0 8px; }
 
   /* Candle trigger panel */
   .trigger-box { border-radius: 8px; padding: 14px; text-align: center; margin-bottom: 10px; }
-  .trigger-box.hot { border: 2px solid var(--green); background: #0d2818; }
-  .trigger-box.cold { border: 2px solid var(--border); background: #0a120a; }
+  .trigger-box.hot { border: 2px solid var(--green); background: #1E222D; }
+  .trigger-box.cold { border: 2px solid var(--border); background: #1E222D; }
   .trigger-val { font-size: 28px; font-weight: 700; }
   .progress-bar { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; margin: 8px 0; }
   .progress-fill { height: 100%; border-radius: 4px; transition: width .5s; }
@@ -338,14 +338,14 @@
   .rpanel-tabs .tab.active .rtab-lbl { color: var(--blue); }
   /* ── Markets widget ── */
   .mkt-range-btn {
-    background: #0a1a0a; border: 1px solid #2a4a2a; color: #446644;
+    background: #1E222D; border: 1px solid #363A45; color: #446644;
     font-family: monospace; font-size: 9px; padding: 2px 6px;
     cursor: pointer; border-radius: 3px; transition: all .15s;
   }
   .mkt-range-btn:hover { border-color: var(--green); color: var(--green); }
-  .mkt-range-btn.active { background: #1a3a1a; border-color: var(--green); color: var(--green); font-weight:700; }
+  .mkt-range-btn.active { background: #363A45; border-color: var(--green); color: var(--green); font-weight:700; }
   .mkt-card {
-    background: #0a1a0a; border: 1px solid #1a3a1a; border-radius:5px;
+    background: #1E222D; border: 1px solid #363A45; border-radius:5px;
     padding: 6px 8px; display:flex; flex-direction:column; gap:3px;
   }
   .mkt-card-header { display:flex; justify-content:space-between; align-items:center; }
@@ -358,17 +358,17 @@
   .mkt-sparkline   { width:100%; height:36px; }
   .mkt-section-hdr {
     font-size:9px; color:#446644; font-family:monospace; letter-spacing:2px;
-    padding: 4px 0 2px; border-bottom:1px solid #1a3a1a; margin-top:4px;
+    padding: 4px 0 2px; border-bottom:1px solid #363A45; margin-top:4px;
   }
 
   /* ── FREE CASH button ── */
   #free-cash-btn {
     padding: 4px 12px; font-size: 11px; font-weight: 700;
-    border-radius: 5px; cursor: pointer; border: 1px solid #1a3a1a;
-    background: #0d180d; color: var(--muted);
+    border-radius: 5px; cursor: pointer; border: 1px solid #363A45;
+    background: #2A2E39; color: var(--muted);
     transition: background .2s, border-color .2s, color .2s;
   }
-  #free-cash-btn.cash-ok   { border-color:#1a3a1a; color:var(--muted); background:#0d180d; }
+  #free-cash-btn.cash-ok   { border-color:#363A45; color:var(--muted); background:#2A2E39; }
   #free-cash-btn.cash-warn { border-color:#f0883e; color:#f0883e;      background:#2d1a0a; animation: pulse-warn .9s infinite alternate; }
   #free-cash-btn.cash-crit { border-color:var(--red); color:var(--red); background:#2d0f0f; animation: pulse-crit .6s infinite alternate; }
   @keyframes pulse-warn { from { box-shadow:0 0 0px #f0883e44; } to { box-shadow:0 0 8px #f0883e99; } }
@@ -382,7 +382,7 @@
   }
   #fc-overlay.visible { display:flex; }
   #fc-modal {
-    background:#0a120a; border:1px solid var(--red);
+    background:#1E222D; border:1px solid var(--red);
     border-radius:10px; padding:22px 26px; width:520px; max-width:95vw;
     max-height:80vh; overflow-y:auto;
   }
@@ -395,7 +395,7 @@
   #fc-modal .fc-row {
     display:flex; align-items:center; justify-content:space-between;
     padding:9px 12px; margin-bottom:6px;
-    background:#060e06; border:1px solid #1a3a1a; border-radius:7px;
+    background:#131722; border:1px solid #363A45; border-radius:7px;
     gap:8px;
   }
   #fc-modal .fc-row.removed { opacity:.35; text-decoration:line-through; }
@@ -404,14 +404,14 @@
   #fc-modal .fc-sell-amt { font-size:14px; font-weight:700; color:var(--red); min-width:70px; text-align:right; }
   #fc-modal .fc-leave { font-size:11px; color:var(--muted); min-width:90px; text-align:right; }
   #fc-modal .fc-remove-btn {
-    padding:2px 8px; font-size:10px; border:1px solid #1a3a1a;
+    padding:2px 8px; font-size:10px; border:1px solid #363A45;
     background:transparent; color:#666; border-radius:4px; cursor:pointer; flex-shrink:0;
   }
   #fc-modal .fc-remove-btn:hover { border-color:var(--red); color:var(--red); }
   #fc-modal .fc-total-row {
     display:flex; justify-content:space-between; align-items:center;
     padding:10px 12px; margin-top:10px;
-    border-top:1px solid #1a3a1a; font-size:13px;
+    border-top:1px solid #363A45; font-size:13px;
   }
   #fc-modal .fc-total-lbl { color:var(--muted); }
   #fc-modal .fc-total-val { font-weight:700; color:var(--green); font-size:15px; }
@@ -426,9 +426,9 @@
   #fc-modal .fc-execute-btn:disabled { opacity:.4; cursor:default; }
   #fc-modal .fc-cancel-btn {
     padding:11px 20px; font-size:13px; background:transparent;
-    border:1px solid #1a3a1a; color:var(--muted); border-radius:6px; cursor:pointer;
+    border:1px solid #363A45; color:var(--muted); border-radius:6px; cursor:pointer;
   }
-  #fc-modal .fc-cancel-btn:hover { background:#0d180d; }
+  #fc-modal .fc-cancel-btn:hover { background:#2A2E39; }
 </style>
 </head>
 <body>
@@ -458,7 +458,7 @@
       <button class="ath-badge waiting" id="ath_badge" onclick="badgeClick()" title="Click for Hermes analysis">ATH WATCH</button>
       <button id="best-signal-btn" onclick="openBestSignal()" title="Run convergence score — show best trade now">⚡ BEST SIGNAL</button>
       <div id="macro_signal_badge" style="padding:4px 10px;font-size:11px;font-family:monospace;
-           border:1px solid #1a3a1a;border-radius:4px;cursor:pointer;white-space:nowrap"
+           border:1px solid #363A45;border-radius:4px;cursor:pointer;white-space:nowrap"
            onclick="openMacroAdvisory()"
            title="Click for ORACLE macro buy suggestions">⚪ NEUTRAL</div>
       <button class="btn-muted" style="padding:4px 12px;font-size:11px;margin-left:8px" onclick="saveSessionNote()" id="save-note-btn" title="Save today's session note to Trading Vault">📝 Save Note</button>
@@ -533,13 +533,13 @@
 <div id="read-notes-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;
      z-index:9999;background:rgba(0,0,0,0.75);align-items:center;justify-content:center;"
      onclick="if(event.target===this)closeReadNotes()">
-  <div style="background:#060e06;border:1px solid #1a3a1a;border-radius:8px;width:760px;max-width:95vw;
+  <div style="background:#131722;border:1px solid #363A45;border-radius:8px;width:760px;max-width:95vw;
               max-height:85vh;display:flex;flex-direction:column;">
-    <div style="padding:12px 16px;border-bottom:1px solid #0d180d;display:flex;align-items:center;justify-content:space-between;">
+    <div style="padding:12px 16px;border-bottom:1px solid #2A2E39;display:flex;align-items:center;justify-content:space-between;">
       <span style="color:#ffd700;font-size:13px;font-weight:700;letter-spacing:1px">📖 SESSION NOTES</span>
       <div style="display:flex;gap:8px;align-items:center;">
         <select id="notes-count-select" onchange="loadNotesInModal()"
-          style="background:#0a120a;color:#88cc88;border:1px solid #1a3a1a;border-radius:4px;padding:2px 6px;font-size:11px;">
+          style="background:#1E222D;color:#88cc88;border:1px solid #363A45;border-radius:4px;padding:2px 6px;font-size:11px;">
           <option value="3">Last 3</option>
           <option value="5" selected>Last 5</option>
           <option value="10">Last 10</option>
@@ -552,7 +552,7 @@
     <div id="notes-modal-body" style="overflow-y:auto;padding:12px 16px;flex:1;font-size:12px;color:#88cc88;line-height:1.6;">
       <div style="color:#446644;text-align:center;padding:20px">Loading notes...</div>
     </div>
-    <div style="padding:8px 16px;border-top:1px solid #0d180d;font-size:11px;color:#446644;text-align:right">
+    <div style="padding:8px 16px;border-top:1px solid #2A2E39;font-size:11px;color:#446644;text-align:right">
       Notes saved to ~/Documents/Trading Vault/02_Session_Notes/
     </div>
   </div>
@@ -560,11 +560,11 @@
 
 <div id="macro-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;
        z-index:9999;background:rgba(0,0,0,0.7);align-items:center;justify-content:center;">
-    <div style="background:#060e06;border:1px solid #1a3a1a;border-radius:8px;
+    <div style="background:#131722;border:1px solid #363A45;border-radius:8px;
                 width:520px;max-height:80vh;overflow-y:auto;padding:0;font-family:monospace;">
       <!-- Header -->
       <div style="display:flex;justify-content:space-between;align-items:center;
-                  padding:12px 16px;border-bottom:1px solid #0d180d;">
+                  padding:12px 16px;border-bottom:1px solid #2A2E39;">
         <span id="modal-title" style="color:#ffd700;font-size:13px;font-weight:700;letter-spacing:1px">
           ORACLE MACRO ADVISORY
         </span>
@@ -572,23 +572,23 @@
                 style="background:none;border:none;color:#446644;font-size:18px;cursor:pointer">✕</button>
       </div>
       <!-- Signal bar -->
-      <div id="modal-signal-bar" style="padding:8px 16px;border-bottom:1px solid #0d180d;font-size:11px;color:#446644">
+      <div id="modal-signal-bar" style="padding:8px 16px;border-bottom:1px solid #2A2E39;font-size:11px;color:#446644">
         Loading...
       </div>
       <!-- Rule -->
-      <div id="modal-rule" style="padding:8px 16px;border-bottom:1px solid #0d180d;
+      <div id="modal-rule" style="padding:8px 16px;border-bottom:1px solid #2A2E39;
            font-size:11px;color:#58a6ff;background:#0a1628;"></div>
       <!-- Suggestions list -->
       <div id="modal-suggestions" style="padding:8px 0;"></div>
       <!-- Footer -->
-      <div style="padding:10px 16px;border-top:1px solid #0d180d;display:flex;gap:8px;justify-content:flex-end;">
+      <div style="padding:10px 16px;border-top:1px solid #2A2E39;display:flex;gap:8px;justify-content:flex-end;">
         <button id="modal-buy-all-btn" onclick="macroAdvisoryBuyAll()"
-                style="background:#0d2818;border:1px solid #00ff88;color:#00ff88;
+                style="background:#1E222D;border:1px solid #00ff88;color:#00ff88;
                        padding:6px 16px;font-family:monospace;font-size:12px;cursor:pointer;border-radius:4px;">
           ⚡ BUY ALL SUGGESTED
         </button>
         <button onclick="closeMacroAdvisory()"
-                style="background:none;border:1px solid #1a3a1a;color:#446644;
+                style="background:none;border:1px solid #363A45;color:#446644;
                        padding:6px 16px;font-family:monospace;font-size:12px;cursor:pointer;border-radius:4px;">
           DISMISS
         </button>
@@ -612,7 +612,7 @@
         <!-- Phase badge strip -->
         <div style="display:flex;align-items:center;gap:10px;padding:4px 4px 2px;flex-shrink:0">
           <span style="font-size:10px;color:var(--muted)">PHASE:</span>
-          <span id="phase-badge" style="font-size:11px;font-weight:700;padding:2px 10px;border-radius:10px;background:#0d180d;color:var(--muted)">—</span>
+          <span id="phase-badge" style="font-size:11px;font-weight:700;padding:2px 10px;border-radius:10px;background:#2A2E39;color:var(--muted)">—</span>
           <span id="phase-detail" style="font-size:10px;color:var(--muted)"></span>
         </div>
         <canvas id="intradayChart" style="flex:1;min-height:0"></canvas>
@@ -625,7 +625,7 @@
           <span style="color:var(--muted)">Bars: <span id="il_bars" style="color:#446644">—</span></span>
         </div>
         <!-- HERMES SEES panel -->
-        <div id="hermes-sees" style="margin:6px 0 0;background:#060e06;border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:10px;font-family:monospace;color:var(--muted);line-height:1.6;display:none">
+        <div id="hermes-sees" style="margin:6px 0 0;background:#131722;border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:10px;font-family:monospace;color:var(--muted);line-height:1.6;display:none">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
             <span style="color:var(--gold);font-weight:700;font-size:10px">👁 HERMES SEES</span>
             <span id="hermes-sees-time" style="font-size:9px"></span>
@@ -652,12 +652,12 @@
         <!-- Custom symbols -->
         <div style="display:flex;gap:6px;margin-bottom:10px">
           <input type="text" id="main-scanner-syms" placeholder="Type symbols: MSFT ADBE BBY ..."
-                 style="flex:1;font-size:11px;background:#060e06;border:1px solid var(--border);border-radius:4px;padding:5px 8px;color:#88cc88;text-transform:uppercase">
+                 style="flex:1;font-size:11px;background:#131722;border:1px solid var(--border);border-radius:4px;padding:5px 8px;color:#88cc88;text-transform:uppercase">
           <button class="btn-blue" style="font-size:11px;padding:4px 12px" onclick="runMainScannerCustom()">GO</button>
         </div>
 
         <!-- Regime -->
-        <div id="main-scanner-regime" style="font-size:11px;padding:5px 10px;border-radius:4px;background:#0d180d;color:var(--muted);margin-bottom:10px;text-align:center">
+        <div id="main-scanner-regime" style="font-size:11px;padding:5px 10px;border-radius:4px;background:#2A2E39;color:var(--muted);margin-bottom:10px;text-align:center">
           Click RUN to scan your portfolio for Stage 0 candidates
         </div>
 
@@ -681,13 +681,13 @@
                   style="font-size:10px;padding:3px 10px;border-color:#f5a623;color:#f5a623"
                   onclick="togglePicksSheet()">📊 View Picks Sheet</button>
         </div>
-        <div id="main-scanner-tracker" style="background:#060e06;border-radius:6px;padding:6px;max-height:340px;overflow-y:auto">
+        <div id="main-scanner-tracker" style="background:#131722;border-radius:6px;padding:6px;max-height:340px;overflow-y:auto">
           <div style="color:var(--muted);font-size:11px;padding:8px">Loading picks...</div>
         </div>
 
         <!-- Picks Sheet inline panel -->
-        <div id="picks-sheet-panel" style="display:none;margin-top:8px;border:1px solid #f5a62344;border-radius:6px;overflow:auto;max-height:480px;background:#060e06">
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:#060e06;border-bottom:1px solid #0d180d">
+        <div id="picks-sheet-panel" style="display:none;margin-top:8px;border:1px solid #f5a62344;border-radius:6px;overflow:auto;max-height:480px;background:#131722">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:#131722;border-bottom:1px solid #2A2E39">
             <span style="font-size:11px;font-weight:700;color:#f5a623">📊 PICKS SHEET — Live Prices</span>
             <button onclick="closePicksSheet()" style="background:transparent;border:none;color:#446644;cursor:pointer;font-size:13px;padding:0 4px">✕</button>
           </div>
@@ -702,7 +702,7 @@
             <div style="font-size:11px;color:#f5a623;font-weight:700">📋 RESEARCH PACKAGE</div>
             <span id="research-pkg-ticker" style="font-size:11px;color:#88cc88;font-weight:700"></span>
           </div>
-          <div id="research-pkg-log" style="background:#060e06;border:1px solid var(--border);border-radius:4px;padding:8px;font-family:monospace;font-size:10px;color:#446644;min-height:40px;max-height:180px;overflow-y:auto"></div>
+          <div id="research-pkg-log" style="background:#131722;border:1px solid var(--border);border-radius:4px;padding:8px;font-family:monospace;font-size:10px;color:#446644;min-height:40px;max-height:180px;overflow-y:auto"></div>
           <div id="research-pkg-actions" style="display:none;margin-top:6px;display:flex;gap:6px">
             <button id="research-pkg-open-btn" class="btn-muted"
                     style="font-size:11px;padding:3px 12px;border-color:#f5a623;color:#f5a623"
@@ -711,13 +711,13 @@
         </div>
 
         <!-- Ad-hoc Research Box -->
-        <div style="margin-top:14px;padding:10px;background:#060e06;border:1px solid #f5a62333;border-radius:6px">
+        <div style="margin-top:14px;padding:10px;background:#131722;border:1px solid #f5a62333;border-radius:6px">
           <div style="font-size:11px;color:#f5a623;font-weight:700;margin-bottom:6px">📋 AD-HOC RESEARCH</div>
           <div style="font-size:10px;color:var(--muted);margin-bottom:6px">Generate a research package for any ticker — not just current scan results.</div>
           <div style="display:flex;gap:6px">
             <input type="text" id="adhoc-research-sym"
                    placeholder="Ticker (e.g. NVDA)"
-                   style="width:120px;font-size:11px;background:#0a120a;border:1px solid var(--border);border-radius:4px;padding:4px 8px;color:#88cc88;text-transform:uppercase"
+                   style="width:120px;font-size:11px;background:#1E222D;border:1px solid var(--border);border-radius:4px;padding:4px 8px;color:#88cc88;text-transform:uppercase"
                    onkeydown="if(event.key==='Enter') generateResearchPackage(document.getElementById('adhoc-research-sym').value)">
             <button class="btn-muted" style="font-size:11px;padding:4px 12px;border-color:#f5a623;color:#f5a623"
                     onclick="generateResearchPackage(document.getElementById('adhoc-research-sym').value)">
@@ -739,7 +739,7 @@
             <button class="btn-blue" style="font-size:10px;padding:3px 10px" onclick="runTrajectoryInventory()">🧬 Run</button>
             <span id="traj-status" style="font-size:10px;color:var(--muted);align-self:center"></span>
           </div>
-          <div id="traj-result" style="display:none;background:#060e06;border-radius:6px;padding:8px;font-size:10px;overflow-x:auto;margin-top:6px"></div>
+          <div id="traj-result" style="display:none;background:#131722;border-radius:6px;padding:8px;font-size:10px;overflow-x:auto;margin-top:6px"></div>
         </details>
 
         <!-- Keep hidden candleChart so existing JS doesn't break -->
@@ -773,22 +773,22 @@
 
         <!-- EDGAR run bar — always visible at top of Research tab -->
         <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;
-                    background:#060e06;border-bottom:1px solid #1a3a1a;flex-shrink:0;">
+                    background:#131722;border-bottom:1px solid #363A45;flex-shrink:0;">
           <span style="font-size:10px;color:#ffaa00;font-family:monospace;letter-spacing:1px;white-space:nowrap;">⚡ EDGAR</span>
           <input type="text" id="research-edgar-sym"
                  placeholder="Type ticker (LDOS, BRKB, ADP...)"
-                 style="flex:1;max-width:220px;background:#0a1a0a;border:1px solid #2a4a2a;
+                 style="flex:1;max-width:220px;background:#1E222D;border:1px solid #363A45;
                         color:#88cc88;font-family:monospace;font-size:11px;padding:3px 8px;
                         border-radius:3px;outline:none;"
                  onkeydown="if(event.key==='Enter') researchRunEdgar()">
           <button onclick="researchRunEdgar()"
-                  style="background:#0a2a0a;border:1px solid #00ff88;color:#00ff88;
+                  style="background:#1E222D;border:1px solid #00ff88;color:#00ff88;
                          font-family:monospace;font-size:10px;padding:3px 12px;
                          cursor:pointer;border-radius:3px;white-space:nowrap;">
             ▶ Run EDGAR
           </button>
           <button id="research-seed-btn" onclick="researchCreateSeed()"
-                  style="background:#1a0a2a;border:1px solid #cc88ff;color:#cc88ff;
+                  style="background:#2A2E39;border:1px solid #cc88ff;color:#cc88ff;
                          font-family:monospace;font-size:10px;padding:3px 12px;
                          cursor:pointer;border-radius:3px;white-space:nowrap;"
                   title="Create MiroShark investment seed (EDGAR + LLM)">
@@ -797,7 +797,7 @@
           <span id="research-edgar-status"
                 style="font-size:10px;color:#446644;font-family:monospace;flex:1;"></span>
           <button id="miroshark-launch-btn" onclick="launchMiroShark()"
-                  style="background:#0a0a1a;border:1px solid #4a9eff;color:#4a9eff;
+                  style="background:#1E222D;border:1px solid #4a9eff;color:#4a9eff;
                          font-family:monospace;font-size:10px;padding:3px 12px;
                          cursor:pointer;border-radius:3px;white-space:nowrap;margin-left:auto;"
                   title="Start MiroShark server (port 5001)">
@@ -808,24 +808,24 @@
         <div style="display:flex; height:calc(100% - 36px); gap:0;">
 
           <!-- LEFT: EDGAR fundamentals -->
-          <div style="width:160px; min-width:160px; background:#060e06; border-right:1px solid #1a3a1a; display:flex; flex-direction:column;">
-            <div style="padding:6px 10px; color:#ffaa00; font-family:monospace; font-size:10px; letter-spacing:2px; border-bottom:1px solid #1a3a1a;">📊 EDGAR DATA</div>
+          <div style="width:160px; min-width:160px; background:#131722; border-right:1px solid #363A45; display:flex; flex-direction:column;">
+            <div style="padding:6px 10px; color:#ffaa00; font-family:monospace; font-size:10px; letter-spacing:2px; border-bottom:1px solid #363A45;">📊 EDGAR DATA</div>
             <div id="edgar-fundamentals-list" style="overflow-y:auto; flex:1; font-family:monospace; font-size:12px;">
               <div style="padding:8px; color:#446644;">Loading...</div>
             </div>
           </div>
 
           <!-- CENTER: MiroShark iframe -->
-          <div style="flex:1; min-width:0; display:flex; flex-direction:column; background:#060e06; pointer-events:all;">
-            <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 12px; border-bottom:1px solid #1a3a1a;">
+          <div style="flex:1; min-width:0; display:flex; flex-direction:column; background:#131722; pointer-events:all;">
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 12px; border-bottom:1px solid #363A45;">
               <span id="miroshark-panel-title" style="color:#ffaa00; font-family:monospace; font-size:10px; letter-spacing:2px;">✏ MIROSHARK</span>
               <div style="display:flex;gap:6px;align-items:center;">
                 <button onclick="window.location.reload()"
-                        style="background:none; border:1px solid #2a4a2a; color:#88cc88; font-family:monospace; font-size:10px; cursor:pointer; padding:2px 8px;" title="Hard reload page to pick up JS changes">⟳ RELOAD</button>
+                        style="background:none; border:1px solid #363A45; color:#88cc88; font-family:monospace; font-size:10px; cursor:pointer; padding:2px 8px;" title="Hard reload page to pick up JS changes">⟳ RELOAD</button>
                 <button onclick="killMiroSharkSim()"
-                        style="background:#1a0000; border:1px solid #ff4444; color:#ff4444; font-family:monospace; font-size:10px; cursor:pointer; padding:2px 8px;" title="Kill any running MiroShark simulation to stop API spending">⛔ KILL SIM</button>
+                        style="background:#2A2E39; border:1px solid #ff4444; color:#ff4444; font-family:monospace; font-size:10px; cursor:pointer; padding:2px 8px;" title="Kill any running MiroShark simulation to stop API spending">⛔ KILL SIM</button>
                 <button onclick="document.getElementById('miroshark-frame').src='about:blank'; document.getElementById('miroshark-panel-title').textContent='✏ MIROSHARK';"
-                        style="background:none; border:1px solid #1a3a1a; color:#446644; font-family:monospace; font-size:10px; cursor:pointer; padding:2px 8px;">CLEAR</button>
+                        style="background:none; border:1px solid #363A45; color:#446644; font-family:monospace; font-size:10px; cursor:pointer; padding:2px 8px;">CLEAR</button>
               </div>
             </div>
             <iframe id="miroshark-frame" src="about:blank"
@@ -834,12 +834,12 @@
           </div>
 
           <!-- RIGHT: Seed files + Sim reports -->
-          <div style="width:200px; min-width:200px; background:#060e06; border-left:1px solid #1a3a1a; display:flex; flex-direction:column;">
-            <div style="padding:6px 10px; color:#ffaa00; font-family:monospace; font-size:10px; letter-spacing:2px; border-bottom:1px solid #1a3a1a;">📁 SEED FILES</div>
+          <div style="width:200px; min-width:200px; background:#131722; border-left:1px solid #363A45; display:flex; flex-direction:column;">
+            <div style="padding:6px 10px; color:#ffaa00; font-family:monospace; font-size:10px; letter-spacing:2px; border-bottom:1px solid #363A45;">📁 SEED FILES</div>
             <div id="edgar-ticker-list" style="overflow-y:auto; flex:1; font-family:monospace; font-size:12px;">
               <div style="padding:8px; color:#446644;">Loading...</div>
             </div>
-            <div style="padding:6px 10px; color:#ff4444; font-family:monospace; font-size:10px; letter-spacing:2px; border-top:1px solid #1a3a1a; border-bottom:1px solid #1a3a1a;">🔴 SIM REPORTS</div>
+            <div style="padding:6px 10px; color:#ff4444; font-family:monospace; font-size:10px; letter-spacing:2px; border-top:1px solid #363A45; border-bottom:1px solid #363A45;">🔴 SIM REPORTS</div>
             <div id="sim-history-list" style="overflow-y:auto; flex:1; font-family:monospace; font-size:12px;">
               <div style="padding:8px; color:#446644;">Loading...</div>
             </div>
@@ -877,7 +877,7 @@
         </div>
 
         <!-- ── TRUE PROFIT TRACKER ── -->
-        <div id="port-tp-section" style="margin-top:1.2rem;background:#050e05;border:1px solid #1a3a1a;border-radius:6px;padding:14px 16px;">
+        <div id="port-tp-section" style="margin-top:1.2rem;background:#050e05;border:1px solid #363A45;border-radius:6px;padding:14px 16px;">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
             <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;">💰 True Profit — Fidelity Portfolio</div>
             <div style="display:flex;gap:14px;align-items:baseline;">
@@ -1092,7 +1092,7 @@
           <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.08em;margin-bottom:.5rem;text-transform:uppercase;">Backtest Results</div>
           <table style="width:100%;border-collapse:collapse;font-size:12px;color:var(--text);">
             <thead>
-              <tr style="border-bottom:1px solid #1a3a1a;">
+              <tr style="border-bottom:1px solid #363A45;">
                 <th style="text-align:left;padding:4px 8px;color:var(--muted);font-weight:500;">Direction</th>
                 <th style="text-align:right;padding:4px 8px;color:var(--muted);font-weight:500;">Signals</th>
                 <th style="text-align:right;padding:4px 8px;color:var(--muted);font-weight:500;">Win Rate</th>
@@ -1144,7 +1144,7 @@
       <div id="view-priority" style="display:none; flex:1; min-height:0; overflow:hidden; flex-direction:column; background:var(--bg);">
 
         <!-- Header bar -->
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--border);flex-shrink:0;background:#060e06;">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--border);flex-shrink:0;background:#131722;">
           <div>
             <span style="font-size:14px;font-weight:700;color:#f5a623;">🎯 Priority Research Queue</span>
             <span id="pq-counter" style="font-size:11px;color:var(--muted);margin-left:12px;"></span>
@@ -1185,7 +1185,7 @@
               <div style="display:flex;gap:6px;align-items:center;">
                 <select id="pq-fid-sort"
                   onchange="loadFidelityUnresearched()"
-                  style="background:#0a1a0a;border:1px solid #2a4a2a;color:#88cc88;
+                  style="background:#1E222D;border:1px solid #363A45;color:#88cc88;
                          font-family:monospace;font-size:9px;padding:1px 4px;border-radius:2px;">
                   <option value="gl_dollar">$ Loss → Gain</option>
                   <option value="gl_pct">% Loss → Gain</option>
@@ -1201,11 +1201,11 @@
 
           <!-- Right: MiroShark iframe -->
           <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
-            <div style="font-size:10px;color:var(--muted);padding:6px 12px;border-bottom:1px solid var(--border);flex-shrink:0;background:#060e06;">
+            <div style="font-size:10px;color:var(--muted);padding:6px 12px;border-bottom:1px solid var(--border);flex-shrink:0;background:#131722;">
               <span id="pq-sim-title">🔬 MiroShark — click ▶ SIM on any card to launch</span>
             </div>
             <iframe id="pq-miroshark-frame" src="about:blank"
-              style="flex:1;width:100%;border:none;background:#060e06;"
+              style="flex:1;width:100%;border:none;background:#131722;"
               allow="same-origin"></iframe>
           </div>
 
@@ -1218,7 +1218,7 @@
   <div class="buy-panel panel" id="buy-bar" style="display:flex;flex-direction:column;overflow:hidden;">
 
     <!-- shared header bar -->
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:5px 12px;border-bottom:1px solid var(--border);background:#0a120a;flex-shrink:0;">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:5px 12px;border-bottom:1px solid var(--border);background:#1E222D;flex-shrink:0;">
       <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:6px;overflow:hidden;">
         <button id="bs-tab-buy" class="bs-tab active" onclick="showBuySellTab('buy')">⚡ BUY LIST</button>
         <button id="bs-tab-sell" class="bs-tab" onclick="showBuySellTab('sell')">🔴 SELL LIST</button>
@@ -1243,7 +1243,7 @@
 
     <!-- BUY side -->
     <div id="bs-pane-buy" style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
-      <div style="display:flex;align-items:center;padding:3px 10px;border-bottom:1px solid var(--border);background:#060e06;flex-shrink:0;">
+      <div style="display:flex;align-items:center;padding:3px 10px;border-bottom:1px solid var(--border);background:#131722;flex-shrink:0;">
         <span style="width:58px;font-size:10px;color:var(--muted)">SYM</span>
         <span style="width:56px;font-size:10px;color:var(--muted)">BUY $</span>
         <span style="width:46px;font-size:10px;color:var(--muted)">ACCTS</span>
@@ -1259,7 +1259,7 @@
 
     <!-- SELL side (hidden by default) -->
     <div id="bs-pane-sell" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
-      <div style="display:flex;align-items:center;padding:3px 10px;border-bottom:1px solid var(--border);background:#060e06;flex-shrink:0;">
+      <div style="display:flex;align-items:center;padding:3px 10px;border-bottom:1px solid var(--border);background:#131722;flex-shrink:0;">
         <span style="width:58px;font-size:10px;color:var(--muted)">SYM</span>
         <span style="width:72px;font-size:10px;color:var(--muted)">SELL $</span>
         <span style="width:64px;font-size:10px;color:var(--muted)">GAIN %</span>
@@ -1312,7 +1312,7 @@
         <input type="text" id="edgar-sym" placeholder="Ticker to research">
         <button class="btn-gold" onclick="runEdgar()">Score</button>
       </div>
-      <div id="edgar-result" style="margin-top:8px;font-size:11px;background:#0b140b;padding:8px;border-radius:4px;min-height:40px"></div>
+      <div id="edgar-result" style="margin-top:8px;font-size:11px;background:#1E222D;padding:8px;border-radius:4px;min-height:40px"></div>
       <hr style="border-color:var(--border);margin:10px 0">
       <div style="font-size:12px;color:var(--muted);margin-bottom:8px">UPLOAD FIDELITY CSV</div>
       <input type="file" id="csv-file" accept=".csv" style="font-size:11px;color:var(--muted)">
@@ -1340,7 +1340,7 @@
         <button class="btn-green" style="flex:1" onclick="runCandleTrade(false)">⚡ Execute Trade</button>
       </div>
 
-      <div id="candle-output" style="font-size:11px;background:#060e06;padding:8px;border-radius:4px;min-height:60px;white-space:pre-wrap;overflow-y:auto;max-height:250px;color:var(--muted)">
+      <div id="candle-output" style="font-size:11px;background:#131722;padding:8px;border-radius:4px;min-height:60px;white-space:pre-wrap;overflow-y:auto;max-height:250px;color:var(--muted)">
         Output will appear here...
       </div>
 
@@ -1351,7 +1351,7 @@
       <hr style="border-color:var(--border);margin:10px 0">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <div style="font-size:12px;color:var(--muted)">STOP LOSS TIERS</div>
-        <span id="stop-status-badge" style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;background:#0d2818;color:var(--green)">SAFE</span>
+        <span id="stop-status-badge" style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;background:#1E222D;color:var(--green)">SAFE</span>
       </div>
       <div id="stop-tiers-panel" style="font-size:11px;font-family:monospace"></div>
     </div>
@@ -1517,7 +1517,7 @@ function renderScannerResults(data) {
         actionMsg = `<div style="color:#58a6ff;font-size:9px;margin-top:3px">🔵 Mid-Run — hold if in, wait for pullback if not</div>`;
       }
       return `
-      <div style="background:#060e06;border:1px solid #238636;border-radius:4px;padding:6px 8px;margin-bottom:6px">
+      <div style="background:#131722;border:1px solid #238636;border-radius:4px;padding:6px 8px;margin-bottom:6px">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <span style="color:#00ff88;font-weight:700;font-size:12px">${c.sym}</span>
           <span style="color:var(--muted);font-size:10px">Conv ${c.conviction_score}/20 · S0 ${c.stage0_score}/12</span>
@@ -1679,7 +1679,7 @@ function runTrajectoryInventory() {
           const ok8 = t.has_8_usable_quarters;
           const col = ok8 ? '#00ff88' : (t.quality_flags && t.quality_flags.includes('likely_backfill_required') ? '#f85149' : '#88cc88');
           const flags = (t.quality_flags || []).filter(f => f !== 'likely_backfill_required' && f !== 'insufficient_quarters').join(', ');
-          html += `<tr style="border-bottom:1px solid #0d180d;color:${col}">
+          html += `<tr style="border-bottom:1px solid #2A2E39;color:${col}">
             <td style="padding:2px 4px;font-weight:700">${t.ticker}</td>
             <td style="text-align:center;padding:2px 4px">${t.companyfacts_exists ? 'Y' : 'N'}</td>
             <td style="text-align:center;padding:2px 4px">${t.filings_index_exists ? 'Y' : 'N'}</td>
@@ -2003,7 +2003,7 @@ socket.on('edgar_result', d => {
         const b = window._edgarRefreshBtns[d.ticker];
         b.textContent = '✓'; b.style.color = '#00ff88'; b.style.borderColor = '#00ff88';
         b.disabled = false;
-        setTimeout(() => { b.textContent = '↻'; b.style.color = '#446644'; b.style.borderColor = '#2a4a2a'; }, 3000);
+        setTimeout(() => { b.textContent = '↻'; b.style.color = '#446644'; b.style.borderColor = '#363A45'; }, 3000);
         delete window._edgarRefreshBtns[d.ticker];
       }
     }
@@ -2516,8 +2516,8 @@ function buildIntradayChart(bars, athZone, ath, liveEquity) {
       },
       scales: {
         x: { type:'time', time:{unit:'minute',displayFormats:{minute:'HH:mm'}},
-             grid:{color:'#0b140b'}, ticks:{color:'#446644',maxTicksLimit:8} },
-        y: { grid:{color:'#0b140b'}, ticks:{color:'#446644',
+             grid:{color:'#1E222D'}, ticks:{color:'#446644',maxTicksLimit:8} },
+        y: { grid:{color:'#1E222D'}, ticks:{color:'#446644',
              callback:v=>'$'+v.toLocaleString()},
              min: (function() {
                const allVals = values.concat(
@@ -2560,7 +2560,7 @@ function _startScannerStream(url) {
   document.getElementById('main-scanner-regime').style.color = 'var(--gold)';
   document.getElementById('main-scanner-regime').innerHTML =
     '<div style="margin-bottom:4px">⏳ Initializing scanner...</div>' +
-    '<div style="background:#0b140b;border-radius:4px;height:8px;overflow:hidden">' +
+    '<div style="background:#1E222D;border-radius:4px;height:8px;overflow:hidden">' +
     '  <div id="scanner-prog-bar" style="height:100%;background:var(--gold);width:0%;transition:width 0.3s"></div>' +
     '</div>' +
     '<div id="scanner-prog-label" style="font-size:10px;color:var(--muted);margin-top:3px">Starting...</div>';
@@ -2729,7 +2729,7 @@ function runMainScannerTracker() {
       // ── Row builder ───────────────────────────────────────────────
       function buildRow(p) {
         const pnl = p.pct_change;
-        let borderColor = '#1a3a1a';
+        let borderColor = '#363A45';
         if (pnl !== null && pnl > 5)   borderColor = '#238636';
         else if (pnl !== null && pnl < -10) borderColor = '#da3633';
         else if (p.bucket === 'ACCUMULATE') borderColor = '#9e6a03';
@@ -2739,11 +2739,11 @@ function runMainScannerTracker() {
           : `<span style="color:${pnl>=0?'#00ff88':'#f85149'};font-weight:700">${pnl>=0?'+':''}${pnl.toFixed(1)}%</span>`;
         const nowStr  = p.current_price !== null ? `$${p.current_price.toFixed(2)}` : '<span style="color:#446644">—</span>';
         const prog    = p.hold_progress_pct || 0;
-        const progBar = `<div style="background:#0d180d;border-radius:2px;height:3px;margin-top:2px;width:50px">
+        const progBar = `<div style="background:#2A2E39;border-radius:2px;height:3px;margin-top:2px;width:50px">
           <div style="background:#00ff88;height:3px;border-radius:2px;width:${Math.min(100,prog)}%"></div></div>`;
         const holdLabel = `${p.hold_min_months}-${p.hold_max_months}mo`;
 
-        return `<tr style="border-left:2px solid ${borderColor};border-bottom:1px solid #0a120a">
+        return `<tr style="border-left:2px solid ${borderColor};border-bottom:1px solid #1E222D">
           <td style="padding:3px 6px;color:#88cc88;font-weight:700;white-space:nowrap">${gateIcon(p)} ${p.symbol}</td>
           <td style="padding:3px 4px;color:#446644;font-size:9px">${p.date_picked}</td>
           <td style="padding:3px 4px;text-align:right;color:#446644;font-size:10px">$${p.price_at_pick.toFixed(2)}</td>
@@ -2765,7 +2765,7 @@ function runMainScannerTracker() {
             <span style="color:#446644;font-size:9px">(${items.length})</span>
           </div>
           <table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:4px">
-            <thead><tr style="color:#446644;border-bottom:1px solid #0d180d">
+            <thead><tr style="color:#446644;border-bottom:1px solid #2A2E39">
               <th style="padding:3px 6px;text-align:left">SYM</th>
               <th style="padding:3px 4px;text-align:left">DATE</th>
               <th style="padding:3px 4px;text-align:right">ENTRY</th>
@@ -2781,7 +2781,7 @@ function runMainScannerTracker() {
 
       // ── Divider ───────────────────────────────────────────────────
       const divider = manualWatch.length > 0
-        ? '<div style="border-top:1px dashed #0d180d;margin:8px 0 4px;opacity:0.6"></div>'
+        ? '<div style="border-top:1px dashed #2A2E39;margin:8px 0 4px;opacity:0.6"></div>'
         : '';
 
       el.innerHTML =
@@ -2872,8 +2872,8 @@ function _renderMainScanner(data) {
         'BASE':        '#2ea043',
         'PULLBACK':    '#9e6a03',
         'MID_RUN':     '#1f6feb',
-        'WATCH':       '#1a3a1a',
-      }[cycleStatus] || '#1a3a1a';
+        'WATCH':       '#363A45',
+      }[cycleStatus] || '#363A45';
 
       // Entry window — one fact, no directive
       const entryWindow = {
@@ -2909,7 +2909,7 @@ function _renderMainScanner(data) {
         const gateLabel = lr.gate_status   || '—';
         const priceLabel = lr.price_at_pick ? `$${lr.price_at_pick.toFixed(2)}` : '—';
         lastResearchRow = `
-          <div style="border-top:1px solid #0d180d;margin-top:6px;padding-top:5px;font-size:9px;color:#446644">
+          <div style="border-top:1px solid #2A2E39;margin-top:6px;padding-top:5px;font-size:9px;color:#446644">
             Last research: ${lr.date || '—'} &nbsp;·&nbsp;
             Logged at: ${priceLabel} &nbsp;·&nbsp;
             Bear: <span style="color:${bearLabel==='STRONG'?'#f85149':bearLabel==='MODERATE'?'#f5a623':'#446644'}">${bearLabel}</span> &nbsp;·&nbsp;
@@ -2919,7 +2919,7 @@ function _renderMainScanner(data) {
       }
 
       return `
-      <div style="background:#060e06;border:1px solid #0d180d;border-left:3px solid ${borderColor};border-radius:4px;padding:8px 10px;margin-bottom:8px">
+      <div style="background:#131722;border:1px solid #2A2E39;border-left:3px solid ${borderColor};border-radius:4px;padding:8px 10px;margin-bottom:8px">
 
         <!-- Header row -->
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px">
@@ -2988,9 +2988,9 @@ function _renderMainScanner(data) {
         const cycleStatus = cd.current_status || '';
         const cyclePct    = cd.off_recent_peak_pct;
         const lr          = c.last_research || null;
-        const borderColor = {'FIRST_SETUP':'#2ea043','BASE':'#2ea043','PULLBACK':'#9e6a03','MID_RUN':'#1f6feb','WATCH':'#1a3a1a'}[cycleStatus] || '#1a3a1a';
+        const borderColor = {'FIRST_SETUP':'#2ea043','BASE':'#2ea043','PULLBACK':'#9e6a03','MID_RUN':'#1f6feb','WATCH':'#363A45'}[cycleStatus] || '#363A45';
         const entryWindow = {'FIRST_SETUP':'OPEN','BASE':'OPEN','PULLBACK':'WATCH','MID_RUN':'CLOSED','WATCH':'UNCLEAR'}[cycleStatus] || '—';
-        const ewColor     = {'OPEN':'#2ea043','WATCH':'#9e6a03','CLOSED':'#1f6feb','UNCLEAR':'#1a3a1a'}[entryWindow] || '#446644';
+        const ewColor     = {'OPEN':'#2ea043','WATCH':'#9e6a03','CLOSED':'#1f6feb','UNCLEAR':'#363A45'}[entryWindow] || '#446644';
         const bearBadge   = lr?.bear_strength ? `<span style="color:${lr.bear_strength==='STRONG'?'#f85149':lr.bear_strength==='MODERATE'?'#f5a623':'#446644'};font-size:9px"> ${lr.bear_strength}</span>` : '';
         return `<tr style="border-bottom:1px solid var(--border);border-left:2px solid ${borderColor}">
           <td style="padding:4px 5px;color:#88cc88;font-weight:700">${c.sym}</td>
@@ -3051,8 +3051,8 @@ function _legacyLoadCandles() {
         },
         scales: {
           x: { type:'time', time:{unit:'day', displayFormats:{day:'MMM d'}},
-               grid:{color:'#0b140b'}, ticks:{color:'#446644', maxTicksLimit:10} },
-          y: { grid:{color:'#0b140b'}, ticks:{color:'#446644', callback:v=>'$'+v.toLocaleString()} }
+               grid:{color:'#1E222D'}, ticks:{color:'#446644', maxTicksLimit:10} },
+          y: { grid:{color:'#1E222D'}, ticks:{color:'#446644', callback:v=>'$'+v.toLocaleString()} }
         }
       }
     });
@@ -3100,7 +3100,7 @@ function loadPositions() {
         action = `<span style="color:var(--muted);font-size:10px">add $1.10</span>`;
       }
 
-      return `<tr style="border-bottom:1px solid #0b140b;cursor:pointer" onclick="prefillTrade('${p.sym}')" title="Entry: $${p.entry} | Qty: ${p.qty.toFixed(4)}">
+      return `<tr style="border-bottom:1px solid #1E222D;cursor:pointer" onclick="prefillTrade('${p.sym}')" title="Entry: $${p.entry} | Qty: ${p.qty.toFixed(4)}">
         <td style="padding:4px 6px;font-weight:700">${mfBadge}${p.sym}</td>
         <td style="padding:4px 6px;text-align:right">$${p.cur}</td>
         <td style="padding:4px 6px;text-align:right;color:var(--muted)">$${p.entry}</td>
@@ -3241,7 +3241,7 @@ function renderStopTiers(d) {
   // Status badge
   const badge = document.getElementById('stop-status-badge');
   const STATUS_COLORS = {
-    SAFE:       { bg:'#0d2818', color:'var(--green)' },
+    SAFE:       { bg:'#1E222D', color:'var(--green)' },
     SOFT_STOP:  { bg:'#2d2008', color:'var(--gold)' },
     WARN_STOP:  { bg:'#2d1a08', color:'#f0883e' },
     HARD_STOP:  { bg:'#2d0f0f', color:'var(--red)' },
@@ -3670,9 +3670,9 @@ const PHASE_STYLES = {
   PULLBACK:     {color:'var(--red)',   bg:'#2d0f0f', icon:'▼'},
   CAPITULATION: {color:'var(--red)',   bg:'#3a0808', icon:'⚠'},
   AT_PEAK:      {color:'var(--gold)',  bg:'#2d2008', icon:'★'},
-  RECOVERY:     {color:'var(--green)', bg:'#0d2818', icon:'▲'},
+  RECOVERY:     {color:'var(--green)', bg:'#1E222D', icon:'▲'},
   GRINDING_UP:  {color:'var(--green)', bg:'#0d2010', icon:'↗'},
-  CONSOLIDATING:{color:'var(--muted)', bg:'#0d180d', icon:'—'},
+  CONSOLIDATING:{color:'var(--muted)', bg:'#2A2E39', icon:'—'},
 };
 
 function updatePhasePanel() {
@@ -3813,7 +3813,7 @@ function uploadCSV() {
           if (!box) {
             box = document.createElement('div');
             box.id = 'hermes-analysis';
-            box.style.cssText = 'margin-top:10px;padding:10px;background:#060e06;border:1px solid var(--border);border-radius:6px;font-size:12px;line-height:1.6;white-space:pre-wrap;color:#88cc88;max-height:260px;overflow-y:auto;';
+            box.style.cssText = 'margin-top:10px;padding:10px;background:#131722;border:1px solid var(--border);border-radius:6px;font-size:12px;line-height:1.6;white-space:pre-wrap;color:#88cc88;max-height:260px;overflow-y:auto;';
             document.getElementById('panel-buys').insertBefore(box, document.getElementById('panel-buys').firstChild);
           }
           box.textContent = a.analysis;
@@ -3965,10 +3965,10 @@ function loadJourney() {
         bg = ph2.color; border = ph2.color;
       } else if (e.partial) {
         // Gradient fill based on pct complete
-        bg = `linear-gradient(to top, ${ph2.color} ${e.pct}%, #0d180d ${e.pct}%)`;
+        bg = `linear-gradient(to top, ${ph2.color} ${e.pct}%, #2A2E39 ${e.pct}%)`;
         border = ph2.color;
       } else {
-        bg = '#0a120a'; border = '#1a3a1a';
+        bg = '#1E222D'; border = '#363A45';
       }
       const tip = `#${e.n} $${e.start.toFixed(0)}→$${e.end.toFixed(0)} (${e.phase})${e.partial?' '+e.pct+'%':''}`;
       return `<div title="${tip}" style="
@@ -4031,14 +4031,14 @@ function loadNotesInModal() {
         return;
       }
       body.innerHTML = d.sessions.map(s => `
-        <div style="margin-bottom:20px;border:1px solid #0d180d;border-radius:6px;overflow:hidden;">
-          <div style="background:#0a120a;padding:6px 12px;color:#ffd700;font-weight:700;font-size:12px;
-                      border-bottom:1px solid #0d180d;display:flex;justify-content:space-between;align-items:center;">
+        <div style="margin-bottom:20px;border:1px solid #2A2E39;border-radius:6px;overflow:hidden;">
+          <div style="background:#1E222D;padding:6px 12px;color:#ffd700;font-weight:700;font-size:12px;
+                      border-bottom:1px solid #2A2E39;display:flex;justify-content:space-between;align-items:center;">
             <span>📅 ${s.date}</span>
             <span style="color:#446644;font-weight:400;font-size:10px">${s.content.length} chars</span>
           </div>
           <pre style="margin:0;padding:12px;white-space:pre-wrap;word-break:break-word;
-                      font-family:monospace;font-size:11px;color:#88cc88;background:#060e06;
+                      font-family:monospace;font-size:11px;color:#88cc88;background:#131722;
                       max-height:350px;overflow-y:auto;">${escapeHtml(s.content)}</pre>
         </div>
       `).join('');
@@ -4329,8 +4329,8 @@ async function loadEdgarTickers() {
       const glCol  = gl === null ? '' : gl >= 0 ? '#00ff88' : '#ff6666';
       return `
       <div style="display:flex;align-items:center;justify-content:space-between;
-                  border-bottom:1px solid #0a1a0a;padding:3px 6px 3px 10px;"
-           onmouseover="this.style.background='#0a2a0a'"
+                  border-bottom:1px solid #1E222D;padding:3px 6px 3px 10px;"
+           onmouseover="this.style.background='#1E222D'"
            onmouseout="this.style.background=''">
         <span style="color:#88cc88;font-family:monospace;font-size:12px;cursor:pointer;flex:1;"
               onclick="loadFundamentals('${t}')">${t}</span>
@@ -4345,7 +4345,7 @@ async function loadEdgarTickers() {
                        cursor:pointer;border-radius:2px;flex-shrink:0;margin-right:2px;">$</button>
         <button onclick="edgarRefreshTicker('${t}', this)"
                 title="Re-run EDGAR pipeline for ${t}"
-                style="background:none;border:1px solid #2a4a2a;color:#446644;
+                style="background:none;border:1px solid #363A45;color:#446644;
                        font-family:monospace;font-size:9px;padding:1px 5px;
                        cursor:pointer;border-radius:2px;flex-shrink:0;">↻</button>
       </div>`;
@@ -4359,16 +4359,16 @@ async function loadEdgarTickers() {
     const r2 = await fetch('/api/research/seed-tickers');
     const seeds = await r2.json();
     if (rightEl) rightEl.innerHTML = seeds.map(t => `
-      <div style="padding:5px 10px; border-bottom:1px solid #0a1a0a;
+      <div style="padding:5px 10px; border-bottom:1px solid #1E222D;
                   display:flex; justify-content:space-between; align-items:center;"
-           onmouseover="this.style.background='#0a2a0a'"
+           onmouseover="this.style.background='#1E222D'"
            onmouseout="this.style.background=''">
         <span style="color:#00ff88; font-family:monospace; font-size:12px;
                      cursor:pointer; flex:1;"
               onclick="viewSeed('${t}')"
               title="Click to view seed file">${t}</span>
         <span onclick="launchSim('${t}')"
-              style="background:#0a2a0a; border:1px solid #00ff88; color:#00ff88;
+              style="background:#1E222D; border:1px solid #00ff88; color:#00ff88;
                      font-size:10px; padding:1px 6px; cursor:pointer; font-family:monospace;
                      flex-shrink:0;">+SIM</span>
       </div>`).join('');
@@ -4392,8 +4392,8 @@ async function loadSimHistory() {
     el.innerHTML = reports.map(s => {
       const label = 'ORACLE Report';
       return `
-      <div style="padding:5px 10px; cursor:pointer; border-bottom:1px solid #0a1a0a;"
-           onmouseover="this.style.background='#0a2a0a'"
+      <div style="padding:5px 10px; cursor:pointer; border-bottom:1px solid #1E222D;"
+           onmouseover="this.style.background='#1E222D'"
            onmouseout="this.style.background=''"
            onclick='viewReport(${JSON.stringify(s.report_id)},${JSON.stringify(s.ticker)},${JSON.stringify(label)})'>
         <div style="display:flex;align-items:center;gap:8px;">
@@ -4445,7 +4445,7 @@ async function viewReport(reportId, ticker, reportLabel = 'ORACLE Report') {
     tableDiv.id = 'fundamentals-table-view';
     frame.parentElement.appendChild(tableDiv);
   }
-  tableDiv.style.cssText = 'flex:1;overflow:auto;background:#060e06;min-width:0;width:100%;height:100%;padding:0;';
+  tableDiv.style.cssText = 'flex:1;overflow:auto;background:#131722;min-width:0;width:100%;height:100%;padding:0;';
   tableDiv.innerHTML = '<div style="padding:12px;color:#446644;font-family:monospace;">Loading report...</div>';
   try {
     const r = await fetch(`/api/research/report_content/${encodeURIComponent(reportId)}`);
@@ -4456,13 +4456,13 @@ async function viewReport(reportId, ticker, reportLabel = 'ORACLE Report') {
                   color:#88cc88;line-height:1.7;white-space:pre-wrap;
                   word-break:break-word;max-width:960px;">
         <div style="display:flex;justify-content:space-between;align-items:center;
-                    margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #1a3a1a;">
+                    margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #363A45;">
           <span style="color:#ff4444;font-size:14px;font-weight:700;">📋 ${reportLabel} — ${ticker}</span>
         </div>
         ${text.replace(/</g,'&lt;').replace(/>/g,'&gt;')
               .replace(/^(#{1,3} .+)$/gm,'<span style="color:#ffaa00;font-weight:700;">$1</span>')
               .replace(/\*\*(.+?)\*\*/g,'<span style="color:#ffffff;font-weight:700;">$1</span>')
-              .replace(/^(---+)$/gm,'<span style="color:#1a3a1a;">$1</span>')}
+              .replace(/^(---+)$/gm,'<span style="color:#363A45;">$1</span>')}
       </div>`;
   } catch(e) {
     tableDiv.innerHTML = `<div style="padding:12px;color:#664444;font-family:monospace;">Error: ${e.message}</div>`;
@@ -4480,7 +4480,7 @@ async function loadFundamentals(ticker) {
     tableDiv.id = 'fundamentals-table-view';
     frame.parentElement.appendChild(tableDiv);
   }
-  tableDiv.style.cssText = 'flex:1;overflow:auto;background:#060e06;min-width:0;width:100%;height:100%;';
+  tableDiv.style.cssText = 'flex:1;overflow:auto;background:#131722;min-width:0;width:100%;height:100%;';
   tableDiv.innerHTML = '<div style="padding:12px;color:#446644;font-family:monospace;">Loading...</div>';
 
   try {
@@ -4503,7 +4503,7 @@ async function viewSeed(ticker) {
     tableDiv.id = 'fundamentals-table-view';
     frame.parentElement.appendChild(tableDiv);
   }
-  tableDiv.style.cssText = 'flex:1;overflow:auto;background:#060e06;min-width:0;width:100%;height:100%;padding:0;';
+  tableDiv.style.cssText = 'flex:1;overflow:auto;background:#131722;min-width:0;width:100%;height:100%;padding:0;';
   tableDiv.innerHTML = '<div style="padding:12px;color:#446644;font-family:monospace;">Loading seed...</div>';
 
   try {
@@ -4516,17 +4516,17 @@ async function viewSeed(ticker) {
                   color:#88cc88;line-height:1.7;white-space:pre-wrap;
                   word-break:break-word;max-width:900px;">
         <div style="display:flex;justify-content:space-between;align-items:center;
-                    margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #1a3a1a;">
+                    margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #363A45;">
           <span style="color:#00ff88;font-size:14px;font-weight:700;">🌱 ${ticker} — Investment Seed</span>
           <button onclick="launchSim('${ticker}')"
-                  style="background:#0a2a0a;border:1px solid #00ff88;color:#00ff88;
+                  style="background:#1E222D;border:1px solid #00ff88;color:#00ff88;
                          font-family:monospace;font-size:10px;padding:3px 10px;
                          cursor:pointer;border-radius:3px;">▶ Launch SIM</button>
         </div>
         ${text.replace(/</g,'&lt;').replace(/>/g,'&gt;')
               .replace(/^(#{1,3} .+)$/gm, '<span style="color:#ffaa00;font-weight:700;">$1</span>')
               .replace(/\*\*(.+?)\*\*/g, '<span style="color:#ffffff;font-weight:700;">$1</span>')
-              .replace(/^(---+)$/gm, '<span style="color:#1a3a1a;">$1</span>')}
+              .replace(/^(---+)$/gm, '<span style="color:#363A45;">$1</span>')}
       </div>`;
   } catch(e) {
     tableDiv.innerHTML = `<div style="padding:12px;color:#664444;font-family:monospace;">Error: ${e.message}</div>`;
@@ -4597,17 +4597,17 @@ function openMacroAdvisory() {
       if (s.type !== lastType) {
         lastType = s.type;
         html += `<div style="padding:6px 16px 3px;font-size:10px;color:#446644;
-                     letter-spacing:1px;border-top:${i>0?'1px solid #0d180d':'none'};
+                     letter-spacing:1px;border-top:${i>0?'1px solid #2A2E39':'none'};
                      margin-top:${i>0?'4px':'0'}">${typeLabels[s.type]||s.type.toUpperCase()}</div>`;
       }
       const upStr = s.uplpc !== undefined ? ` | ${s.uplpc}%` : '';
       html += `<div style="display:flex;align-items:center;padding:6px 16px;
-                           border-bottom:1px solid #0a120a;gap:8px;">
+                           border-bottom:1px solid #1E222D;gap:8px;">
         <span style="color:#88cc88;font-weight:700;min-width:50px;font-size:13px">${s.sym}</span>
         <span style="color:#446644;font-size:11px;flex:1">${s.reason}</span>
         <span style="color:#00ff88;font-weight:700;min-width:50px;text-align:right">$${s.buy}</span>
         <button onclick="macroAdvisoryBuyOne('${s.sym}',${s.buy},this)"
-                style="background:#0d2818;border:1px solid #00ff88;color:#00ff88;
+                style="background:#1E222D;border:1px solid #00ff88;color:#00ff88;
                        padding:3px 10px;font-family:monospace;font-size:11px;
                        cursor:pointer;border-radius:3px;white-space:nowrap">BUY</button>
       </div>`;
@@ -4634,7 +4634,7 @@ function openMacroAdvisory() {
         if (!filtered.length) return;
 
         let fidHtml = `<div style="padding:6px 16px 3px;font-size:10px;color:#4a9eff;
-                           letter-spacing:1px;border-top:1px solid #0d180d;margin-top:4px;">
+                           letter-spacing:1px;border-top:1px solid #2A2E39;margin-top:4px;">
                            📊 FIDELITY DEVIATION SIGNALS</div>`;
         filtered.forEach(s => {
           const dirCol = s.reason === 'PULLBACK'     ? '#00ff88'
@@ -4645,7 +4645,7 @@ function openMacroAdvisory() {
                        : s.combined >= 8  ? `<span style="color:#f5a623;font-size:9px;margin-left:4px;">MED</span>`
                        : '';
           fidHtml += `<div style="display:flex;align-items:center;padding:6px 16px;
-                                  border-bottom:1px solid #0a120a;gap:8px;">
+                                  border-bottom:1px solid #1E222D;gap:8px;">
             <span style="color:#88cc88;font-weight:700;min-width:50px;font-size:13px">${s.sym}${tier}</span>
             <span style="color:${dirCol};font-size:11px;flex:1">${s.reason} · ${s.accts} accts</span>
             <span style="color:#00ff88;font-weight:700;min-width:50px;text-align:right">$${s.buy.toFixed(2)}</span>
@@ -4686,7 +4686,7 @@ async function macroAdvisoryBuyOne(sym, amt, btn) {
     } else {
       btn.textContent = '✓';
       btn.style.color = '#446644';
-      btn.style.borderColor = '#1a3a1a';
+      btn.style.borderColor = '#363A45';
       btn.disabled = true;
       addChat('system', `✅ EXECUTED: BUY ${sym} $${amt} (macro advisory)`);
     }
@@ -5892,7 +5892,7 @@ function fetchProfitBasket() {
     // zero line
     const zeroY = PAD.t + ch - ((0 - minV) / range) * ch;
     ctx.beginPath();
-    ctx.strokeStyle = '#1a3a1a';
+    ctx.strokeStyle = '#363A45';
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 4]);
     ctx.moveTo(PAD.l, zeroY);
@@ -6084,7 +6084,7 @@ function loadEdgarQueue() {
           const dirStr = item.direction && item.direction !== 'no recent signal'
             ? `<span style="font-size:9px;color:${dirColor};opacity:.8;"> ${item.direction}</span>` : '';
           return `<div style="display:inline-flex;align-items:center;gap:2px;
-                       background:#080f08;border:1px solid ${chipColor};
+                       background:#1E222D;border:1px solid ${chipColor};
                        border-radius:4px;padding:3px 8px;font-size:12px;
                        font-weight:600;color:${chipColor};cursor:default;"
                        title="${item.direction} | ${item.accts} accts | deploy $${item.deploy}">
@@ -6449,7 +6449,7 @@ function checkMiroSharkStatus() {
         btn.textContent = '🔬 MiroShark ✓';
         btn.style.borderColor = '#00ff88';
         btn.style.color       = '#00ff88';
-        btn.style.background  = '#0a2a0a';
+        btn.style.background  = '#1E222D';
         btn.title = 'MiroShark online — click to open';
         btn.onclick = () => window.open('http://localhost:5001', '_blank');
         if (_miroStatusInterval) { clearInterval(_miroStatusInterval); _miroStatusInterval = null; }
@@ -6457,7 +6457,7 @@ function checkMiroSharkStatus() {
         btn.textContent = '🔬 MiroShark';
         btn.style.borderColor = '#4a9eff';
         btn.style.color       = '#4a9eff';
-        btn.style.background  = '#0a0a1a';
+        btn.style.background  = '#1E222D';
         btn.title = 'Click to start MiroShark server';
         btn.onclick = launchMiroShark;
       }
@@ -6775,7 +6775,7 @@ function launchMiroShark() {
       } catch(e) { results.push(p.symbol + ': ERROR ' + e.message); }
     }
     btn.textContent = '✅ EXECUTE SELLS'; btn.disabled = false;
-    let resHtml = '<div style="padding:12px;background:#060e06;border-radius:6px;font-size:12px;color:var(--muted)">';
+    let resHtml = '<div style="padding:12px;background:#131722;border-radius:6px;font-size:12px;color:var(--muted)">';
     resHtml += '<div style="color:var(--green);font-weight:700;margin-bottom:8px">Orders submitted:</div>';
     results.forEach(function(r) { resHtml += '<div style="margin-bottom:4px">✅ ' + r + '</div>'; });
     resHtml += '</div>';
@@ -6810,26 +6810,26 @@ function launchMiroShark() {
       fontSize: 12,
       lineHeight: 1.5,
       theme: {
-        background:          '#060e06',   // Research tab bg
-        foreground:          '#88cc88',   // Research tab data text
-        cursor:              '#00ff88',   // Research tab Run EDGAR button green
-        cursorAccent:        '#060e06',
-        selectionBackground: '#1a3a1a88',
-        black:          '#060e06',
-        brightBlack:    '#446644',        // Research tab muted/dim text
-        red:            '#f85149',        // dashboard --red (losses)
+        background:          '#131722',   // TradingView bg
+        foreground:          '#88cc88',   // soft green text
+        cursor:              '#00ff88',
+        cursorAccent:        '#131722',
+        selectionBackground: '#363A4588',
+        black:          '#131722',
+        brightBlack:    '#6b7280',        // muted
+        red:            '#f85149',
         brightRed:      '#ff6e6e',
-        green:          '#00ff88',        // Research tab bright green
-        brightGreen:    '#88cc88',        // Research tab soft green
-        yellow:         '#ffaa00',        // Research tab amber headers
+        green:          '#00ff88',
+        brightGreen:    '#88cc88',
+        yellow:         '#ffaa00',
         brightYellow:   '#ffc844',
-        blue:           '#4a9eff',        // Research tab MiroShark blue
+        blue:           '#4a9eff',
         brightBlue:     '#79c0ff',
-        magenta:        '#cc88ff',        // Research tab Create Seed purple
+        magenta:        '#cc88ff',
         brightMagenta:  '#d2a8ff',
         cyan:           '#00cc88',
         brightCyan:     '#00ff88',
-        white:          '#88cc88',        // Research tab data text
+        white:          '#88cc88',
         brightWhite:    '#aaddaa',
       },
       cursorBlink: true,
