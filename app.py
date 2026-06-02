@@ -1941,26 +1941,52 @@ def compute_price_target(sym):
         _PRICE_TARGET_CACHE[sym] = None
         return None
 
-    # Find trough (lowest low) index across all bars
-    trough_idx = 0
-    trough_low = float('inf')
-    for i, b in enumerate(bars):
-        low = b.get('l', float('inf'))
-        if low < trough_low:
-            trough_low = low
-            trough_idx = i
-
-    # Find prior cycle peak (highest high BEFORE the trough)
-    if trough_idx == 0:
-        # No bars before trough — can't compute prior peak
-        _PRICE_TARGET_CACHE[sym] = None
-        return None
+    # ── Two-phase cycle detection ──────────────────────────────────────────
+    # Phase 1: "Ran and pulling back" — find the most recent significant peak
+    #   within the last 12 bars, then the trough after it.  If drawdown ≥ 15%
+    #   this is the current cycle (e.g. AEM peaked $254 → pulled back 31%).
+    # Phase 2: "Deep base recovery" — find trough within last 24 bars and the
+    #   peak before it (original logic).  Used when Phase 1 finds no real
+    #   pullback (stock is still in accumulation/base).
+    #
+    # Why: the all-time-trough approach locks onto an ancient cycle when the
+    # stock has already fully recovered and is now in a NEW cycle.  Example:
+    # AEM's all-time trough was $33 in 2022; its current cycle is
+    # peak $254 (Mar 2026) → pullback to $170 — an entirely different trade.
 
     prior_peak = 0.0
-    for b in bars[:trough_idx]:
-        high = b.get('h', 0)
-        if high > prior_peak:
-            prior_peak = high
+    trough_low = 0.0
+    cycle_found = False
+
+    # Phase 1: scan last 12 bars for a peak followed by a ≥15% pullback
+    if len(bars) >= 4:
+        ph1_bars = bars[-12:] if len(bars) >= 12 else bars
+        ph1_offset = len(bars) - len(ph1_bars)
+        peak_rel = max(range(len(ph1_bars)), key=lambda i: ph1_bars[i].get('h', 0))
+        peak_abs = ph1_offset + peak_rel
+        peak_price = bars[peak_abs].get('h', 0)
+        post_peak = bars[peak_abs + 1:]
+        if post_peak and peak_price > 0:
+            trough_in_post = min(b.get('l', float('inf')) for b in post_peak)
+            drawdown = (peak_price - trough_in_post) / peak_price
+            if drawdown >= 0.15:
+                prior_peak = peak_price
+                trough_low = trough_in_post
+                cycle_found = True
+
+    # Phase 2 fallback: trough in last 24 bars, peak before it
+    if not cycle_found:
+        window_size = min(24, len(bars))
+        window_start = len(bars) - window_size
+        recent_bars = bars[window_start:]
+        trough_rel_idx = min(range(len(recent_bars)),
+                             key=lambda i: recent_bars[i].get('l', float('inf')))
+        trough_idx = window_start + trough_rel_idx
+        trough_low = bars[trough_idx].get('l', float('inf'))
+        if trough_idx == 0:
+            _PRICE_TARGET_CACHE[sym] = None
+            return None
+        prior_peak = max((b.get('h', 0) for b in bars[:trough_idx]), default=0)
 
     if prior_peak <= 0:
         _PRICE_TARGET_CACHE[sym] = None
