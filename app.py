@@ -2094,6 +2094,272 @@ def api_scanner_trajectory_inventory():
     return resp
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# RESEARCH PACKAGE ROUTES  (/api/research/*)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.route('/api/research/generate', methods=['POST'])
+def api_research_generate():
+    """
+    Generate an Excel research package for a ticker.
+    Body: { "ticker": "ADBE", "entry_price": 274.03 }
+    Streams progress via SocketIO event 'research_progress'.
+    Returns JSON: { "success": True, "path": "...", "filename": "..." }
+    """
+    import threading, glob as _glob
+
+    data   = request.json or {}
+    ticker = (data.get('ticker') or '').upper().strip()
+    entry_price = data.get('entry_price')
+
+    if not ticker:
+        return jsonify({'success': False, 'error': 'ticker required'}), 400
+
+    def _run():
+        try:
+            sys.path.insert(0, str(HOME / 'Documents/EDGAR'))
+            from scan_and_report import generate_research_package
+
+            def _progress(msg):
+                socketio.emit('research_progress', {
+                    'ticker': ticker,
+                    'msg':    msg,
+                    'status': 'running',
+                })
+
+            result = generate_research_package(ticker,
+                                               entry_price=entry_price,
+                                               progress_cb=_progress)
+
+            if result.get('error'):
+                socketio.emit('research_progress', {
+                    'ticker': ticker,
+                    'msg':    f"❌ {result['error']}",
+                    'status': 'error',
+                })
+            else:
+                socketio.emit('research_progress', {
+                    'ticker':   ticker,
+                    'msg':      f"✅ Research package ready — {result['filename']}",
+                    'status':   'complete',
+                    'filename': result['filename'],
+                    'path':     result['path'],
+                })
+        except Exception as e:
+            socketio.emit('research_progress', {
+                'ticker': ticker,
+                'msg':    f"❌ Unexpected error: {e}",
+                'status': 'error',
+            })
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+
+    return jsonify({'success': True, 'ticker': ticker,
+                    'message': f'Research package generation started for {ticker}'})
+
+
+@app.route('/api/research/log', methods=['POST'])
+def api_research_log():
+    """
+    Log a ticker to signal_tracker.db — ONLY if bear case Excel is complete.
+
+    Body: { "ticker": "ADBE", "entry_price": 274.03 }
+
+    Gate (double): raw cell content check (authoritative) + B23 formula value (visual).
+    If ANY of the 5 required fields has <10 chars, returns 400 BEAR_CASE_INCOMPLETE.
+    The bear case must be saved to the Excel file first — there is no dashboard bypass.
+    """
+    import glob as _glob
+    import openpyxl as _xl
+
+    data        = request.json or {}
+    ticker      = (data.get('ticker') or '').upper().strip()
+    entry_price = data.get('entry_price')
+
+    if not ticker:
+        return jsonify({'success': False, 'reason': 'MISSING_TICKER'}), 400
+
+    # ── Find most recent research file ────────────────────────────────────────
+    research_dir = str(HOME / 'Documents/Trading Vault/04_Research')
+    pattern      = os.path.join(research_dir, f"{ticker}_research_*.xlsx")
+    files        = sorted(_glob.glob(pattern))
+
+    if not files:
+        return jsonify({
+            'success': False,
+            'reason':  'NO_RESEARCH_FILE',
+            'message': f'No research package found for {ticker}. Generate one first.',
+        }), 400
+
+    latest_file = files[-1]
+
+    # ── Read the Excel — data_only=True for formula results ──────────────────
+    try:
+        wb = _xl.load_workbook(latest_file, data_only=True)
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'reason':  'FILE_READ_ERROR',
+            'message': f'Could not open research file: {e}',
+        }), 500
+
+    if 'BEAR CASE' not in wb.sheetnames:
+        return jsonify({
+            'success': False,
+            'reason':  'NO_BEAR_CASE_SHEET',
+            'message': 'Research file missing Bear Case sheet. Regenerate.',
+        }), 400
+
+    ws_bear = wb['BEAR CASE']
+
+    # ── Read raw cell values (authoritative gate — NOT the B23 formula) ──────
+    def _read(cell_ref):
+        v = ws_bear[cell_ref].value
+        return str(v).strip() if v is not None else ''
+
+    structural_threat = _read('B4') + ' ' + _read('B5')
+    evidence          = _read('B8') + ' ' + _read('B9')
+    datapoint         = _read('B12')
+    bear_strength     = _read('B15')
+    signature         = _read('B18')
+
+    structural_threat = structural_threat.strip()
+    evidence          = evidence.strip()
+
+    # ── Gate check — 5 fields, raw content, no formula dependency ─────────────
+    missing = []
+    if len(structural_threat) < 10:
+        missing.append('LINE 1 (structural threat — write at least one sentence)')
+    if len(evidence) < 10:
+        missing.append('LINE 2 (evidence already happening — write at least one sentence)')
+    if len(datapoint) < 10:
+        missing.append('LINE 3 (confirming data point — be specific)')
+    if bear_strength not in ('WEAK', 'MODERATE', 'STRONG'):
+        missing.append('bear case strength (must be WEAK, MODERATE, or STRONG from dropdown)')
+    if len(signature) < 2:
+        missing.append('signature (sign the bear case)')
+
+    if missing:
+        return jsonify({
+            'success':       False,
+            'reason':        'BEAR_CASE_INCOMPLETE',
+            'missing_fields': missing,
+            'message':       (f'Bear case incomplete in Excel. '
+                              f'Open {os.path.basename(latest_file)}, '
+                              f'fill these fields and save: '
+                              f'{"; ".join(missing)}'),
+        }), 400
+
+    # ── Gate passed — read scorecard fields ───────────────────────────────────
+    ws1 = wb['SCORECARD']
+    score       = ws1['B4'].value
+    pattern     = ws1['B5'].value or 'UNKNOWN'
+    model_class = ws1['B6'].value or 'UNKNOWN'
+
+    # ── Duplicate check ───────────────────────────────────────────────────────
+    try:
+        sys.path.insert(0, str(HOME / 'Documents/EDGAR'))
+        from scan_and_report import already_tracked
+        is_dup = already_tracked(ticker)
+    except Exception:
+        is_dup = False
+
+    if is_dup:
+        return jsonify({
+            'success': False,
+            'reason':  'ALREADY_TRACKED',
+            'message': (f'{ticker} already has a PENDING entry in signal tracker. '
+                        f'If this is a new position, record outcome on old entry first.'),
+        }), 409
+
+    # ── Write to signal_tracker.db ────────────────────────────────────────────
+    try:
+        from signal_tracker import add_signal
+        from scanner_engine import SCANNER_VERSION
+
+        bear_case_text = json.dumps({
+            'structural_threat': structural_threat,
+            'evidence':          evidence,
+            'confirming_datapoint': datapoint,
+        }, ensure_ascii=False)
+
+        signal_id = add_signal(
+            sym=ticker,
+            price=float(entry_price) if entry_price else 0.0,
+            pattern=pattern,
+            score=int(score) if score else 0,
+            source='research_package',
+            bear_case_strength=bear_strength,
+            bear_case_text=bear_case_text,
+            gate_status='BEAR_CASE_COMPLETE',
+            scanner_version=SCANNER_VERSION,
+            research_file=os.path.basename(latest_file),
+        )
+
+        # Entry sizing by bear case strength
+        sizing_map = {
+            'WEAK':     'Tier A — 3-5% of account (strong thesis, bear is weak)',
+            'MODERATE': 'Tier B — 0.5-1% starter, scale on HARSI confirmation',
+            'STRONG':   'Watchlist only — bear is strong, do not enter yet',
+        }
+        sizing = sizing_map.get(bear_strength, 'Unknown')
+
+        return jsonify({
+            'success':           True,
+            'signal_id':         signal_id,
+            'ticker':            ticker,
+            'pattern':           pattern,
+            'bear_case_strength': bear_strength,
+            'sizing':            sizing,
+            'research_file':     os.path.basename(latest_file),
+            'message':           (f'Logged {ticker}. Bear case: {bear_strength}. '
+                                  f'Sizing: {sizing}'),
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'reason':  'DB_WRITE_ERROR',
+            'message': str(e),
+        }), 500
+
+
+@app.route('/api/research/list', methods=['GET'])
+def api_research_list():
+    """Return list of existing research files for a ticker or all tickers."""
+    import glob as _glob
+    ticker = request.args.get('ticker', '').upper().strip()
+    research_dir = str(HOME / 'Documents/Trading Vault/04_Research')
+    pattern = os.path.join(research_dir,
+                           f"{ticker}_research_*.xlsx" if ticker else "*_research_*.xlsx")
+    files = sorted(_glob.glob(pattern), reverse=True)
+    result = [{'filename': os.path.basename(f),
+               'ticker': os.path.basename(f).split('_research_')[0],
+               'date': os.path.basename(f).split('_research_')[1].replace('.xlsx',''),
+               'path': f}
+              for f in files]
+    return jsonify({'files': result, 'count': len(result)})
+
+
+@app.route('/api/research/open', methods=['GET'])
+def api_research_open():
+    """Open a research Excel file with the system default application."""
+    import subprocess as _sp
+    path = request.args.get('path', '')
+    # Security: must be inside 04_Research
+    safe_dir = str(HOME / 'Documents/Trading Vault/04_Research')
+    if not path.startswith(safe_dir) or '..' in path:
+        return jsonify({'error': 'Invalid path'}), 400
+    if not os.path.exists(path):
+        return jsonify({'error': 'File not found'}), 404
+    try:
+        _sp.Popen(['xdg-open', path])
+        return jsonify({'success': True, 'path': path})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/candle_trigger')
 def api_candle_trigger():
     """Check if ATH trigger is live right now."""

@@ -692,6 +692,40 @@
           </div>
         </div>
 
+        <!-- Research Package — Progress Area -->
+        <div id="research-pkg-area" style="margin-top:12px;display:none">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <div style="font-size:11px;color:#f5a623;font-weight:700">📋 RESEARCH PACKAGE</div>
+            <span id="research-pkg-ticker" style="font-size:11px;color:#c9d1d9;font-weight:700"></span>
+          </div>
+          <div id="research-pkg-log" style="background:#0d1117;border:1px solid var(--border);border-radius:4px;padding:8px;font-family:monospace;font-size:10px;color:#8b949e;min-height:40px;max-height:180px;overflow-y:auto"></div>
+          <div id="research-pkg-actions" style="display:none;margin-top:6px;display:flex;gap:6px">
+            <button id="research-pkg-open-btn" class="btn-muted"
+                    style="font-size:11px;padding:3px 12px;border-color:#f5a623;color:#f5a623"
+                    onclick="openResearchFile()">📂 Open File</button>
+          </div>
+        </div>
+
+        <!-- Ad-hoc Research Box -->
+        <div style="margin-top:14px;padding:10px;background:#0d1117;border:1px solid #f5a62333;border-radius:6px">
+          <div style="font-size:11px;color:#f5a623;font-weight:700;margin-bottom:6px">📋 AD-HOC RESEARCH</div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:6px">Generate a research package for any ticker — not just current scan results.</div>
+          <div style="display:flex;gap:6px">
+            <input type="text" id="adhoc-research-sym"
+                   placeholder="Ticker (e.g. NVDA)"
+                   style="width:120px;font-size:11px;background:#161b22;border:1px solid var(--border);border-radius:4px;padding:4px 8px;color:#c9d1d9;text-transform:uppercase"
+                   onkeydown="if(event.key==='Enter') generateResearchPackage(document.getElementById('adhoc-research-sym').value)">
+            <button class="btn-muted" style="font-size:11px;padding:4px 12px;border-color:#f5a623;color:#f5a623"
+                    onclick="generateResearchPackage(document.getElementById('adhoc-research-sym').value)">
+              📋 Research
+            </button>
+            <button class="btn-muted" style="font-size:11px;padding:4px 12px;border-color:#3fb950;color:#3fb950"
+                    onclick="logToTracker(document.getElementById('adhoc-research-sym').value)">
+              📝 Log to Tracker
+            </button>
+          </div>
+        </div>
+
         <!-- Trajectory Inventory -->
         <div style="font-size:11px;color:var(--muted);font-weight:700;margin:14px 0 6px">🧬 TRAJECTORY INVENTORY</div>
         <div style="display:flex;gap:6px;margin-bottom:8px">
@@ -1981,6 +2015,149 @@ socket.on('hermes_proactive', d => {
   }
 });
 
+// ── Research Package SocketIO listener ────────────────────────────────────────
+let _researchFilePath = null;
+
+socket.on('research_progress', d => {
+  const area  = document.getElementById('research-pkg-area');
+  const log   = document.getElementById('research-pkg-log');
+  const tkEl  = document.getElementById('research-pkg-ticker');
+  const acts  = document.getElementById('research-pkg-actions');
+
+  if (!area) return;
+  area.style.display = 'block';
+  if (tkEl) tkEl.textContent = d.ticker || '';
+
+  if (log) {
+    const line = document.createElement('div');
+    line.style.cssText = 'padding:1px 0;white-space:pre-wrap;';
+    if (d.status === 'complete') {
+      line.style.color = '#3fb950';
+      _researchFilePath = d.path || null;
+      if (acts) { acts.style.display = 'flex'; }
+    } else if (d.status === 'error') {
+      line.style.color = '#f85149';
+    } else {
+      line.style.color = '#8b949e';
+    }
+    line.textContent = d.msg || '';
+    log.appendChild(line);
+    log.scrollTop = log.scrollHeight;
+  }
+});
+
+// ── generateResearchPackage — called by card buttons + ad-hoc box ─────────────
+function generateResearchPackage(ticker, price) {
+  ticker = (ticker || '').trim().toUpperCase();
+  if (!ticker) { alert('Enter a ticker first.'); return; }
+
+  const area = document.getElementById('research-pkg-area');
+  const log  = document.getElementById('research-pkg-log');
+  const acts = document.getElementById('research-pkg-actions');
+  const tkEl = document.getElementById('research-pkg-ticker');
+  _researchFilePath = null;
+
+  if (area) { area.style.display = 'block'; }
+  if (log)  { log.innerHTML = ''; }
+  if (acts) { acts.style.display = 'none'; }
+  if (tkEl) { tkEl.textContent = ticker; }
+
+  // Scroll scanner tab to show the progress area
+  const scannerView = document.getElementById('view-scanner');
+  if (scannerView) scannerView.scrollTop = scannerView.scrollHeight;
+
+  fetch('/api/research/generate', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ ticker: ticker, entry_price: price || null }),
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (!data.success) {
+      if (log) {
+        const line = document.createElement('div');
+        line.style.color = '#f85149';
+        line.textContent = '❌ ' + (data.error || 'Unknown error');
+        log.appendChild(line);
+      }
+    }
+    // Progress comes via SocketIO research_progress events
+  })
+  .catch(err => {
+    if (log) {
+      const line = document.createElement('div');
+      line.style.color = '#f85149';
+      line.textContent = '❌ Network error: ' + err.message;
+      log.appendChild(line);
+    }
+  });
+}
+
+// ── logToTracker — reads bear case from saved Excel via Flask route ────────────
+function logToTracker(ticker, price) {
+  ticker = (ticker || '').trim().toUpperCase();
+  if (!ticker) { alert('Enter a ticker first.'); return; }
+
+  const log = document.getElementById('research-pkg-log');
+  const area = document.getElementById('research-pkg-area');
+  const tkEl = document.getElementById('research-pkg-ticker');
+
+  if (area) area.style.display = 'block';
+  if (tkEl) tkEl.textContent = ticker;
+
+  const checking = document.createElement('div');
+  checking.style.color = '#f5a623';
+  checking.textContent = `⏳ ${ticker}: Checking bear case in Excel...`;
+  if (log) log.appendChild(checking);
+
+  fetch('/api/research/log', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ ticker: ticker, entry_price: price || null }),
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (log) {
+      const line = document.createElement('div');
+      if (data.success) {
+        line.style.color = '#3fb950';
+        line.textContent = `✅ Logged ${ticker} — Bear case: ${data.bear_case_strength}. ${data.sizing}`;
+      } else if (data.reason === 'BEAR_CASE_INCOMPLETE') {
+        line.style.color = '#f85149';
+        line.textContent = `🔒 INCOMPLETE — Open the Excel and fill: ${(data.missing_fields||[]).join('; ')}`;
+      } else if (data.reason === 'NO_RESEARCH_FILE') {
+        line.style.color = '#f85149';
+        line.textContent = `❌ No research file for ${ticker}. Click 📋 Research Package first.`;
+      } else if (data.reason === 'ALREADY_TRACKED') {
+        line.style.color = '#f5a623';
+        line.textContent = `⚠ ${data.message}`;
+      } else {
+        line.style.color = '#f85149';
+        line.textContent = `❌ ${data.message || data.reason}`;
+      }
+      if (checking.parentNode) checking.remove();
+      log.appendChild(line);
+      log.scrollTop = log.scrollHeight;
+    }
+  })
+  .catch(err => {
+    if (log) {
+      const line = document.createElement('div');
+      line.style.color = '#f85149';
+      line.textContent = '❌ Network error: ' + err.message;
+      if (checking.parentNode) checking.remove();
+      log.appendChild(line);
+    }
+  });
+}
+
+// ── openResearchFile — opens the generated Excel ──────────────────────────────
+function openResearchFile() {
+  if (_researchFilePath) {
+    window.open('/api/research/open?path=' + encodeURIComponent(_researchFilePath), '_blank');
+  }
+}
+
 socket.on('trades_executed_batch', d => {
   // Hermes just placed real orders — wait for Alpaca to settle then refresh
   // Debounce: cancel any pending refresh and reschedule
@@ -2563,7 +2740,7 @@ function _renderMainScanner(data) {
           ${c.pattern_type} · $${c.price.toFixed(2)} · Hold ${c.hold_min}-${c.hold_max} months · ${c.fidelity_accts} Fidelity accts
         </div>
         <div style="font-size:10px;color:var(--muted);margin-bottom:6px">${(c.signals||[]).slice(0,5).join(' · ')}</div>
-        <div style="display:flex;gap:6px">
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
           <button class="btn-green" style="font-size:11px;padding:3px 12px"
             onclick="document.getElementById('chat-in').value='Buy $5 ${c.sym}. Pattern: ${c.pattern_type}. Hold ${c.hold_min}-${c.hold_max} months.';sendChat()">
             ⚡ Buy $5
@@ -2571,6 +2748,14 @@ function _renderMainScanner(data) {
           <button class="btn-muted" style="font-size:11px;padding:3px 12px"
             onclick="document.getElementById('chat-in').value='Write a 3 sentence bear case for ${c.sym} — assume it goes to zero in 24 months, what is the most plausible path?';sendChat()">
             🐻 Bear Case
+          </button>
+          <button class="btn-muted" style="font-size:11px;padding:3px 12px;border-color:#f5a623;color:#f5a623"
+            onclick="generateResearchPackage('${c.sym}', ${c.price})">
+            📋 Research Package
+          </button>
+          <button class="btn-muted" style="font-size:11px;padding:3px 12px;border-color:#3fb950;color:#3fb950"
+            onclick="logToTracker('${c.sym}', ${c.price})">
+            📝 Log to Tracker
           </button>
         </div>
       </div>`).join('');
@@ -2581,7 +2766,7 @@ function _renderMainScanner(data) {
     t2.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:4px">None</div>';
   } else {
     t2.innerHTML = '<table style="width:100%;font-size:11px;border-collapse:collapse">' +
-      '<tr style="color:var(--muted);border-bottom:1px solid var(--border)"><th style="padding:4px;text-align:left">Symbol</th><th>Pattern</th><th>Price</th><th>Conv</th><th>Hold</th><th>Accts</th></tr>' +
+      '<tr style="color:var(--muted);border-bottom:1px solid var(--border)"><th style="padding:4px;text-align:left">Symbol</th><th>Pattern</th><th>Price</th><th>Conv</th><th>Hold</th><th>Accts</th><th>Actions</th></tr>' +
       data.tier2.map(c => `<tr style="border-bottom:1px solid var(--border)">
         <td style="padding:5px;color:#f5a623;font-weight:700">${c.sym}</td>
         <td style="padding:5px;color:var(--muted)">${c.pattern_type}</td>
@@ -2589,6 +2774,12 @@ function _renderMainScanner(data) {
         <td style="padding:5px">${c.conviction_score}/20</td>
         <td style="padding:5px">${c.hold_min}-${c.hold_max}mo</td>
         <td style="padding:5px">${c.fidelity_accts}</td>
+        <td style="padding:5px">
+          <button class="btn-muted" style="font-size:9px;padding:2px 6px;border-color:#f5a623;color:#f5a623"
+            onclick="generateResearchPackage('${c.sym}', ${c.price})">📋</button>
+          <button class="btn-muted" style="font-size:9px;padding:2px 6px;border-color:#3fb950;color:#3fb950;margin-left:2px"
+            onclick="logToTracker('${c.sym}', ${c.price})">📝</button>
+        </td>
       </tr>`).join('') + '</table>';
   }
 
