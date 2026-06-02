@@ -5423,7 +5423,8 @@ def api_picks_list():
             SELECT s.symbol, s.date_picked, s.price_at_pick, s.pattern_type,
                    s.stage0_score, s.hold_min_months, s.hold_max_months,
                    s.outcome, s.notes, s.bucket, s.catalyst, s.fidelity_accounts,
-                   s.gate_status, s.bear_case_strength, s.research_file
+                   s.gate_status, s.bear_case_strength, s.research_file,
+                   s.axis1, s.axis2, s.axis3, s.cycle_data_json, s.current_cycle
             FROM signals s
             WHERE s.outcome = 'PENDING'
             ORDER BY s.bucket DESC, s.date_picked DESC, s.stage0_score DESC
@@ -5505,11 +5506,11 @@ def api_picks_list():
             'entry_tier': entry_tier,
             'setup_type': setup_type,
             'opm_flag': False,
-            'axis1': None,
-            'axis2': None,
-            'axis3': None,
-            'current_cycle': None,
-            'cycle_data': [],
+            'axis1': r['axis1'],
+            'axis2': r['axis2'],
+            'axis3': r['axis3'],
+            'current_cycle': r['current_cycle'],
+            'cycle_data': json.loads(r['cycle_data_json']) if r['cycle_data_json'] else {},
         })
     return jsonify({'picks': picks})
 
@@ -5646,6 +5647,30 @@ def api_picks_score(sym):
     elif isinstance(cycle_data, list) and cycle_data:
         current_cycle = cycle_data[-1].get('cycle_label', '') if isinstance(cycle_data[-1], dict) else ''
 
+    axis1 = found.get('axis1', found.get('technical_score'))
+    axis2 = found.get('axis2', found.get('business_score', found.get('edgar_score')))
+    axis3 = found.get('axis3', found.get('catalyst_score'))
+
+    # ── Persist score back to signal_tracker.db so it survives tab switches ──
+    try:
+        import sqlite3 as _sq, json as _js, datetime as _dt
+        _DB = str(Path.home() / 'Documents' / 'Trading Vault' / 'signal_tracker.db')
+        _conn = _sq.connect(_DB)
+        _conn.execute('''UPDATE signals SET
+            axis1=?, axis2=?, axis3=?,
+            cycle_data_json=?, current_cycle=?, scored_at=?
+            WHERE symbol=? AND outcome='PENDING'
+        ''', (
+            axis1, axis2, axis3,
+            _js.dumps(cycle_data), current_cycle,
+            _dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),
+            sym
+        ))
+        _conn.commit()
+        _conn.close()
+    except Exception as _pe:
+        pass  # don't block the response if DB write fails
+
     return jsonify({
         'sym': sym,
         'conviction_score': found.get('conviction_score', found.get('conviction', 0)),
@@ -5656,9 +5681,9 @@ def api_picks_score(sym):
         'entry_strategy': found.get('entry_strategy', ''),
         'hold_min': found.get('hold_min', found.get('hold_min_months', 3)),
         'hold_max': found.get('hold_max', found.get('hold_max_months', 9)),
-        'axis1': found.get('axis1', found.get('technical_score')),
-        'axis2': found.get('axis2', found.get('business_score', found.get('edgar_score'))),
-        'axis3': found.get('axis3', found.get('catalyst_score')),
+        'axis1': axis1,
+        'axis2': axis2,
+        'axis3': axis3,
         'gate_pass': found.get('stage0_gate_pass', found.get('gate_pass', found.get('gate_status'))),
         'gate_notes': found.get('gate_notes', ''),
         'signals': found.get('signals', []),
