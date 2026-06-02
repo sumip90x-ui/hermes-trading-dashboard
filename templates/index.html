@@ -1229,7 +1229,7 @@
       <!-- ══════════════════════════════════════════════════════ -->
       <!-- PICKS TAB                                             -->
       <!-- ══════════════════════════════════════════════════════ -->
-      <div id="view-picks" style="display:none; flex:1; min-height:0; overflow-y:auto; padding:12px; background:var(--bg);">
+      <div id="view-picks" style="display:none; flex:1; min-height:0; overflow-y:auto; padding:12px; background:var(--bg); width:100%; box-sizing:border-box;">
         <!-- Header bar -->
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
           <span style="font-size:13px;font-weight:700;color:#00ff88;">⚡ STAGE 0 PICKS</span>
@@ -1247,7 +1247,7 @@
           <span class="picks-sort-pill" data-sort="setup" onclick="setPicksSort('setup',this)">Setup Type</span>
         </div>
         <!-- Cards container -->
-        <div id="picks-list" style="display:flex;flex-direction:column;gap:8px;">
+        <div id="picks-list" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(380px,1fr)); gap:8px; width:100%;">
           <div style="color:var(--muted);font-size:12px;padding:20px;text-align:center;">Loading picks...</div>
         </div>
         <!-- Prefilter modal -->
@@ -3915,7 +3915,7 @@ function switchChart(view, el) {
     const p = document.getElementById(`view-${v}`);
     if (p) {
       if (v === view) {
-        p.style.display = (v === 'priority' || v === 'picks') ? 'flex' : '';
+        p.style.display = (v === 'priority') ? 'flex' : (v === 'picks') ? 'block' : '';
       } else {
         p.style.display = 'none';
       }
@@ -7134,7 +7134,7 @@ function launchMiroShark() {
 
     function section(label, color, items) {
       if (!items.length) return '';
-      return '<div style="font-size:10px;color:' + color + ';font-weight:700;padding:4px 0;margin-top:8px;letter-spacing:1px;">' + label + ' (' + items.length + ')</div>' +
+      return '<div style="font-size:10px;color:' + color + ';font-weight:700;padding:4px 0;margin-top:8px;letter-spacing:1px;grid-column:1/-1;">' + label + ' (' + items.length + ')</div>' +
         items.map(buildCard).join('');
     }
 
