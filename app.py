@@ -5380,6 +5380,257 @@ def api_markets_quote():
         log.error(f'[markets/quote] {sym}: {e}')
         return jsonify({'error': str(e), 'sym': sym}), 500
 
+# ── PICKS Tab ───────────────────────────────────────────────────────────────────
+
+@app.route('/api/picks/list')
+def api_picks_list():
+    """Return all tracked picks from signal_tracker.db enriched with live prices."""
+    import sqlite3, requests as req, datetime as dt
+    DB_PATH = Path.home() / 'Documents' / 'Trading Vault' / 'signal_tracker.db'
+    DATA_URL = 'https://data.alpaca.markets/v2/stocks/trades/latest'
+    hdrs = {'APCA-API-KEY-ID': KEY, 'APCA-API-SECRET-KEY': SECRET}
+
+    try:
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute('''
+            SELECT s.symbol, s.date_picked, s.price_at_pick, s.pattern_type,
+                   s.stage0_score, s.hold_min_months, s.hold_max_months,
+                   s.outcome, s.notes, s.bucket, s.catalyst, s.fidelity_accounts,
+                   s.gate_status, s.bear_case_strength, s.research_file
+            FROM signals s
+            WHERE s.outcome = 'PENDING'
+            ORDER BY s.bucket DESC, s.date_picked DESC, s.stage0_score DESC
+        ''').fetchall()
+        conn.close()
+    except Exception as e:
+        return jsonify({'error': str(e), 'picks': []})
+
+    if not rows:
+        return jsonify({'picks': []})
+
+    syms = list({r['symbol'] for r in rows})
+    sym_prices = {}
+    try:
+        resp = req.get(DATA_URL, params={'symbols': ','.join(syms)},
+                       headers=hdrs, timeout=8)
+        if resp.ok:
+            trades = resp.json().get('trades', {})
+            sym_prices = {s: v['p'] for s, v in trades.items() if 'p' in v}
+    except Exception:
+        pass
+
+    today = dt.date.today()
+    picks = []
+    for r in rows:
+        sym = r['symbol']
+        try:
+            picked_dt = dt.date.fromisoformat(str(r['date_picked'])[:10])
+        except Exception:
+            picked_dt = today
+        days_held = (today - picked_dt).days
+        entry = r['price_at_pick'] or 0
+        current = sym_prices.get(sym)
+        pct_change = ((current - entry) / entry * 100) if (current and entry) else None
+        hold_min = r['hold_min_months'] or 3
+        hold_target_days = hold_min * 30
+        hold_progress = min(100, round(days_held / hold_target_days * 100, 1)) if hold_target_days else 0
+        notes_raw = r['notes'] or ''
+        target = compute_price_target(sym)
+        score = r['stage0_score'] or 0
+        if score >= 10:
+            entry_tier = 'A'
+        elif score >= 7:
+            entry_tier = 'B'
+        else:
+            entry_tier = 'C'
+        pattern = (r['pattern_type'] or '').upper()
+        if pattern in ('FEAR_BASE', 'CYCLE_BOTTOM', 'AI_INFRASTRUCTURE'):
+            setup_type = 'EXPLOSIVE'
+        elif pattern in ('VALUE_PLAY', 'MISPRICED_INCUMBENT', 'DEMAND_FLOOR'):
+            setup_type = 'VALUE'
+        else:
+            setup_type = 'WATCH'
+        picks.append({
+            'symbol': sym,
+            'date_picked': str(r['date_picked'])[:10],
+            'price_at_pick': round(entry, 2),
+            'pattern_type': pattern,
+            'stage0_score': score,
+            'hold_min_months': hold_min,
+            'hold_max_months': r['hold_max_months'] or hold_min * 3,
+            'current_price': round(current, 2) if current else None,
+            'pct_change': round(pct_change, 2) if pct_change is not None else None,
+            'days_held': days_held,
+            'hold_target_days': hold_target_days,
+            'hold_progress_pct': hold_progress,
+            'status': r['outcome'] or 'PENDING',
+            'bucket': r['bucket'] or 'CLASSIFIED',
+            'catalyst': (r['catalyst'] or '')[:120],
+            'fidelity_accounts': r['fidelity_accounts'] or 0,
+            'notes': notes_raw[:60],
+            'target_conservative': target['conservative'] if target else None,
+            'target_base': target['base'] if target else None,
+            'target_bull': target['bull'] if target else None,
+            'target_prior_peak': target['prior_peak'] if target else None,
+            'gate_status': r['gate_status'] or 'LEGACY',
+            'bear_case_strength': r['bear_case_strength'],
+            'research_file': r['research_file'],
+            'entry_tier': entry_tier,
+            'setup_type': setup_type,
+            'opm_flag': False,
+            'axis1': None,
+            'axis2': None,
+            'axis3': None,
+            'current_cycle': None,
+            'cycle_data': [],
+        })
+    return jsonify({'picks': picks})
+
+
+@app.route('/api/picks/prefilter')
+def api_picks_prefilter():
+    """Fast price-gate pre-scan against the full Fidelity CSV."""
+    import csv, glob as _glob
+    ETF_SET = {'SGOL','QQQ','DIA','VOO','SPY','GLD','SLV','SMH','XLK','XLP','XLV','XLY','XLB','XLF','XLU','XLI','XLE','IWM','TLT','HYG'}
+    try:
+        csv_dir = Path.home() / 'Downloads'
+        matches = sorted(csv_dir.glob('Portfolio_Positions_*.csv'), reverse=True)
+        if not matches:
+            return jsonify({'candidates': [], 'count': 0, 'scanned': 0, 'error': 'No Portfolio_Positions_*.csv found in Downloads'})
+        syms = []
+        with open(matches[0], newline='') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                sym = (row.get('Symbol') or '').strip().upper()
+                if sym and sym not in ETF_SET:
+                    syms.append(sym)
+        syms = list(dict.fromkeys(syms))  # unique, preserve order
+    except Exception as e:
+        return jsonify({'candidates': [], 'count': 0, 'scanned': 0, 'error': str(e)})
+
+    if not syms:
+        return jsonify({'candidates': [], 'count': 0, 'scanned': 0})
+
+    # Check which are already tracked
+    try:
+        import sqlite3
+        DB_PATH = Path.home() / 'Documents' / 'Trading Vault' / 'signal_tracker.db'
+        conn = sqlite3.connect(str(DB_PATH))
+        tracked = {row[0] for row in conn.execute("SELECT DISTINCT symbol FROM signals WHERE outcome='PENDING'").fetchall()}
+        conn.close()
+    except Exception:
+        tracked = set()
+
+    syms = [s for s in syms if s not in tracked]
+    if not syms:
+        return jsonify({'candidates': [], 'count': 0, 'scanned': len(syms), 'error': 'All symbols already tracked'})
+
+    # Fetch snapshots from Alpaca
+    import requests as req
+    hdrs = {'APCA-API-KEY-ID': KEY, 'APCA-API-SECRET-KEY': SECRET}
+    candidates = []
+    try:
+        chunks = [syms[i:i+200] for i in range(0, len(syms), 200)]
+        for chunk in chunks:
+            resp = req.get('https://data.alpaca.markets/v2/stocks/snapshots',
+                           params={'symbols': ','.join(chunk)}, headers=hdrs, timeout=10)
+            if not resp.ok:
+                continue
+            data = resp.json().get('snapshots', {})
+            for sym in chunk:
+                snap = data.get(sym)
+                if not snap:
+                    continue
+                prev_close = snap.get('prevDailyBar', {}).get('c')
+                current_price = snap.get('dailyBar', {}).get('c') or snap.get('latestTrade', {}).get('p')
+                if prev_close and current_price:
+                    change_pct = ((current_price - prev_close) / prev_close) * 100
+                    if -8 <= change_pct <= 0:
+                        candidates.append({
+                            'sym': sym,
+                            'price': round(current_price, 2),
+                            'change_pct': round(change_pct, 2),
+                        })
+                        if len(candidates) >= 30:
+                            break
+            if len(candidates) >= 30:
+                break
+    except Exception:
+        return jsonify({'candidates': [], 'count': 0, 'scanned': len(syms), 'error': 'Alpaca snapshot call failed'})
+
+    return jsonify({'candidates': candidates, 'count': len(candidates), 'scanned': len(syms)})
+
+
+@app.route('/api/picks/score/<sym>')
+def api_picks_score(sym):
+    """Run the full scanner on one symbol and return structured score data."""
+    import subprocess as _sp, json as _json
+    sym = sym.upper().strip()
+    try:
+        result = _sp.run(
+            ['python3', str(Path.home() / 'Documents' / 'EDGAR' / 'scanner_engine.py'), '--sym', sym, '--json'],
+            capture_output=True, text=True, timeout=90
+        )
+        if result.returncode != 0:
+            return jsonify({'error': f'Scanner failed for {sym}: {result.stderr[:200]}'})
+        data = _json.loads(result.stdout)
+    except _sp.TimeoutExpired:
+        return jsonify({'error': f'Scanner timed out for {sym}'})
+    except Exception as e:
+        return jsonify({'error': f'Scanner failed for {sym}: {str(e)}'})
+
+    # Find the candidate for this symbol
+    candidates = data.get('candidates', data.get('results', []))
+    if isinstance(candidates, dict):
+        candidates = [candidates.get(sym, {})]
+    found = None
+    for c in candidates:
+        if isinstance(c, dict) and c.get('symbol', '').upper() == sym:
+            found = c
+            break
+    if not found:
+        return jsonify({'error': f'{sym} not found in scanner output'})
+
+    score = found.get('stage0_score', found.get('score', 0)) or 0
+    if score >= 10:
+        entry_tier = 'A'
+    elif score >= 7:
+        entry_tier = 'B'
+    else:
+        entry_tier = 'C'
+    pattern = (found.get('pattern_type', found.get('pattern', '')) or '').upper()
+    if pattern in ('FEAR_BASE', 'CYCLE_BOTTOM', 'AI_INFRASTRUCTURE'):
+        setup_type = 'EXPLOSIVE'
+    elif pattern in ('VALUE_PLAY', 'MISPRICED_INCUMBENT', 'DEMAND_FLOOR'):
+        setup_type = 'VALUE'
+    else:
+        setup_type = 'WATCH'
+
+    return jsonify({
+        'sym': sym,
+        'conviction_score': found.get('conviction_score', found.get('conviction', 0)),
+        'stage0_score': score,
+        'entry_tier': entry_tier,
+        'pattern': pattern,
+        'setup_type': setup_type,
+        'entry_strategy': found.get('entry_strategy', ''),
+        'hold_min': found.get('hold_min_months', found.get('hold_min', 3)),
+        'hold_max': found.get('hold_max_months', found.get('hold_max', 9)),
+        'axis1': found.get('axis1', found.get('technical_score')),
+        'axis2': found.get('axis2', found.get('business_score')),
+        'axis3': found.get('axis3', found.get('catalyst_score')),
+        'gate_pass': found.get('gate_pass', found.get('gate_status')),
+        'gate_notes': found.get('gate_notes', ''),
+        'signals': found.get('signals', []),
+        'cycle_data': found.get('cycle_data', []),
+        'current_cycle': found.get('current_cycle', ''),
+        'drawdown': found.get('drawdown', found.get('max_drawdown')),
+        'm_harsi': found.get('m_harsi', found.get('harsi_score')),
+        'm_price': found.get('m_price', found.get('model_price')),
+    })
+
+
 # ── Hermes PTY Terminal ────────────────────────────────────────────────────────
 # Spawns a real pty running the hermes CLI and bridges it to the browser via
 # SocketIO events on the /pty namespace.  Each browser connection gets its own

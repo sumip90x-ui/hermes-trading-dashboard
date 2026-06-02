@@ -429,6 +429,19 @@
     border:1px solid #252A36; color:var(--muted); border-radius:6px; cursor:pointer;
   }
   #fc-modal .fc-cancel-btn:hover { background:#1A1E2B; }
+
+  /* Picks tab */
+  .picks-sort-pill { font-size:10px; padding:2px 10px; border-radius:10px; border:1px solid var(--border); color:var(--muted); cursor:pointer; }
+  .picks-sort-pill.active { border-color:#00ff88; color:#00ff88; background:#00ff8811; }
+  .picks-card { background:var(--panel); border-radius:6px; padding:10px 12px; border-left:3px solid var(--border); position:relative; }
+  .picks-card.tier-a { border-left-color:#00ff88; }
+  .picks-card.tier-b { border-left-color:#ffaa00; }
+  .picks-card.tier-c { border-left-color:#4a9eff; }
+  .picks-cycle-dot { display:inline-block; width:10px; height:10px; border-radius:50%; border:1px solid var(--muted); margin:0 2px; vertical-align:middle; }
+  .picks-cycle-dot.done { background:#00ff88; border-color:#00ff88; }
+  .picks-cycle-dot.current { background:#ffaa00; border-color:#ffaa00; animation:pulse 1s infinite; }
+  .picks-axis-bar { height:4px; border-radius:2px; background:var(--border); margin:2px 0; overflow:hidden; }
+  .picks-axis-bar-fill { height:100%; border-radius:2px; transition:width 0.3s; }
 </style>
 </head>
 <body>
@@ -605,6 +618,7 @@
       <div class="tab" id="tab-research" onclick="switchChart('research',this)">Research</div>
       <div class="tab" id="tab-portfolio" onclick="switchChart('portfolio',this)">📊 Portfolio</div>
       <div class="tab" id="tab-priority" onclick="switchChart('priority',this)">🎯 Priority Research</div>
+      <div class="tab" id="tab-picks" onclick="switchChart('picks',this)">⚡ Picks</div>
     </div>
     <div class="chart-body">
       <!-- Intraday equity curve -->
@@ -1211,6 +1225,45 @@
 
         </div>
       </div><!-- end view-priority -->
+
+      <!-- ══════════════════════════════════════════════════════ -->
+      <!-- PICKS TAB                                             -->
+      <!-- ══════════════════════════════════════════════════════ -->
+      <div id="view-picks" style="display:none; flex:1; min-height:0; overflow-y:auto; padding:12px; background:var(--bg);">
+        <!-- Header bar -->
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+          <span style="font-size:13px;font-weight:700;color:#00ff88;">⚡ STAGE 0 PICKS</span>
+          <span id="picks-regime-badge" style="font-size:10px;color:var(--muted);font-family:monospace;"></span>
+          <div style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+            <span id="picks-new-badge" style="display:none;background:#1a3a1a;border:1px solid #00ff88;color:#00ff88;font-size:10px;padding:2px 8px;border-radius:3px;cursor:pointer;" onclick="openPrefilter()">🔍 NEW CANDIDATES</span>
+            <button onclick="loadPicksList()" style="background:var(--panel);border:1px solid var(--border);color:var(--text);font-size:10px;padding:3px 10px;border-radius:3px;cursor:pointer;">↻ Refresh</button>
+          </div>
+        </div>
+        <!-- Sort pills -->
+        <div style="display:flex;gap:6px;margin-bottom:10px;">
+          <span class="picks-sort-pill active" data-sort="tier" onclick="setPicksSort('tier',this)">Entry Tier</span>
+          <span class="picks-sort-pill" data-sort="score" onclick="setPicksSort('score',this)">Score</span>
+          <span class="picks-sort-pill" data-sort="pnl" onclick="setPicksSort('pnl',this)">P&amp;L</span>
+          <span class="picks-sort-pill" data-sort="setup" onclick="setPicksSort('setup',this)">Setup Type</span>
+        </div>
+        <!-- Cards container -->
+        <div id="picks-list" style="display:flex;flex-direction:column;gap:8px;">
+          <div style="color:var(--muted);font-size:12px;padding:20px;text-align:center;">Loading picks...</div>
+        </div>
+        <!-- Prefilter modal -->
+        <div id="picks-prefilter-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9000;align-items:center;justify-content:center;">
+          <div style="background:var(--panel);border:1px solid var(--border);border-radius:8px;width:500px;max-width:95vw;max-height:80vh;display:flex;flex-direction:column;">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border);">
+              <span style="font-weight:700;color:#00ff88;font-size:12px;">🔍 NEW CANDIDATES — Fast Pre-Filter</span>
+              <button onclick="closePrefilter()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;">✕</button>
+            </div>
+            <div style="padding:10px 14px;font-size:10px;color:var(--muted);">Stocks from your Fidelity CSV passing the 3 price gates (pulling back -8% to 0%, not already tracked). Click any to run a full scan.</div>
+            <div id="picks-prefilter-results" style="overflow-y:auto;flex:1;padding:8px 14px;">
+              <div style="color:var(--muted);font-size:11px;">Running pre-filter...</div>
+            </div>
+          </div>
+        </div>
+      </div>
 
   </div><!-- end chart-panel -->
 
@@ -3858,11 +3911,11 @@ function _renderCandidates(cands) {
 
 // ── Tab switching ─────────────────────────────────────────────────────────
 function switchChart(view, el) {
-  ['intraday','scanner','positions','research','portfolio','priority'].forEach(v => {
+  ['intraday','scanner','positions','research','portfolio','priority','picks'].forEach(v => {
     const p = document.getElementById(`view-${v}`);
     if (p) {
       if (v === view) {
-        p.style.display = (v === 'priority') ? 'flex' : '';
+        p.style.display = (v === 'priority' || v === 'picks') ? 'flex' : '';
       } else {
         p.style.display = 'none';
       }
@@ -3875,7 +3928,7 @@ function switchChart(view, el) {
   const rightPanel = document.querySelector('.right-panel');
   const chartPanel = document.querySelector('.chart-panel');
   const buyPanel   = document.querySelector('.buy-panel');
-  const fullWidth  = view === 'research' || view === 'portfolio' || view === 'priority';
+  const fullWidth  = view === 'research' || view === 'portfolio' || view === 'priority' || view === 'picks';
   const grid = document.querySelector('.grid');
   const chartBody = document.querySelector('.chart-body');
   if (fullWidth) {
@@ -6903,6 +6956,297 @@ function launchMiroShark() {
       setTimeout(_initPty, 300);
     }
   });
+})();
+// ── PICKS TAB ────────────────────────────────────────────────────────────────
+(function(){
+  var _picksData = [];
+  var _picksSort = 'tier';
+
+  function setPicksSort(s, el) {
+    _picksSort = s;
+    document.querySelectorAll('.picks-sort-pill').forEach(p => p.classList.remove('active'));
+    if (el) el.classList.add('active');
+    renderPicksList(_picksData);
+  }
+
+  function loadPicksList() {
+    var el = document.getElementById('picks-list');
+    if (!el) return;
+    el.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:20px;text-align:center;">Loading...</div>';
+    fetch('/api/picks/list', {cache:'no-store'})
+      .then(r => r.json())
+      .then(d => {
+        _picksData = d.picks || [];
+        renderPicksList(_picksData);
+        var rb = document.getElementById('picks-regime-badge');
+        if (rb && d.regime) rb.textContent = 'Regime: ' + d.regime;
+      })
+      .catch(e => { el.innerHTML = '<div style="color:#f85149;padding:20px;">Error: ' + e.message + '</div>'; });
+  }
+
+  function sortPicks(picks) {
+    var copy = picks.slice();
+    if (_picksSort === 'tier') {
+      copy.sort(function(a,b){
+        var ta = a.entry_tier||'C', tb = b.entry_tier||'C';
+        if (ta !== tb) return ta < tb ? -1 : 1;
+        return (b.stage0_score||0) - (a.stage0_score||0);
+      });
+    } else if (_picksSort === 'score') {
+      copy.sort(function(a,b){ return (b.stage0_score||0)-(a.stage0_score||0); });
+    } else if (_picksSort === 'pnl') {
+      copy.sort(function(a,b){ return (b.pct_change||0)-(a.pct_change||0); });
+    } else if (_picksSort === 'setup') {
+      copy.sort(function(a,b){ return (a.setup_type||'').localeCompare(b.setup_type||''); });
+    }
+    return copy;
+  }
+
+  function cycleDots(cycleData, currentCycle) {
+    var labels = ['A','B','C','D','E'];
+    var completed = new Set();
+    var active = null;
+    if (Array.isArray(cycleData)) {
+      cycleData.forEach(function(c) {
+        if (c.status === 'COMPLETED') completed.add(c.label);
+        if (c.status === 'ACTIVE') active = c.label;
+      });
+    }
+    if (!active && currentCycle) active = currentCycle;
+    return labels.map(function(l) {
+      var cls = completed.has(l) ? 'done' : (l === active ? 'current' : '');
+      return '<span class="picks-cycle-dot ' + cls + '" title="Cycle ' + l + '"></span>';
+    }).join('') + (active ? ' <span style="font-size:9px;color:#ffaa00;margin-left:4px;">Cycle ' + (active||'?') + '</span>' : '');
+  }
+
+  function setupBadge(setupType, pattern) {
+    if (setupType === 'EXPLOSIVE') return '<span style="background:#00ff8822;border:1px solid #00ff88;color:#00ff88;font-size:9px;padding:1px 6px;border-radius:3px;">\u{1F680} EXPLOSIVE</span>';
+    if (setupType === 'VALUE') return '<span style="background:#ffaa0022;border:1px solid #ffaa00;color:#ffaa00;font-size:9px;padding:1px 6px;border-radius:3px;">\u23F3 VALUE</span>';
+    return '<span style="background:var(--border);color:var(--muted);font-size:9px;padding:1px 6px;border-radius:3px;">' + (pattern||'WATCH') + '</span>';
+  }
+
+  function tierBadge(tier) {
+    var colors = {A:'#00ff88', B:'#ffaa00', C:'#4a9eff'};
+    var labels = {A:'Tier A \u2014 Start now', B:'Tier B \u2014 Scale in on dips', C:'Tier C \u2014 Gap-down only'};
+    var c = colors[tier]||'#6b7280';
+    return '<span style="color:' + c + ';font-weight:700;font-size:11px;" title="' + (labels[tier]||'') + '">\u25B6 Tier ' + (tier||'?') + '</span>';
+  }
+
+  function axisBar(val, max, color) {
+    var pct = val != null ? Math.round(val/max*100) : 0;
+    return '<div class="picks-axis-bar"><div class="picks-axis-bar-fill" style="width:' + pct + '%;background:' + color + ';"></div></div>';
+  }
+
+  function pnlSpan(pct) {
+    if (pct == null) return '<span style="color:var(--muted)">\u2014</span>';
+    var c = pct >= 0 ? '#00ff88' : '#f85149';
+    return '<span style="color:' + c + ';font-weight:700;">' + (pct>=0?'+':'') + pct.toFixed(1) + '%</span>';
+  }
+
+  function targetRow(p) {
+    if (!p.target_base && !p.target_bull) return '';
+    var bear = p.target_conservative ? '$' + p.target_conservative.toFixed(0) : '\u2014';
+    var base = p.target_base ? '$' + p.target_base.toFixed(0) : '\u2014';
+    var bull = p.target_bull ? '$' + p.target_bull.toFixed(0) : '\u2014';
+    return '<div style="display:flex;gap:12px;margin-top:6px;padding-top:6px;border-top:1px solid var(--border);">' +
+      '<span style="font-size:9px;color:#f85149;">Bear: ' + bear + '</span>' +
+      '<span style="font-size:9px;color:#ffaa00;">Base: ' + base + '</span>' +
+      '<span style="font-size:9px;color:#00ff88;">Bull: ' + bull + '</span>' +
+      '</div>';
+  }
+
+  function opmFlag(p) {
+    if (!p.opm_flag && p.setup_type !== 'COMMODITY_NO_OPM') return '';
+    return '<span style="color:#ffaa00;font-size:9px;" title="COMMODITY: V-recovery discriminator unavailable \u2014 bear case carries more weight">\u26A0 OPM UNCONFIRMED</span> ';
+  }
+
+  function gateIcon(p) {
+    if (p.gate_status === 'BEAR_CASE_COMPLETE') return '<span style="color:#00ff88;font-size:10px;" title="Bear case complete">\u2705</span> ';
+    if (p.gate_status === 'LEGACY') return '<span style="color:#6b7280;font-size:10px;" title="Logged before bear case gate">\uD83D\uDD12</span> ';
+    return '<span style="font-size:10px;">\uD83D\uDD12</span> ';
+  }
+
+  function synthesizedRead(p) {
+    var pattern = p.pattern_type || 'UNKNOWN';
+    var cycle = p.current_cycle || '';
+    var earlyPatterns = {'FEAR_BASE':1,'CYCLE_BOTTOM':1,'AI_INFRASTRUCTURE':1};
+    var earlyFlag = earlyPatterns[pattern] && (cycle==='A'||cycle==='B');
+    var reentryFlag = earlyPatterns[pattern] && (cycle==='C'||cycle==='D'||cycle==='E');
+    if (earlyFlag) return pattern + ' \u00B7 Cycle ' + cycle + ' first base \u2014 full position sizing \u00B7 hold ' + p.hold_min_months + '-' + p.hold_max_months + 'mo';
+    if (reentryFlag) return pattern + ' \u00B7 Cycle ' + cycle + ' re-entry \u2014 size smaller \u00B7 compressed hold ' + Math.round(p.hold_min_months*0.6) + '-' + p.hold_min_months + 'mo';
+    if (pattern && cycle) return pattern + ' \u00B7 Cycle ' + cycle + ' \u00B7 hold ' + p.hold_min_months + '-' + p.hold_max_months + 'mo';
+    return pattern + ' \u00B7 hold ' + (p.hold_min_months||'?') + '-' + (p.hold_max_months||'?') + 'mo';
+  }
+
+  function buildCard(p) {
+    var tier = p.entry_tier || 'C';
+    var tierClass = 'tier-' + tier.toLowerCase();
+    var setupClass = 'setup-' + (p.setup_type||'watch').toLowerCase();
+    var price = p.current_price ? '$' + p.current_price.toFixed(2) : '$' + (p.price_at_pick||0).toFixed(2);
+    var needsScore = !p.axis1 && !p.axis2;
+
+    return '<div class="picks-card ' + tierClass + ' ' + setupClass + '" id="picks-card-' + p.symbol + '">' +
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
+        '<span style="font-size:14px;font-weight:700;color:#88cc88;">' + gateIcon(p) + p.symbol + '</span>' +
+        tierBadge(tier) +
+        setupBadge(p.setup_type, p.pattern_type) +
+        opmFlag(p) +
+        '<span style="margin-left:auto;font-size:12px;">' + pnlSpan(p.pct_change) + '</span>' +
+        '<span style="font-size:11px;color:var(--muted);">' + price + '</span>' +
+      '</div>' +
+      '<div style="margin-bottom:6px;">' +
+        '<div style="margin-bottom:3px;">' + cycleDots(p.cycle_data, p.current_cycle) + '</div>' +
+        '<div style="font-size:10px;color:var(--muted);">' + synthesizedRead(p) + '</div>' +
+      '</div>' +
+      (p.axis1 != null ? (
+        '<div style="display:grid;grid-template-columns:50px 1fr;gap:2px 6px;margin-bottom:4px;font-size:9px;color:var(--muted);">' +
+          '<span>Technical</span>' + axisBar(p.axis1, 3, '#00ff88') +
+          '<span>Business</span>' + axisBar(p.axis2, 5, '#4a9eff') +
+          '<span>Catalyst</span>' + axisBar(p.axis3, 4, '#ffaa00') +
+        '</div>'
+      ) : '') +
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">' +
+        '<span style="font-size:10px;color:var(--muted);">S0 ' + (p.stage0_score||'?') + '/12</span>' +
+        (p.bear_case_strength ? '<span style="font-size:9px;color:' + (p.bear_case_strength==='STRONG'?'#f85149':p.bear_case_strength==='MODERATE'?'#ffaa00':'#6b7280') + ';">Bear: ' + p.bear_case_strength + '</span>' : '') +
+        '<span style="font-size:9px;color:var(--muted);">' + p.days_held + 'd held</span>' +
+        (needsScore ? '<button onclick="scoreOnePick(\'' + p.symbol + '\')" style="margin-left:auto;background:var(--panel);border:1px solid var(--border);color:#6b7280;font-size:9px;padding:2px 8px;border-radius:3px;cursor:pointer;">\u26A1 SCORE IT</button>' :
+          '<button onclick="openResearchFlow(\'' + p.symbol + '\')" style="margin-left:auto;background:var(--panel);border:1px solid #4a9eff;color:#4a9eff;font-size:9px;padding:2px 8px;border-radius:3px;cursor:pointer;">\uD83D\uDCCB RESEARCH</button>') +
+      '</div>' +
+      targetRow(p) +
+    '</div>';
+  }
+
+  function renderPicksList(picks) {
+    var el = document.getElementById('picks-list');
+    if (!el) return;
+    if (!picks || !picks.length) {
+      el.innerHTML = '<div style="color:var(--muted);padding:20px;text-align:center;">No picks tracked yet. Log stocks from the Scanner tab.</div>';
+      return;
+    }
+    var sorted = sortPicks(picks);
+    var tierA = sorted.filter(function(p){ return p.entry_tier==='A'; });
+    var tierB = sorted.filter(function(p){ return p.entry_tier==='B'; });
+    var tierC = sorted.filter(function(p){ return p.entry_tier==='C'; });
+
+    function section(label, color, items) {
+      if (!items.length) return '';
+      return '<div style="font-size:10px;color:' + color + ';font-weight:700;padding:4px 0;margin-top:8px;letter-spacing:1px;">' + label + ' (' + items.length + ')</div>' +
+        items.map(buildCard).join('');
+    }
+
+    if (_picksSort === 'tier') {
+      el.innerHTML = section('\u25B6 TIER A \u2014 ACT NOW', '#00ff88', tierA) +
+                     section('\u25B6 TIER B \u2014 SCALE IN ON DIPS', '#ffaa00', tierB) +
+                     section('\u25B6 TIER C \u2014 GAP-DOWN ONLY', '#4a9eff', tierC);
+    } else {
+      el.innerHTML = sorted.map(buildCard).join('');
+    }
+  }
+
+  function scoreOnePick(sym) {
+    var card = document.getElementById('picks-card-' + sym);
+    if (card) {
+      var btn = card.querySelector('button');
+      if (btn) { btn.textContent = '\u23F3 Scoring...'; btn.disabled = true; }
+    }
+    fetch('/api/picks/score/' + sym, {cache:'no-store'})
+      .then(r => r.json())
+      .then(d => {
+        if (d.error) { alert('Score failed: ' + d.error); return; }
+        _picksData = _picksData.map(function(p) {
+          if (p.symbol !== sym) return p;
+          return Object.assign({}, p, {
+            axis1: d.axis1, axis2: d.axis2, axis3: d.axis3,
+            entry_tier: d.entry_tier || p.entry_tier,
+            setup_type: d.setup_type || p.setup_type,
+            current_cycle: d.current_cycle,
+            cycle_data: d.cycle_data,
+          });
+        });
+        renderPicksList(_picksData);
+      })
+      .catch(function(e){ alert('Score error: ' + e.message); });
+  }
+
+  function openResearchFlow(sym) {
+    var scanTab = document.querySelector('.tab[onclick*="scanner"]');
+    if (scanTab) { switchChart('scanner', scanTab); }
+    setTimeout(function(){
+      var btns = document.querySelectorAll('[onclick*="bearCase(\'' + sym + '\'"]');
+      if (btns.length) btns[0].click();
+    }, 300);
+  }
+
+  function openPrefilter() {
+    var modal = document.getElementById('picks-prefilter-modal');
+    var results = document.getElementById('picks-prefilter-results');
+    if (!modal || !results) return;
+    modal.style.display = 'flex';
+    results.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:8px;">Running fast pre-filter against your Fidelity CSV...</div>';
+    fetch('/api/picks/prefilter', {cache:'no-store'})
+      .then(r => r.json())
+      .then(d => {
+        if (!d.candidates || !d.candidates.length) {
+          results.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:8px;">No new candidates found right now. Scanned ' + (d.scanned||0) + ' symbols.</div>';
+          return;
+        }
+        results.innerHTML = '<div style="font-size:10px;color:var(--muted);margin-bottom:8px;">Found ' + d.candidates.length + ' candidates (from ' + d.scanned + ' scanned). Click to run full scan.</div>' +
+          d.candidates.map(function(c){
+            return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);">' +
+              '<span style="font-weight:700;color:#88cc88;width:60px;">' + c.sym + '</span>' +
+              '<span style="color:var(--text);font-size:11px;">$' + c.price.toFixed(2) + '</span>' +
+              '<span style="color:#f85149;font-size:11px;">' + c.change_pct.toFixed(1) + '%</span>' +
+              '<button onclick="runFullScanFromPicks(\'' + c.sym + '\')" style="margin-left:auto;background:var(--panel);border:1px solid #00ff88;color:#00ff88;font-size:9px;padding:2px 8px;border-radius:3px;cursor:pointer;">Full Scan</button>' +
+            '</div>';
+          }).join('');
+      })
+      .catch(function(e){ results.innerHTML = '<div style="color:#f85149;">Error: ' + e.message + '</div>'; });
+  }
+
+  function closePrefilter() {
+    var modal = document.getElementById('picks-prefilter-modal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  function runFullScanFromPicks(sym) {
+    closePrefilter();
+    var scanTab = document.querySelector('.tab[onclick*="scanner"]');
+    if (scanTab) { switchChart('scanner', scanTab); }
+    setTimeout(function(){
+      var input = document.getElementById('main-scanner-syms');
+      if (input) input.value = sym;
+      if (typeof _startScannerStream === 'function') {
+        _startScannerStream('/api/scanner/progress?syms=' + sym);
+      }
+    }, 200);
+  }
+
+  var _origSC = window.switchChart;
+  window.switchChart = function(view, el) {
+    if (typeof _origSC === 'function') _origSC(view, el);
+    if (view === 'picks') loadPicksList();
+  };
+
+  setTimeout(function(){
+    fetch('/api/picks/prefilter', {cache:'no-store'})
+      .then(r => r.json())
+      .then(d => {
+        var badge = document.getElementById('picks-new-badge');
+        if (badge && d.candidates && d.candidates.length > 0) {
+          badge.textContent = '\uD83D\uDD0D ' + d.candidates.length + ' NEW CANDIDATES';
+          badge.style.display = '';
+        }
+      })
+      .catch(function(){});
+  }, 8000);
+
+  window.scoreOnePick   = scoreOnePick;
+  window.openPrefilter  = openPrefilter;
+  window.closePrefilter = closePrefilter;
+  window.loadPicksList  = loadPicksList;
+  window.setPicksSort   = setPicksSort;
+  window.runFullScanFromPicks = runFullScanFromPicks;
+  window.openResearchFlow = openResearchFlow;
 })();
 </script>
         <div id="sync-modal-overlay" style="
