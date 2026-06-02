@@ -20,15 +20,15 @@
 <style>
   :root {
     --bg:     #060e06;
-    --panel:  #0a1a0a;
+    --panel:  #0a120a;
     --border: #1a3a1a;
-    --green:  #3fb950;
+    --green:  #00ff88;
     --red:    #f85149;
-    --blue:   #58a6ff;
-    --gold:   #d4a017;
-    --text:   #e6edf3;
-    --muted:  #8b949e;
-    --accent: #1f6feb;
+    --blue:   #4a9eff;
+    --gold:   #ffaa00;
+    --text:   #88cc88;
+    --muted:  #446644;
+    --accent: #00cc88;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', monospace; font-size: 13px; }
@@ -334,7 +334,7 @@
   .port-pager-btn:disabled { opacity:.4; cursor:default; }
   /* ── Right panel tab labels ── */
   .rpanel-tabs .tab { padding: 6px 8px; font-size: 11px; display:flex; flex-direction:column; align-items:center; gap:1px; }
-  .rtab-lbl { font-size: 9px; color: #3fb950; font-family: monospace; letter-spacing: .3px; }
+  .rtab-lbl { font-size: 9px; color: #00ff88; font-family: monospace; letter-spacing: .3px; }
   .rpanel-tabs .tab.active .rtab-lbl { color: var(--blue); }
   /* ── Markets widget ── */
   .mkt-range-btn {
@@ -349,8 +349,8 @@
     padding: 6px 8px; display:flex; flex-direction:column; gap:3px;
   }
   .mkt-card-header { display:flex; justify-content:space-between; align-items:center; }
-  .mkt-card-name   { font-size:10px; color:#8b949e; font-family:monospace; }
-  .mkt-card-price  { font-size:13px; font-weight:700; color:#c9d1d9; font-family:monospace; }
+  .mkt-card-name   { font-size:10px; color:#446644; font-family:monospace; }
+  .mkt-card-price  { font-size:13px; font-weight:700; color:#88cc88; font-family:monospace; }
   .mkt-card-chg    { font-size:10px; font-family:monospace; }
   .mkt-card-chg.up   { color: var(--green); }
   .mkt-card-chg.down { color: var(--red); }
@@ -539,20 +539,20 @@
       <span style="color:#ffd700;font-size:13px;font-weight:700;letter-spacing:1px">📖 SESSION NOTES</span>
       <div style="display:flex;gap:8px;align-items:center;">
         <select id="notes-count-select" onchange="loadNotesInModal()"
-          style="background:#0a120a;color:#c9d1d9;border:1px solid #1a3a1a;border-radius:4px;padding:2px 6px;font-size:11px;">
+          style="background:#0a120a;color:#88cc88;border:1px solid #1a3a1a;border-radius:4px;padding:2px 6px;font-size:11px;">
           <option value="3">Last 3</option>
           <option value="5" selected>Last 5</option>
           <option value="10">Last 10</option>
           <option value="20">Last 20</option>
         </select>
         <button onclick="closeReadNotes()"
-          style="background:none;border:none;color:#8b949e;font-size:16px;cursor:pointer;line-height:1">✕</button>
+          style="background:none;border:none;color:#446644;font-size:16px;cursor:pointer;line-height:1">✕</button>
       </div>
     </div>
-    <div id="notes-modal-body" style="overflow-y:auto;padding:12px 16px;flex:1;font-size:12px;color:#c9d1d9;line-height:1.6;">
-      <div style="color:#8b949e;text-align:center;padding:20px">Loading notes...</div>
+    <div id="notes-modal-body" style="overflow-y:auto;padding:12px 16px;flex:1;font-size:12px;color:#88cc88;line-height:1.6;">
+      <div style="color:#446644;text-align:center;padding:20px">Loading notes...</div>
     </div>
-    <div style="padding:8px 16px;border-top:1px solid #0d180d;font-size:11px;color:#8b949e;text-align:right">
+    <div style="padding:8px 16px;border-top:1px solid #0d180d;font-size:11px;color:#446644;text-align:right">
       Notes saved to ~/Documents/Trading Vault/02_Session_Notes/
     </div>
   </div>
@@ -569,10 +569,10 @@
           ORACLE MACRO ADVISORY
         </span>
         <button onclick="closeMacroAdvisory()"
-                style="background:none;border:none;color:#8b949e;font-size:18px;cursor:pointer">✕</button>
+                style="background:none;border:none;color:#446644;font-size:18px;cursor:pointer">✕</button>
       </div>
       <!-- Signal bar -->
-      <div id="modal-signal-bar" style="padding:8px 16px;border-bottom:1px solid #0d180d;font-size:11px;color:#8b949e">
+      <div id="modal-signal-bar" style="padding:8px 16px;border-bottom:1px solid #0d180d;font-size:11px;color:#446644">
         Loading...
       </div>
       <!-- Rule -->
@@ -583,12 +583,12 @@
       <!-- Footer -->
       <div style="padding:10px 16px;border-top:1px solid #0d180d;display:flex;gap:8px;justify-content:flex-end;">
         <button id="modal-buy-all-btn" onclick="macroAdvisoryBuyAll()"
-                style="background:#0d2818;border:1px solid #3fb950;color:#3fb950;
+                style="background:#0d2818;border:1px solid #00ff88;color:#00ff88;
                        padding:6px 16px;font-family:monospace;font-size:12px;cursor:pointer;border-radius:4px;">
           ⚡ BUY ALL SUGGESTED
         </button>
         <button onclick="closeMacroAdvisory()"
-                style="background:none;border:1px solid #1a3a1a;color:#8b949e;
+                style="background:none;border:1px solid #1a3a1a;color:#446644;
                        padding:6px 16px;font-family:monospace;font-size:12px;cursor:pointer;border-radius:4px;">
           DISMISS
         </button>
@@ -617,12 +617,12 @@
         </div>
         <canvas id="intradayChart" style="flex:1;min-height:0"></canvas>
         <div id="intraday_label" style="display:flex;gap:16px;justify-content:center;padding:3px 8px;font-size:11px;font-family:monospace;flex-shrink:0">
-          <span style="color:var(--muted)">O: <span id="il_open" style="color:#c9d1d9">—</span></span>
-          <span style="color:#3fb950">H: <span id="il_high">—</span></span>
+          <span style="color:var(--muted)">O: <span id="il_open" style="color:#88cc88">—</span></span>
+          <span style="color:#00ff88">H: <span id="il_high">—</span></span>
           <span style="color:#f85149">L: <span id="il_low">—</span></span>
-          <span style="color:var(--muted)">C: <span id="il_close" style="color:#c9d1d9">—</span></span>
+          <span style="color:var(--muted)">C: <span id="il_close" style="color:#88cc88">—</span></span>
           <span style="color:var(--muted)">Rng: <span id="il_range" style="color:#d4a017">—</span></span>
-          <span style="color:var(--muted)">Bars: <span id="il_bars" style="color:#8b949e">—</span></span>
+          <span style="color:var(--muted)">Bars: <span id="il_bars" style="color:#446644">—</span></span>
         </div>
         <!-- HERMES SEES panel -->
         <div id="hermes-sees" style="margin:6px 0 0;background:#060e06;border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:10px;font-family:monospace;color:var(--muted);line-height:1.6;display:none">
@@ -652,7 +652,7 @@
         <!-- Custom symbols -->
         <div style="display:flex;gap:6px;margin-bottom:10px">
           <input type="text" id="main-scanner-syms" placeholder="Type symbols: MSFT ADBE BBY ..."
-                 style="flex:1;font-size:11px;background:#060e06;border:1px solid var(--border);border-radius:4px;padding:5px 8px;color:#c9d1d9;text-transform:uppercase">
+                 style="flex:1;font-size:11px;background:#060e06;border:1px solid var(--border);border-radius:4px;padding:5px 8px;color:#88cc88;text-transform:uppercase">
           <button class="btn-blue" style="font-size:11px;padding:4px 12px" onclick="runMainScannerCustom()">GO</button>
         </div>
 
@@ -662,7 +662,7 @@
         </div>
 
         <!-- Tier 1 -->
-        <div style="font-size:11px;color:#3fb950;font-weight:700;margin-bottom:6px">🟢 BUY NOW — Conviction 14+/20</div>
+        <div style="font-size:11px;color:#00ff88;font-weight:700;margin-bottom:6px">🟢 BUY NOW — Conviction 14+/20</div>
         <div id="main-scanner-tier1" style="margin-bottom:14px">
           <div style="color:var(--muted);font-size:11px;padding:8px">Run the scanner to find candidates</div>
         </div>
@@ -689,10 +689,10 @@
         <div id="picks-sheet-panel" style="display:none;margin-top:8px;border:1px solid #f5a62344;border-radius:6px;overflow:auto;max-height:480px;background:#060e06">
           <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:#060e06;border-bottom:1px solid #0d180d">
             <span style="font-size:11px;font-weight:700;color:#f5a623">📊 PICKS SHEET — Live Prices</span>
-            <button onclick="closePicksSheet()" style="background:transparent;border:none;color:#8b949e;cursor:pointer;font-size:13px;padding:0 4px">✕</button>
+            <button onclick="closePicksSheet()" style="background:transparent;border:none;color:#446644;cursor:pointer;font-size:13px;padding:0 4px">✕</button>
           </div>
           <div id="picks-sheet-content" style="min-height:80px">
-            <div style="padding:12px;color:#8b949e;font-family:monospace;font-size:11px">Loading...</div>
+            <div style="padding:12px;color:#446644;font-family:monospace;font-size:11px">Loading...</div>
           </div>
         </div>
 
@@ -700,9 +700,9 @@
         <div id="research-pkg-area" style="margin-top:12px;display:none">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
             <div style="font-size:11px;color:#f5a623;font-weight:700">📋 RESEARCH PACKAGE</div>
-            <span id="research-pkg-ticker" style="font-size:11px;color:#c9d1d9;font-weight:700"></span>
+            <span id="research-pkg-ticker" style="font-size:11px;color:#88cc88;font-weight:700"></span>
           </div>
-          <div id="research-pkg-log" style="background:#060e06;border:1px solid var(--border);border-radius:4px;padding:8px;font-family:monospace;font-size:10px;color:#8b949e;min-height:40px;max-height:180px;overflow-y:auto"></div>
+          <div id="research-pkg-log" style="background:#060e06;border:1px solid var(--border);border-radius:4px;padding:8px;font-family:monospace;font-size:10px;color:#446644;min-height:40px;max-height:180px;overflow-y:auto"></div>
           <div id="research-pkg-actions" style="display:none;margin-top:6px;display:flex;gap:6px">
             <button id="research-pkg-open-btn" class="btn-muted"
                     style="font-size:11px;padding:3px 12px;border-color:#f5a623;color:#f5a623"
@@ -717,13 +717,13 @@
           <div style="display:flex;gap:6px">
             <input type="text" id="adhoc-research-sym"
                    placeholder="Ticker (e.g. NVDA)"
-                   style="width:120px;font-size:11px;background:#0a120a;border:1px solid var(--border);border-radius:4px;padding:4px 8px;color:#c9d1d9;text-transform:uppercase"
+                   style="width:120px;font-size:11px;background:#0a120a;border:1px solid var(--border);border-radius:4px;padding:4px 8px;color:#88cc88;text-transform:uppercase"
                    onkeydown="if(event.key==='Enter') generateResearchPackage(document.getElementById('adhoc-research-sym').value)">
             <button class="btn-muted" style="font-size:11px;padding:4px 12px;border-color:#f5a623;color:#f5a623"
                     onclick="generateResearchPackage(document.getElementById('adhoc-research-sym').value)">
               📋 Research
             </button>
-            <button class="btn-muted" style="font-size:11px;padding:4px 12px;border-color:#3fb950;color:#3fb950"
+            <button class="btn-muted" style="font-size:11px;padding:4px 12px;border-color:#00ff88;color:#00ff88"
                     onclick="logToTracker(document.getElementById('adhoc-research-sym').value)">
               📝 Log to Tracker
             </button>
@@ -1491,7 +1491,7 @@ function renderScannerResults(data) {
   }
 
   // Regime
-  const regCol = data.regime === 'BULL' ? '#3fb950' : data.regime === 'BEAR' ? '#f85149' : '#f5a623';
+  const regCol = data.regime === 'BULL' ? '#00ff88' : data.regime === 'BEAR' ? '#f85149' : '#f5a623';
   document.getElementById('scanner-regime').style.color = regCol;
   document.getElementById('scanner-regime').textContent =
     `Regime: ${data.regime} (HARSI ${data.m_harsi !== null ? data.m_harsi.toFixed(1) : '?'}) | ${data.total} scanned`;
@@ -1506,11 +1506,11 @@ function renderScannerResults(data) {
       const cycleLabel  = cd.current_cycle  || 'A';
       const cycleStatus = cd.current_status || '';
       const nCompleted  = cd.completed_cycle_count || 0;
-      const statusColor = {'FIRST_SETUP':'#3fb950','BASE':'#3fb950','MID_RUN':'#58a6ff','PULLBACK':'#f5a623','WATCH':'#8b949e'}[cycleStatus] || '#8b949e';
+      const statusColor = {'FIRST_SETUP':'#00ff88','BASE':'#00ff88','MID_RUN':'#58a6ff','PULLBACK':'#f5a623','WATCH':'#446644'}[cycleStatus] || '#446644';
       const statusEmoji = {'FIRST_SETUP':'🌱','BASE':'🟢','MID_RUN':'🔵','PULLBACK':'🟡','WATCH':'⚪'}[cycleStatus] || '⚪';
       let actionMsg = '';
       if (cycleStatus === 'FIRST_SETUP' || cycleStatus === 'BASE') {
-        actionMsg = `<div style="color:#3fb950;font-size:9px;margin-top:3px">▶ ${cycleStatus==='FIRST_SETUP'?'Cycle A — First Setup':'Cycle '+cycleLabel+' Base'} — Start position, accumulate on dips</div>`;
+        actionMsg = `<div style="color:#00ff88;font-size:9px;margin-top:3px">▶ ${cycleStatus==='FIRST_SETUP'?'Cycle A — First Setup':'Cycle '+cycleLabel+' Base'} — Start position, accumulate on dips</div>`;
       } else if (cycleStatus === 'PULLBACK') {
         actionMsg = `<div style="color:#f5a623;font-size:9px;margin-top:3px">🟡 Pullback — fractional starter OK if HARSI turning</div>`;
       } else if (cycleStatus === 'MID_RUN') {
@@ -1519,10 +1519,10 @@ function renderScannerResults(data) {
       return `
       <div style="background:#060e06;border:1px solid #238636;border-radius:4px;padding:6px 8px;margin-bottom:6px">
         <div style="display:flex;justify-content:space-between;align-items:center">
-          <span style="color:#3fb950;font-weight:700;font-size:12px">${c.sym}</span>
+          <span style="color:#00ff88;font-weight:700;font-size:12px">${c.sym}</span>
           <span style="color:var(--muted);font-size:10px">Conv ${c.conviction_score}/20 · S0 ${c.stage0_score}/12</span>
         </div>
-        <div style="font-size:10px;color:#8b949e;margin-top:2px">
+        <div style="font-size:10px;color:#446644;margin-top:2px">
           ${c.pattern_type} · $${c.price.toFixed(2)} · ${c.hold_min}-${c.hold_max}mo hold · ${c.fidelity_accts} accts
         </div>
         <div style="font-size:9px;color:var(--muted);margin-top:2px">${(c.signals || []).slice(0,4).join(' · ')}</div>
@@ -1588,7 +1588,7 @@ function loadScannerTracker() {
         const parts = line.trim().split(/\s{2,}/);
         const sym = parts[0] || '';
         const isGreen = sym.length > 0;
-        return `<div style="font-size:10px;color:${isGreen ? '#c9d1d9' : 'var(--muted)'};
+        return `<div style="font-size:10px;color:${isGreen ? '#88cc88' : 'var(--muted)'};
                             padding:2px 0;border-bottom:1px solid var(--border);
                             font-family:monospace;white-space:nowrap;overflow:hidden;
                             text-overflow:ellipsis">${line.trim()}</div>`;
@@ -1613,10 +1613,10 @@ function openPicksSheet() {
   const btn = document.getElementById('picks-sheet-btn');
   panel.style.display = 'block';
   btn.textContent = '✕ Close Sheet';
-  btn.style.color = '#8b949e';
-  btn.style.borderColor = '#8b949e';
+  btn.style.color = '#446644';
+  btn.style.borderColor = '#446644';
   _picksSheetOpen = true;
-  content.innerHTML = '<div style="padding:12px;color:#8b949e;font-family:monospace;font-size:11px">⏳ Fetching live prices...</div>';
+  content.innerHTML = '<div style="padding:12px;color:#446644;font-family:monospace;font-size:11px">⏳ Fetching live prices...</div>';
   fetch('/api/scanner/picks-html', {cache: 'no-store'})
     .then(r => r.text())
     .then(html => { content.innerHTML = html; })
@@ -1644,7 +1644,7 @@ function runTrajectoryInventory() {
     .then(r => r.json())
     .then(data => {
       statusEl.textContent = data.ok ? '✅ Done' : '⚠️ Ran with issues';
-      statusEl.style.color = data.ok ? '#3fb950' : '#f5a623';
+      statusEl.style.color = data.ok ? '#00ff88' : '#f5a623';
 
       const s = data.summary || {};
       const tickers = data.tickers || [];
@@ -1652,11 +1652,11 @@ function runTrajectoryInventory() {
       const blocked = tickers.filter(t => (t.quality_flags || []).includes('likely_backfill_required'));
 
       let html = `<div style="margin-bottom:8px">`;
-      html += `<div style="color:#3fb950;font-weight:700;margin-bottom:4px">📊 ${s.recommendation === 'backfill first' ? '⚠️ Backfill required first' : '✅ Trajectory extractor possible now'}</div>`;
-      html += `<div style="color:var(--muted)">Tickers inspected: <b style="color:#c9d1d9">${s.ticker_count ?? '—'}</b> &nbsp;|&nbsp; `;
-      html += `8+ usable qtrs: <b style="color:#3fb950">${s.tickers_with_8_usable_quarters_count ?? '—'}</b> &nbsp;|&nbsp; `;
+      html += `<div style="color:#00ff88;font-weight:700;margin-bottom:4px">📊 ${s.recommendation === 'backfill first' ? '⚠️ Backfill required first' : '✅ Trajectory extractor possible now'}</div>`;
+      html += `<div style="color:var(--muted)">Tickers inspected: <b style="color:#88cc88">${s.ticker_count ?? '—'}</b> &nbsp;|&nbsp; `;
+      html += `8+ usable qtrs: <b style="color:#00ff88">${s.tickers_with_8_usable_quarters_count ?? '—'}</b> &nbsp;|&nbsp; `;
       html += `Likely backfill: <b style="color:#f85149">${s.likely_backfill_required_count ?? '—'}</b></div>`;
-      if (with8.length) html += `<div style="margin-top:4px;color:#3fb950">8+ usable: ${with8.map(t=>t.ticker).join(', ')}</div>`;
+      if (with8.length) html += `<div style="margin-top:4px;color:#00ff88">8+ usable: ${with8.map(t=>t.ticker).join(', ')}</div>`;
       if (blocked.length) html += `<div style="margin-top:2px;color:#f85149">Blocked/backfill: ${blocked.map(t=>t.ticker).join(', ')}</div>`;
       if (data.markdown_path) html += `<div style="margin-top:4px;color:var(--muted);font-size:10px;word-break:break-all">📄 ${data.markdown_path}</div>`;
       if (data.error) html += `<div style="margin-top:4px;color:#f85149">Error: ${data.error}</div>`;
@@ -1677,7 +1677,7 @@ function runTrajectoryInventory() {
         </tr></thead><tbody>`;
         for (const t of tickers) {
           const ok8 = t.has_8_usable_quarters;
-          const col = ok8 ? '#3fb950' : (t.quality_flags && t.quality_flags.includes('likely_backfill_required') ? '#f85149' : '#c9d1d9');
+          const col = ok8 ? '#00ff88' : (t.quality_flags && t.quality_flags.includes('likely_backfill_required') ? '#f85149' : '#88cc88');
           const flags = (t.quality_flags || []).filter(f => f !== 'likely_backfill_required' && f !== 'insufficient_quarters').join(', ');
           html += `<tr style="border-bottom:1px solid #0d180d;color:${col}">
             <td style="padding:2px 4px;font-weight:700">${t.ticker}</td>
@@ -2052,13 +2052,13 @@ socket.on('research_progress', d => {
     const line = document.createElement('div');
     line.style.cssText = 'padding:1px 0;white-space:pre-wrap;';
     if (d.status === 'complete') {
-      line.style.color = '#3fb950';
+      line.style.color = '#00ff88';
       _researchFilePath = d.path || null;
       if (acts) { acts.style.display = 'flex'; }
     } else if (d.status === 'error') {
       line.style.color = '#f85149';
     } else {
-      line.style.color = '#8b949e';
+      line.style.color = '#446644';
     }
     line.textContent = d.msg || '';
     log.appendChild(line);
@@ -2140,7 +2140,7 @@ function logToTracker(ticker, price) {
     if (log) {
       const line = document.createElement('div');
       if (data.success) {
-        line.style.color = '#3fb950';
+        line.style.color = '#00ff88';
         line.textContent = `✅ Logged ${ticker} — Bear case: ${data.bear_case_strength}. ${data.sizing}`;
       } else if (data.reason === 'BEAR_CASE_INCOMPLETE') {
         line.style.color = '#f85149';
@@ -2391,7 +2391,7 @@ function updateATHDist(d) {
     document.getElementById('il_bars').textContent  = vals.length;
     // Color close vs open
     const closeEl = document.getElementById('il_close');
-    closeEl.style.color = close >= open ? '#3fb950' : '#f85149';
+    closeEl.style.color = close >= open ? '#00ff88' : '#f85149';
   }
 }
 
@@ -2426,7 +2426,7 @@ function buildIntradayChart(bars, athZone, ath, liveEquity) {
         {
           label: 'Equity',
           data: values,
-          borderColor: values[values.length-1] >= values[0] ? '#3fb950' : '#f85149',
+          borderColor: values[values.length-1] >= values[0] ? '#00ff88' : '#f85149',
           borderWidth: 2,
           pointRadius: 0,
           fill: {target: 'origin', above: 'rgba(63,185,80,0.05)', below: 'rgba(248,81,73,0.05)'},
@@ -2465,7 +2465,7 @@ function buildIntradayChart(bars, athZone, ath, liveEquity) {
         legend: {
           display: true,
           position: 'top',
-          labels: { color: '#8b949e', font: {size: 10}, boxWidth: 20, padding: 8 }
+          labels: { color: '#446644', font: {size: 10}, boxWidth: 20, padding: 8 }
         },
           annotation: {
             annotations: {
@@ -2477,7 +2477,7 @@ function buildIntradayChart(bars, athZone, ath, liveEquity) {
               athZone: {
                 type:'line', yMin:athZone, yMax:athZone,
                 borderColor:'rgba(63,185,80,0.4)', borderWidth:1, borderDash:[3,3],
-                label:{content:'TRIGGER', display:true, position:'end', color:'#3fb950', font:{size:10}}
+                label:{content:'TRIGGER', display:true, position:'end', color:'#00ff88', font:{size:10}}
               },
               hiLine: {
                 type: 'line',
@@ -2489,7 +2489,7 @@ function buildIntradayChart(bars, athZone, ath, liveEquity) {
                   content: 'H  $' + hiVal.toFixed(2),
                   display: true,
                   position: 'start',
-                  color: '#3fb950',
+                  color: '#00ff88',
                   font: { size: 11, weight: 'bold', family: 'monospace' },
                   backgroundColor: 'rgba(13,17,23,0.0)',
                   padding: { top: 2, bottom: 2, left: 4, right: 4 }
@@ -2516,8 +2516,8 @@ function buildIntradayChart(bars, athZone, ath, liveEquity) {
       },
       scales: {
         x: { type:'time', time:{unit:'minute',displayFormats:{minute:'HH:mm'}},
-             grid:{color:'#0b140b'}, ticks:{color:'#8b949e',maxTicksLimit:8} },
-        y: { grid:{color:'#0b140b'}, ticks:{color:'#8b949e',
+             grid:{color:'#0b140b'}, ticks:{color:'#446644',maxTicksLimit:8} },
+        y: { grid:{color:'#0b140b'}, ticks:{color:'#446644',
              callback:v=>'$'+v.toLocaleString()},
              min: (function() {
                const allVals = values.concat(
@@ -2578,7 +2578,7 @@ function _startScannerStream(url) {
         'Scanning 0 / ' + d.total + ' stocks...';
 
     } else if (d.type === 'regime') {
-      const col = d.regime === 'BULL' ? '#3fb950' : d.regime === 'BEAR' ? '#f85149' : '#f5a623';
+      const col = d.regime === 'BULL' ? '#00ff88' : d.regime === 'BEAR' ? '#f85149' : '#f5a623';
       document.getElementById('scanner-prog-label').style.color = col;
 
     } else if (d.type === 'progress') {
@@ -2586,10 +2586,10 @@ function _startScannerStream(url) {
       const label = document.getElementById('scanner-prog-label');
       if (bar)   bar.style.width = d.pct + '%';
       if (label) {
-        const s0str = d.s0 >= 8 ? `<span style="color:#3fb950">S0=${d.s0}</span>` :
+        const s0str = d.s0 >= 8 ? `<span style="color:#00ff88">S0=${d.s0}</span>` :
                       d.s0 >= 6 ? `<span style="color:#f5a623">S0=${d.s0}</span>` :
                                   `<span style="color:var(--muted)">S0=${d.s0}</span>`;
-        label.innerHTML = `${d.current}/${d.total} — <b style="color:#c9d1d9">${d.sym}</b> ${s0str} ${d.pattern}`;
+        label.innerHTML = `${d.current}/${d.total} — <b style="color:#88cc88">${d.sym}</b> ${s0str} ${d.pattern}`;
       }
 
     } else if (d.type === 'results') {
@@ -2695,19 +2695,19 @@ function runMainScannerTracker() {
       function patternLabel(p) {
         const pat = p.pattern_type || '—';
         if (pat.startsWith('UNCLASSIFIED:PHARMA') || pat.startsWith('UNCLASSIFIED:BIOTECH')) {
-          return '<span style="color:#8b949e;font-size:9px">PHARMA — framework not validated</span>';
+          return '<span style="color:#446644;font-size:9px">PHARMA — framework not validated</span>';
         }
         if (pat.startsWith('UNCLASSIFIED:CONSUMER')) {
-          return '<span style="color:#8b949e;font-size:9px">CONSUMER — framework not validated</span>';
+          return '<span style="color:#446644;font-size:9px">CONSUMER — framework not validated</span>';
         }
         if (pat.startsWith('UNCLASSIFIED:')) {
           const sub = pat.replace('UNCLASSIFIED:','').replace(/_/g,' ').toLowerCase();
-          return `<span style="color:#8b949e;font-size:9px">${sub} — framework not validated</span>`;
+          return `<span style="color:#446644;font-size:9px">${sub} — framework not validated</span>`;
         }
         if (pat === 'UNKNOWN') {
-          return '<span style="color:#8b949e;font-size:9px">PATTERN UNKNOWN — manual entry</span>';
+          return '<span style="color:#446644;font-size:9px">PATTERN UNKNOWN — manual entry</span>';
         }
-        return `<span style="color:#8b949e;font-size:9px">${pat}</span>`;
+        return `<span style="color:#446644;font-size:9px">${pat}</span>`;
       }
 
       // ── Gate status icon ─────────────────────────────────────────
@@ -2722,7 +2722,7 @@ function runMainScannerTracker() {
       function bearBadge(p) {
         const s = p.bear_case_strength;
         if (!s) return '';
-        const col = s === 'STRONG' ? '#f85149' : s === 'MODERATE' ? '#f5a623' : '#8b949e';
+        const col = s === 'STRONG' ? '#f85149' : s === 'MODERATE' ? '#f5a623' : '#446644';
         return ` <span style="color:${col};font-size:8px">${s}</span>`;
       }
 
@@ -2735,21 +2735,21 @@ function runMainScannerTracker() {
         else if (p.bucket === 'ACCUMULATE') borderColor = '#9e6a03';
 
         const pnlStr = pnl === null
-          ? '<span style="color:#8b949e">—</span>'
-          : `<span style="color:${pnl>=0?'#3fb950':'#f85149'};font-weight:700">${pnl>=0?'+':''}${pnl.toFixed(1)}%</span>`;
-        const nowStr  = p.current_price !== null ? `$${p.current_price.toFixed(2)}` : '<span style="color:#8b949e">—</span>';
+          ? '<span style="color:#446644">—</span>'
+          : `<span style="color:${pnl>=0?'#00ff88':'#f85149'};font-weight:700">${pnl>=0?'+':''}${pnl.toFixed(1)}%</span>`;
+        const nowStr  = p.current_price !== null ? `$${p.current_price.toFixed(2)}` : '<span style="color:#446644">—</span>';
         const prog    = p.hold_progress_pct || 0;
         const progBar = `<div style="background:#0d180d;border-radius:2px;height:3px;margin-top:2px;width:50px">
-          <div style="background:#3fb950;height:3px;border-radius:2px;width:${Math.min(100,prog)}%"></div></div>`;
+          <div style="background:#00ff88;height:3px;border-radius:2px;width:${Math.min(100,prog)}%"></div></div>`;
         const holdLabel = `${p.hold_min_months}-${p.hold_max_months}mo`;
 
         return `<tr style="border-left:2px solid ${borderColor};border-bottom:1px solid #0a120a">
-          <td style="padding:3px 6px;color:#e6edf3;font-weight:700;white-space:nowrap">${gateIcon(p)} ${p.symbol}</td>
-          <td style="padding:3px 4px;color:#8b949e;font-size:9px">${p.date_picked}</td>
-          <td style="padding:3px 4px;text-align:right;color:#8b949e;font-size:10px">$${p.price_at_pick.toFixed(2)}</td>
+          <td style="padding:3px 6px;color:#88cc88;font-weight:700;white-space:nowrap">${gateIcon(p)} ${p.symbol}</td>
+          <td style="padding:3px 4px;color:#446644;font-size:9px">${p.date_picked}</td>
+          <td style="padding:3px 4px;text-align:right;color:#446644;font-size:10px">$${p.price_at_pick.toFixed(2)}</td>
           <td style="padding:3px 4px;text-align:right;font-size:10px">${nowStr}</td>
           <td style="padding:3px 4px;text-align:right;font-size:10px">${pnlStr}</td>
-          <td style="padding:3px 4px;text-align:right;color:#8b949e;font-size:9px">${p.days_held}d</td>
+          <td style="padding:3px 4px;text-align:right;color:#446644;font-size:9px">${p.days_held}d</td>
           <td style="padding:3px 4px;font-size:9px">${holdLabel}${progBar}</td>
           <td style="padding:3px 4px">${patternLabel(p)}${bearBadge(p)}</td>
         </tr>`;
@@ -2761,11 +2761,11 @@ function runMainScannerTracker() {
         return `
           <div style="display:flex;align-items:baseline;gap:8px;padding:8px 0 3px">
             <span style="color:${labelColor};font-weight:700;font-size:11px">${label}</span>
-            <span style="color:#8b949e;font-size:9px">${labelDesc}</span>
-            <span style="color:#8b949e;font-size:9px">(${items.length})</span>
+            <span style="color:#446644;font-size:9px">${labelDesc}</span>
+            <span style="color:#446644;font-size:9px">(${items.length})</span>
           </div>
           <table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:4px">
-            <thead><tr style="color:#8b949e;border-bottom:1px solid #0d180d">
+            <thead><tr style="color:#446644;border-bottom:1px solid #0d180d">
               <th style="padding:3px 6px;text-align:left">SYM</th>
               <th style="padding:3px 4px;text-align:left">DATE</th>
               <th style="padding:3px 4px;text-align:right">ENTRY</th>
@@ -2787,14 +2787,14 @@ function runMainScannerTracker() {
       el.innerHTML =
         buildSection(
           '── SCANNER PICKS',
-          '#3fb950',
+          '#00ff88',
           'bear case complete · pattern validated by framework',
           scannerPicks
         ) +
         divider +
         buildSection(
           '── MANUAL WATCHLIST',
-          '#8b949e',
+          '#446644',
           'UNCLASSIFIED or no bear case — outside the framework',
           manualWatch
         );
@@ -2814,7 +2814,7 @@ function _autoLoadLastScan() {
     t1.innerHTML.includes('Click RUN');
   if (!isEmpty) return;
 
-  regime.style.color = '#8b949e';
+  regime.style.color = '#446644';
   regime.textContent = 'Loading last scan results...';
 
   fetch('/api/scanner/last_results')
@@ -2830,12 +2830,12 @@ function _autoLoadLastScan() {
       const n = data.total || 0;
       const reg = data.regime || '—';
       const harsi = data.m_harsi != null ? data.m_harsi.toFixed(1) : '?';
-      regime.style.color = '#8b949e';
+      regime.style.color = '#446644';
       regime.textContent =
         `Auto-loaded: ${d} · Regime ${reg} (HARSI ${harsi}) · ${n} candidates · click RUN to refresh`;
     })
     .catch(() => {
-      regime.style.color = '#8b949e';
+      regime.style.color = '#446644';
       regime.textContent = 'Could not load last results. Click RUN FULL SCAN.';
     });
 }
@@ -2846,7 +2846,7 @@ function _renderMainScanner(data) {
     document.getElementById('main-scanner-regime').textContent = '❌ ' + data.error;
     return;
   }
-  const regCol = data.regime === 'BULL' ? '#3fb950' : data.regime === 'BEAR' ? '#f85149' : '#f5a623';
+  const regCol = data.regime === 'BULL' ? '#00ff88' : data.regime === 'BEAR' ? '#f85149' : '#f5a623';
   document.getElementById('main-scanner-regime').style.color = regCol;
   document.getElementById('main-scanner-regime').textContent =
     'Regime: ' + data.regime + ' (HARSI ' + (data.m_harsi !== null ? data.m_harsi.toFixed(1) : '?') + ') | ' + data.total + ' stocks scanned';
@@ -2891,11 +2891,11 @@ function _renderMainScanner(data) {
       // Cycle history — compact, dated, factual
       const historyLines = priorCycles.length > 0
         ? priorCycles.map(cy => {
-            const gainColor = cy.gain_pct >= 0 ? '#3fb950' : '#f85149';
+            const gainColor = cy.gain_pct >= 0 ? '#00ff88' : '#f85149';
             const statusMark = cy.status === 'COMPLETED' ? '✓' : '…';
-            return `<span style="color:#8b949e;font-size:9px;margin-right:12px">${statusMark} ${cy.cycle_label}: ${cy.trough_date.slice(0,7)}→${cy.peak_date.slice(0,7)} <span style="color:${gainColor}">${cy.gain_pct >= 0 ? '+' : ''}${cy.gain_pct.toFixed(0)}%</span> ${cy.hold_months}mo</span>`
+            return `<span style="color:#446644;font-size:9px;margin-right:12px">${statusMark} ${cy.cycle_label}: ${cy.trough_date.slice(0,7)}→${cy.peak_date.slice(0,7)} <span style="color:${gainColor}">${cy.gain_pct >= 0 ? '+' : ''}${cy.gain_pct.toFixed(0)}%</span> ${cy.hold_months}mo</span>`
           }).join('')
-        : '<span style="color:#8b949e;font-size:9px">No prior cycles on record</span>';
+        : '<span style="color:#446644;font-size:9px">No prior cycles on record</span>';
 
       // Price context row — three numbers
       const priceRow = cyclePct !== undefined && cycleLowPct !== undefined
@@ -2909,10 +2909,10 @@ function _renderMainScanner(data) {
         const gateLabel = lr.gate_status   || '—';
         const priceLabel = lr.price_at_pick ? `$${lr.price_at_pick.toFixed(2)}` : '—';
         lastResearchRow = `
-          <div style="border-top:1px solid #0d180d;margin-top:6px;padding-top:5px;font-size:9px;color:#8b949e">
+          <div style="border-top:1px solid #0d180d;margin-top:6px;padding-top:5px;font-size:9px;color:#446644">
             Last research: ${lr.date || '—'} &nbsp;·&nbsp;
             Logged at: ${priceLabel} &nbsp;·&nbsp;
-            Bear: <span style="color:${bearLabel==='STRONG'?'#f85149':bearLabel==='MODERATE'?'#f5a623':'#8b949e'}">${bearLabel}</span> &nbsp;·&nbsp;
+            Bear: <span style="color:${bearLabel==='STRONG'?'#f85149':bearLabel==='MODERATE'?'#f5a623':'#446644'}">${bearLabel}</span> &nbsp;·&nbsp;
             Status: ${gateLabel}
             ${lr.research_file ? `&nbsp;·&nbsp; <a href="/api/research/open?ticker=${c.sym}" style="color:#58a6ff;text-decoration:none">📄 ${lr.research_file}</a>` : ''}
           </div>`;
@@ -2923,12 +2923,12 @@ function _renderMainScanner(data) {
 
         <!-- Header row -->
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px">
-          <span style="color:#e6edf3;font-weight:700;font-size:13px">${c.sym}</span>
-          <span style="font-size:10px;color:#8b949e">${c.pattern_type} &nbsp;·&nbsp; ${c.fidelity_accts} accts &nbsp;·&nbsp; S0 ${c.stage0_score}/12 &nbsp;·&nbsp; Conv ${c.conviction_score}/20</span>
+          <span style="color:#88cc88;font-weight:700;font-size:13px">${c.sym}</span>
+          <span style="font-size:10px;color:#446644">${c.pattern_type} &nbsp;·&nbsp; ${c.fidelity_accts} accts &nbsp;·&nbsp; S0 ${c.stage0_score}/12 &nbsp;·&nbsp; Conv ${c.conviction_score}/20</span>
         </div>
 
         <!-- Cycle status — factual, no directive -->
-        <div style="font-size:11px;color:#8b949e;margin-bottom:3px">
+        <div style="font-size:11px;color:#446644;margin-bottom:3px">
           Cycle ${cycleLabel} &nbsp;·&nbsp;
           <span style="color:${borderColor}">${cycleStatus}</span> &nbsp;·&nbsp;
           Entry window: <span style="color:${borderColor};font-weight:600">${entryWindow}</span> &nbsp;·&nbsp;
@@ -2936,7 +2936,7 @@ function _renderMainScanner(data) {
         </div>
 
         <!-- Price context -->
-        <div style="font-size:10px;color:#8b949e;margin-bottom:5px;font-family:monospace">${priceRow}</div>
+        <div style="font-size:10px;color:#446644;margin-bottom:5px;font-family:monospace">${priceRow}</div>
 
         <!-- Cycle history -->
         <div style="margin-bottom:5px;line-height:1.8">${historyLines}</div>
@@ -2953,7 +2953,7 @@ function _renderMainScanner(data) {
             onclick="generateResearchPackage('${c.sym}', ${c.price})">
             📋 Research Package
           </button>
-          <button class="btn-muted" style="font-size:11px;padding:3px 12px;border-color:#3fb950;color:#3fb950"
+          <button class="btn-muted" style="font-size:11px;padding:3px 12px;border-color:#00ff88;color:#00ff88"
             onclick="logToTracker('${c.sym}', ${c.price})">
             📝 Log to Tracker
           </button>
@@ -2990,21 +2990,21 @@ function _renderMainScanner(data) {
         const lr          = c.last_research || null;
         const borderColor = {'FIRST_SETUP':'#2ea043','BASE':'#2ea043','PULLBACK':'#9e6a03','MID_RUN':'#1f6feb','WATCH':'#1a3a1a'}[cycleStatus] || '#1a3a1a';
         const entryWindow = {'FIRST_SETUP':'OPEN','BASE':'OPEN','PULLBACK':'WATCH','MID_RUN':'CLOSED','WATCH':'UNCLEAR'}[cycleStatus] || '—';
-        const ewColor     = {'OPEN':'#2ea043','WATCH':'#9e6a03','CLOSED':'#1f6feb','UNCLEAR':'#1a3a1a'}[entryWindow] || '#8b949e';
-        const bearBadge   = lr?.bear_strength ? `<span style="color:${lr.bear_strength==='STRONG'?'#f85149':lr.bear_strength==='MODERATE'?'#f5a623':'#8b949e'};font-size:9px"> ${lr.bear_strength}</span>` : '';
+        const ewColor     = {'OPEN':'#2ea043','WATCH':'#9e6a03','CLOSED':'#1f6feb','UNCLEAR':'#1a3a1a'}[entryWindow] || '#446644';
+        const bearBadge   = lr?.bear_strength ? `<span style="color:${lr.bear_strength==='STRONG'?'#f85149':lr.bear_strength==='MODERATE'?'#f5a623':'#446644'};font-size:9px"> ${lr.bear_strength}</span>` : '';
         return `<tr style="border-bottom:1px solid var(--border);border-left:2px solid ${borderColor}">
-          <td style="padding:4px 5px;color:#e6edf3;font-weight:700">${c.sym}</td>
-          <td style="padding:4px 5px;color:#8b949e;font-size:10px">${c.pattern_type}</td>
+          <td style="padding:4px 5px;color:#88cc88;font-weight:700">${c.sym}</td>
+          <td style="padding:4px 5px;color:#446644;font-size:10px">${c.pattern_type}</td>
           <td style="padding:4px 5px;font-size:10px;color:${borderColor};font-weight:600">${cycleLabel}</td>
           <td style="padding:4px 5px;font-size:10px;color:${ewColor};font-weight:600">${entryWindow}${bearBadge}</td>
           <td style="padding:4px 5px;text-align:right;font-family:monospace">$${c.price.toFixed(2)}</td>
-          <td style="padding:4px 5px;color:#8b949e">${c.hold_min}-${c.hold_max}mo</td>
-          <td style="padding:4px 5px;text-align:right;color:#8b949e">${c.conviction_score}/20</td>
-          <td style="padding:4px 5px;text-align:right;color:#8b949e">${c.fidelity_accts}</td>
+          <td style="padding:4px 5px;color:#446644">${c.hold_min}-${c.hold_max}mo</td>
+          <td style="padding:4px 5px;text-align:right;color:#446644">${c.conviction_score}/20</td>
+          <td style="padding:4px 5px;text-align:right;color:#446644">${c.fidelity_accts}</td>
           <td style="padding:4px 5px">
             <button class="btn-muted" style="font-size:9px;padding:2px 6px;border-color:#f5a623;color:#f5a623"
               onclick="generateResearchPackage('${c.sym}', ${c.price})">📋</button>
-            <button class="btn-muted" style="font-size:9px;padding:2px 6px;border-color:#3fb950;color:#3fb950;margin-left:2px"
+            <button class="btn-muted" style="font-size:9px;padding:2px 6px;border-color:#00ff88;color:#00ff88;margin-left:2px"
               onclick="logToTracker('${c.sym}', ${c.price})">📝</button>
           </td>
         </tr>`;
@@ -3027,7 +3027,7 @@ function _legacyLoadCandles() {
     const ctx = document.getElementById('candleChart').getContext('2d');
     if (!candles || !candles.length) {
       ctx.clearRect(0,0,ctx.canvas.width,ctx.canvas.height);
-      ctx.fillStyle='#8b949e'; ctx.font='13px monospace';
+      ctx.fillStyle='#446644'; ctx.font='13px monospace';
       ctx.fillText('No history yet — account too new. Builds as days pass.', 20, 120);
       return;
     }
@@ -3038,7 +3038,7 @@ function _legacyLoadCandles() {
     candleChart = new Chart(ctx, {
       type: 'candlestick',
       data: { datasets: [{ label: 'Portfolio', data,
-        color: { up:'#3fb950', down:'#f85149', unchanged:'#8b949e' } }] },
+        color: { up:'#00ff88', down:'#f85149', unchanged:'#446644' } }] },
       options: {
         responsive: true, animation: false,
         plugins: { legend:{display:false},
@@ -3051,8 +3051,8 @@ function _legacyLoadCandles() {
         },
         scales: {
           x: { type:'time', time:{unit:'day', displayFormats:{day:'MMM d'}},
-               grid:{color:'#0b140b'}, ticks:{color:'#8b949e', maxTicksLimit:10} },
-          y: { grid:{color:'#0b140b'}, ticks:{color:'#8b949e', callback:v=>'$'+v.toLocaleString()} }
+               grid:{color:'#0b140b'}, ticks:{color:'#446644', maxTicksLimit:10} },
+          y: { grid:{color:'#0b140b'}, ticks:{color:'#446644', callback:v=>'$'+v.toLocaleString()} }
         }
       }
     });
@@ -3215,7 +3215,7 @@ function renderStopTiers(d) {
     { key:'soft_stop',  label:'SOFT STOP',   desc:'Trim 1 winner',         color:'#d4a017' },
     { key:'warn_stop',  label:'WARN STOP',   desc:'Harvest 2-3 winners',   color:'#f0883e' },
     { key:'hard_stop',  label:'HARD STOP',   desc:'Freeze all new buys',   color:'#f85149' },
-    { key:'break_even', label:'BREAK-EVEN',  desc:'Day gain floor (open)', color:'#8b949e' },
+    { key:'break_even', label:'BREAK-EVEN',  desc:'Day gain floor (open)', color:'#446644' },
     { key:'prev_ath',   label:'PREV ATH',    desc:'Support level',         color:'#58a6ff' },
     { key:'danger',     label:'DANGER',      desc:'Reduce exposure',       color:'#f85149' },
     { key:'principal',  label:'PRINCIPAL',   desc:'Capital floor — never', color:'#f85149' },
@@ -3813,7 +3813,7 @@ function uploadCSV() {
           if (!box) {
             box = document.createElement('div');
             box.id = 'hermes-analysis';
-            box.style.cssText = 'margin-top:10px;padding:10px;background:#060e06;border:1px solid var(--border);border-radius:6px;font-size:12px;line-height:1.6;white-space:pre-wrap;color:#e6edf3;max-height:260px;overflow-y:auto;';
+            box.style.cssText = 'margin-top:10px;padding:10px;background:#060e06;border:1px solid var(--border);border-radius:6px;font-size:12px;line-height:1.6;white-space:pre-wrap;color:#88cc88;max-height:260px;overflow-y:auto;';
             document.getElementById('panel-buys').insertBefore(box, document.getElementById('panel-buys').firstChild);
           }
           box.textContent = a.analysis;
@@ -4022,12 +4022,12 @@ function closeReadNotes() {
 function loadNotesInModal() {
   const n = document.getElementById('notes-count-select').value;
   const body = document.getElementById('notes-modal-body');
-  body.innerHTML = '<div style="color:#8b949e;text-align:center;padding:20px">Loading...</div>';
+  body.innerHTML = '<div style="color:#446644;text-align:center;padding:20px">Loading...</div>';
   fetch(`/api/load_previous_sessions?n=${n}`)
     .then(r => r.json())
     .then(d => {
       if (!d.sessions || d.sessions.length === 0) {
-        body.innerHTML = '<div style="color:#8b949e;text-align:center;padding:20px">No session notes found in Trading Vault.</div>';
+        body.innerHTML = '<div style="color:#446644;text-align:center;padding:20px">No session notes found in Trading Vault.</div>';
         return;
       }
       body.innerHTML = d.sessions.map(s => `
@@ -4035,10 +4035,10 @@ function loadNotesInModal() {
           <div style="background:#0a120a;padding:6px 12px;color:#ffd700;font-weight:700;font-size:12px;
                       border-bottom:1px solid #0d180d;display:flex;justify-content:space-between;align-items:center;">
             <span>📅 ${s.date}</span>
-            <span style="color:#8b949e;font-weight:400;font-size:10px">${s.content.length} chars</span>
+            <span style="color:#446644;font-weight:400;font-size:10px">${s.content.length} chars</span>
           </div>
           <pre style="margin:0;padding:12px;white-space:pre-wrap;word-break:break-word;
-                      font-family:monospace;font-size:11px;color:#c9d1d9;background:#060e06;
+                      font-family:monospace;font-size:11px;color:#88cc88;background:#060e06;
                       max-height:350px;overflow-y:auto;">${escapeHtml(s.content)}</pre>
         </div>
       `).join('');
@@ -4575,19 +4575,19 @@ function openMacroAdvisory() {
       return;
     }
     const col = d.quadrant === 'OVERHEATED' ? '#f85149' :
-                d.quadrant === 'RISK-ON'    ? '#3fb950' :
+                d.quadrant === 'RISK-ON'    ? '#00ff88' :
                 d.quadrant === 'CHEAP'      ? '#4a9eff' :
-                d.quadrant === 'FLIGHT'     ? '#d4a017' : '#8b949e';
+                d.quadrant === 'FLIGHT'     ? '#d4a017' : '#446644';
     document.getElementById('modal-signal-bar').innerHTML =
       `<span style="color:${col};font-weight:700">${d.signal}</span>` +
-      `<span style="margin-left:12px;color:#8b949e">` +
+      `<span style="margin-left:12px;color:#446644">` +
       `Equity: ${d.equity_rank} pctile | Hard: ${d.hard_rank} pctile | ` +
       `Cash: $${d.cash} | Updated: ${d.updated_at||'—'}</span>`;
     document.getElementById('modal-rule').textContent = '💡 ' + d.rule;
     const sug = d.suggestions || [];
     if (!sug.length) {
       document.getElementById('modal-suggestions').innerHTML =
-        '<div style="padding:16px;color:#8b949e;text-align:center">No suggestions for current quadrant.</div>';
+        '<div style="padding:16px;color:#446644;text-align:center">No suggestions for current quadrant.</div>';
       return;
     }
     const typeLabels = {basket:'📊 INDEX REBALANCE', dca:'📉 DCA CANDIDATE'};
@@ -4596,25 +4596,25 @@ function openMacroAdvisory() {
     sug.forEach((s,i) => {
       if (s.type !== lastType) {
         lastType = s.type;
-        html += `<div style="padding:6px 16px 3px;font-size:10px;color:#8b949e;
+        html += `<div style="padding:6px 16px 3px;font-size:10px;color:#446644;
                      letter-spacing:1px;border-top:${i>0?'1px solid #0d180d':'none'};
                      margin-top:${i>0?'4px':'0'}">${typeLabels[s.type]||s.type.toUpperCase()}</div>`;
       }
       const upStr = s.uplpc !== undefined ? ` | ${s.uplpc}%` : '';
       html += `<div style="display:flex;align-items:center;padding:6px 16px;
                            border-bottom:1px solid #0a120a;gap:8px;">
-        <span style="color:#e6edf3;font-weight:700;min-width:50px;font-size:13px">${s.sym}</span>
-        <span style="color:#8b949e;font-size:11px;flex:1">${s.reason}</span>
-        <span style="color:#3fb950;font-weight:700;min-width:50px;text-align:right">$${s.buy}</span>
+        <span style="color:#88cc88;font-weight:700;min-width:50px;font-size:13px">${s.sym}</span>
+        <span style="color:#446644;font-size:11px;flex:1">${s.reason}</span>
+        <span style="color:#00ff88;font-weight:700;min-width:50px;text-align:right">$${s.buy}</span>
         <button onclick="macroAdvisoryBuyOne('${s.sym}',${s.buy},this)"
-                style="background:#0d2818;border:1px solid #3fb950;color:#3fb950;
+                style="background:#0d2818;border:1px solid #00ff88;color:#00ff88;
                        padding:3px 10px;font-family:monospace;font-size:11px;
                        cursor:pointer;border-radius:3px;white-space:nowrap">BUY</button>
       </div>`;
     });
     const total = sug.reduce((a,b)=>a+b.buy,0);
-    html += `<div style="padding:8px 16px;font-size:11px;color:#8b949e;text-align:right">
-      Total: <strong style="color:#e6edf3">$${total.toFixed(2)}</strong> of $${d.cash} cash
+    html += `<div style="padding:8px 16px;font-size:11px;color:#446644;text-align:right">
+      Total: <strong style="color:#88cc88">$${total.toFixed(2)}</strong> of $${d.cash} cash
     </div>`;
     document.getElementById('modal-suggestions').innerHTML = html;
 
@@ -4637,18 +4637,18 @@ function openMacroAdvisory() {
                            letter-spacing:1px;border-top:1px solid #0d180d;margin-top:4px;">
                            📊 FIDELITY DEVIATION SIGNALS</div>`;
         filtered.forEach(s => {
-          const dirCol = s.reason === 'PULLBACK'     ? '#3fb950'
+          const dirCol = s.reason === 'PULLBACK'     ? '#00ff88'
                        : s.reason === 'RECOVERING'   ? '#4a9eff'
                        : s.reason === 'ACCELERATING' ? '#f5a623'
-                       : '#8b949e';
-          const tier   = s.combined >= 12 ? `<span style="color:#3fb950;font-size:9px;margin-left:4px;">HIGH</span>`
+                       : '#446644';
+          const tier   = s.combined >= 12 ? `<span style="color:#00ff88;font-size:9px;margin-left:4px;">HIGH</span>`
                        : s.combined >= 8  ? `<span style="color:#f5a623;font-size:9px;margin-left:4px;">MED</span>`
                        : '';
           fidHtml += `<div style="display:flex;align-items:center;padding:6px 16px;
                                   border-bottom:1px solid #0a120a;gap:8px;">
-            <span style="color:#e6edf3;font-weight:700;min-width:50px;font-size:13px">${s.sym}${tier}</span>
+            <span style="color:#88cc88;font-weight:700;min-width:50px;font-size:13px">${s.sym}${tier}</span>
             <span style="color:${dirCol};font-size:11px;flex:1">${s.reason} · ${s.accts} accts</span>
-            <span style="color:#3fb950;font-weight:700;min-width:50px;text-align:right">$${s.buy.toFixed(2)}</span>
+            <span style="color:#00ff88;font-weight:700;min-width:50px;text-align:right">$${s.buy.toFixed(2)}</span>
             <button onclick="macroAdvisoryBuyOne('${s.sym}',${s.buy},this)"
                     style="background:#0d2018;border:1px solid #4a9eff;color:#4a9eff;
                            padding:3px 10px;font-family:monospace;font-size:11px;
@@ -4685,7 +4685,7 @@ async function macroAdvisoryBuyOne(sym, amt, btn) {
       addChat('system', `❌ Macro buy ${sym}: ${d.error||d.message}`);
     } else {
       btn.textContent = '✓';
-      btn.style.color = '#8b949e';
+      btn.style.color = '#446644';
       btn.style.borderColor = '#1a3a1a';
       btn.disabled = true;
       addChat('system', `✅ EXECUTED: BUY ${sym} $${amt} (macro advisory)`);
@@ -4725,9 +4725,9 @@ function fetchMacroSignal() {
     if (!badge) return;
     badge.textContent = d.signal || '⚪ NEUTRAL';
     const col = d.quadrant === 'OVERHEATED' ? '#f85149' :
-                d.quadrant === 'RISK-ON'    ? '#3fb950' :
+                d.quadrant === 'RISK-ON'    ? '#00ff88' :
                 d.quadrant === 'CHEAP'      ? '#4a9eff' :
-                d.quadrant === 'FLIGHT'     ? '#d4a017' : '#8b949e';
+                d.quadrant === 'FLIGHT'     ? '#d4a017' : '#446644';
     badge.style.color = col;
     badge.style.borderColor = col + '66';
     badge.title = `ORACLE MacroComposite @ ${d.updated_at||'—'} | Equity:${d.equity_rank} | Hard:${d.hard_rank} | Harvest ${d.harvest_pct}%+`;
@@ -4803,7 +4803,7 @@ function updateBasketDisplay(total, data) {
     const parts = ['DIA','QQQ','VOO','SGOL'].map(sym => {
       const mv = (b[sym] || {}).mv || 0;
       const pct2 = targetEach > 0 ? Math.round(mv / targetEach * 100) : 0;
-      const col = pct2 >= 90 ? '#3fb950' : pct2 >= 50 ? '#d4a017' : '#f85149';
+      const col = pct2 >= 90 ? '#00ff88' : pct2 >= 50 ? '#d4a017' : '#f85149';
       return `<span style="color:${col}">${sym} $${mv.toFixed(0)}</span>`;
     });
     detailEl.innerHTML = parts.join(' · ');
@@ -6646,7 +6646,7 @@ function launchMiroShark() {
   function drawSparkline(id, closes, chgPct) {
     const canvas = document.getElementById(id);
     if (!canvas) return;
-    const color = chgPct > 0 ? '#3fb950' : chgPct < 0 ? '#f85149' : '#8b949e';
+    const color = chgPct > 0 ? '#00ff88' : chgPct < 0 ? '#f85149' : '#446644';
     if (_mktCharts[id]) { _mktCharts[id].destroy(); }
     _mktCharts[id] = new Chart(canvas.getContext('2d'), {
       type: 'line',
