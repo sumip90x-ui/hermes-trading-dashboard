@@ -242,9 +242,10 @@
   .rpanel-content { flex:1; overflow-y:auto; padding:10px; }
 
   /* Chat Terminal — Research tab style */
-  #panel-chat { display: flex; flex-direction: column; height: 100%; padding: 0; background: #0B0E17; }
-  #hermes-pty-terminal { flex: 1; width: 100%; min-height: 0; }
-  #hermes-pty-terminal .xterm { padding: 6px 8px; }
+  #panel-chat { display: flex; flex-direction: column; height: 100%; padding: 0; background: #0B0E17; overflow: hidden; }
+  #hermes-pty-terminal { flex: 1; width: 100%; min-height: 0; overflow: hidden; }
+  #hermes-pty-terminal .xterm { padding: 6px 8px; height: 100%; }
+  #hermes-pty-terminal .xterm-screen { overflow: hidden; }
   #hermes-pty-terminal .xterm-viewport { background: #0B0E17 !important; }
   /* keep .msg classes for addChat() calls from other panels */
   .chat-messages { display: none; }
@@ -1338,7 +1339,7 @@
     </div>
 
     <!-- CHAT TERMINAL — real pty via xterm.js -->
-    <div class="rpanel-content" id="panel-chat" style="padding:0;display:flex;flex-direction:column;height:100%;">
+    <div class="rpanel-content" id="panel-chat" style="padding:0;display:flex;flex-direction:column;">
       <div id="hermes-pty-terminal" style="flex:1;width:100%;min-height:0;"></div>
     </div>
 
@@ -3014,7 +3015,13 @@ function _renderMainScanner(data) {
             onclick="document.getElementById('chat-in').value='Write a 3 sentence bear case for ${c.sym} — what is the most plausible path to permanent capital loss?';sendChat()">
             🐻 Bear Case
           </button>
+          <button class="btn-muted" style="font-size:11px;padding:3px 12px;border-color:#88cc88;color:#88cc88"
+            onclick="openMonthlyChart('${c.sym}', '${c.pattern_type}')"
+            title="Live monthly chart — real TradingView screenshot, no AI training data">
+            📸 Monthly Chart
+          </button>
         </div>
+        <div id="chart-panel-${c.sym}" style="display:none;margin-top:6px;"></div>
       </div>`;
     }).join('');
   }
@@ -3958,6 +3965,7 @@ function switchChart(view, el) {
   if (view === 'portfolio') loadBacktest();
   if (view === 'portfolio') loadEdgarQueue();
   if (view === 'portfolio') loadTrueProfit();
+  if (view === 'portfolio') _portAutoLoadCSV();  // auto-load latest portfolio.csv from server
   if (view === 'portfolio') {
     // restore Alpaca balance from localStorage and re-render sync panel
     const balEl = document.getElementById('sync-balance');
@@ -5916,6 +5924,17 @@ function fetchProfitBasket() {
   window.portSyncResetRecycled   = portSyncResetRecycled;
   window.portSyncToggleSavings   = portSyncToggleSavings;
 
+  // Expose portfolio table internals for _portAutoLoadCSV
+  window.portProcessCSV    = portProcessCSV;
+  window.portRender        = portRender;
+  window.portUpdateSummary = portUpdateSummary;
+  window._portGetState     = function() { return { rows: portAllRows, page: portPage }; };
+  window._portSetState     = function(rows) {
+    portPrevSnap = null;
+    portAllRows  = rows;
+    portPage     = 0;
+  };
+
 })();
 
 // ── Portfolio backtest ─────────────────────────────────────────────────────
@@ -6861,7 +6880,8 @@ function launchMiroShark() {
     _ptyTerm = new window.Terminal({
       fontFamily: '"Courier New", Courier, monospace',
       fontSize: 12,
-      lineHeight: 1.5,
+      lineHeight: 1.0,
+      letterSpacing: 0,
       theme: {
         background:          '#0B0E17',
         foreground:          '#88cc88',
@@ -6897,6 +6917,8 @@ function launchMiroShark() {
     // Fit first so cols/rows are measured, THEN connect and start hermes at the right size
     setTimeout(function() {
       _ptyFit.fit();
+      // Second fit after a tick to catch any layout reflow
+      setTimeout(function() { try { _ptyFit.fit(); } catch(e) {} }, 50);
 
       _ptySock = io('/pty', {transports: ['websocket']});
 
@@ -6957,7 +6979,221 @@ function launchMiroShark() {
     }
   });
 })();
-// ── PICKS TAB ────────────────────────────────────────────────────────────────
+// ── Portfolio CSV Auto-Loader ─────────────────────────────────────────────────
+// Fetches /api/portfolio_csv and injects it into the portfolio table pipeline
+// so you never need to manually re-upload after saving a new portfolio.csv
+var _portAutoLoadDone = false;
+function _portAutoLoadCSV() {
+  if (_portAutoLoadDone && window._portGetState && window._portGetState().rows.length > 0) return;
+  fetch('/api/portfolio_csv')
+    .then(function(r) { if (!r.ok) throw new Error('no csv'); return r.text(); })
+    .then(function(csvText) {
+      var result = window.portProcessCSV(csvText);
+      if (!result || !result.rows.length) return;
+      window._portSetState(result.rows);
+      window.portUpdateSummary(result.rows, result.totalAccounts);
+      window.portRender();
+      window.portSyncLoadAlpaca();
+      window.portSyncLoadSavingsData();
+      var meta = document.getElementById('port-meta-line');
+      var ts = new Date().toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+      if (meta) meta.textContent = 'portfolio.csv  ·  loaded ' + ts + '  ·  ' + result.rows.length + ' symbols across ' + result.totalAccounts + ' accounts';
+      var lbl = document.getElementById('port-file-label');
+      if (lbl) lbl.textContent = 'portfolio.csv';
+      _portAutoLoadDone = true;
+    })
+    .catch(function() {}); // silently fail if no CSV on server
+}
+
+
+
+// ── MONTHLY CHART SYSTEM (top-level, globally accessible) ──────────────────────
+// openMonthlyChart: fetch live chart from TV MCP via backend.
+// RULE: image displayed for human eyes only. Never passed to LLM as text.
+// ─────────────────────────────────────────────────────────────────────────────
+function openMonthlyChart(sym, pattern) {
+  var panel = document.getElementById('chart-panel-' + sym);
+  if (!panel) return;
+
+  // Toggle — if already open, close it
+  if (panel.style.display !== 'none') {
+    panel.style.display = 'none';
+    panel.innerHTML = '';
+    return;
+  }
+
+  panel.style.display = 'block';
+  panel.innerHTML = '<div style="color:var(--muted);font-size:10px;padding:6px;">Checking for live chart...</div>';
+
+  fetch('/api/chart/monthly/' + sym)
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      var html = '';
+
+      // ── CYCLE HISTORY STRIP ──────────────────────────────────────────────
+      var cd = data.cycle_data || {};
+      var cycles = cd.cycles || [];
+      var currentCycle = data.current_cycle || '?';
+      if (cycles.length > 0) {
+        html += '<div style="background:#0b0e17;border-radius:4px;padding:6px 8px;margin-bottom:6px;">';
+        html += '<div style="font-size:9px;color:#ffaa00;font-weight:700;margin-bottom:4px;">';
+        html += '📈 ' + sym + ' CYCLE HISTORY — Currently in Cycle ' + currentCycle + '</div>';
+        html += '<div style="display:flex;flex-wrap:wrap;gap:6px;">';
+        cycles.forEach(function(cy) {
+          var active   = cy.status !== 'COMPLETED';
+          var gainCol  = cy.gain_pct >= 0 ? '#00ff88' : '#f85149';
+          var bgCol    = active ? '#1a2a1a' : '#0f1419';
+          var borderCol= active ? '#00ff88' : '#252A36';
+          var labelCol = (cy.cycle_label === currentCycle) ? '#ffaa00' : '#88cc88';
+          html += '<div style="background:' + bgCol + ';border:1px solid ' + borderCol + ';border-radius:4px;padding:4px 8px;min-width:90px;">';
+          html += '<div style="font-size:10px;font-weight:700;color:' + labelCol + ';">Cycle ' + cy.cycle_label + (active ? ' ●' : '') + '</div>';
+          html += '<div style="font-size:9px;color:#6b7280;">' + (cy.trough_date||'').slice(0,7) + ' → ' + (cy.peak_date||'').slice(0,7) + '</div>';
+          html += '<div style="font-size:11px;font-weight:700;color:' + gainCol + ';">' + (cy.gain_pct >= 0 ? '+' : '') + cy.gain_pct.toFixed(0) + '%</div>';
+          html += '<div style="font-size:8px;color:#446644;">' + (cy.hold_months||'?') + 'mo · ' + cy.status + '</div>';
+          html += '</div>';
+        });
+        html += '</div></div>';
+      }
+
+      // ── VISION DATA STRIP ────────────────────────────────────────────────
+      // Show extracted technical readings from the actual chart PNG
+      // This is REAL data — not training data. Null = not yet extracted.
+      fetch('/api/chart/vision/' + sym + '?type=live')
+        .then(function(r){ return r.json(); })
+        .then(function(vd){
+          if (!vd.data) return;
+          var v = vd.data;
+          var harsiCol = v.harsi_color === 'red' || v.harsi_color === 'pink' ? '#f85149' :
+                         v.harsi_color === 'green' || v.harsi_color === 'cyan' ? '#00ff88' :
+                         v.harsi_color === 'yellow' || v.harsi_color === 'orange' ? '#ffaa00' : '#6b7280';
+          var maCol    = v.ma_position === 'above_both' ? '#00ff88' :
+                         v.ma_position === 'below_both' ? '#f85149' : '#ffaa00';
+          var vstrip = '<div style="background:#0b0e17;border-radius:4px;padding:6px 10px;margin-bottom:6px;' +
+                       'display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px 12px;">';
+          vstrip += '<div style="font-size:9px;color:#6b7280;">HARSI</div>' +
+                    '<div style="font-size:9px;color:#6b7280;">UMES</div>' +
+                    '<div style="font-size:9px;color:#6b7280;">MA POSITION</div>';
+          vstrip += '<div style="font-size:13px;font-weight:700;color:' + harsiCol + ';">' +
+                    (v.harsi_value !== null ? v.harsi_value : '—') + '</div>';
+          vstrip += '<div style="font-size:13px;font-weight:700;color:#4a9eff;">' +
+                    (v.umes_score || '—') + '</div>';
+          vstrip += '<div style="font-size:11px;color:' + maCol + ';">' +
+                    (v.ma_position ? v.ma_position.replace(/_/g,' ') : '—') + '</div>';
+          vstrip += '<div style="font-size:9px;color:#6b7280;grid-column:1;">' +
+                    (v.harsi_direction || '') + ' · ' + (v.harsi_zone || '') + '</div>';
+          vstrip += '<div style="font-size:9px;color:#6b7280;">' +
+                    (v.umes_setup || '') + '</div>';
+          vstrip += '<div style="font-size:9px;color:#6b7280;">' +
+                    (v.volume_trend ? 'vol: ' + v.volume_trend.replace(/_/g,' ') : '') + '</div>';
+          vstrip += '<div style="font-size:8px;color:#446644;grid-column:1/-1;margin-top:2px;">' +
+                    '📸 extracted from real chart · not AI training data' +
+                    (v.extraction_confidence ? ' · confidence: ' + v.extraction_confidence : '') +
+                    ' · <button data-sym="' + sym + '" onclick="extractVision(this.dataset.sym)" ' +
+                    'style="background:none;border:none;color:#446644;cursor:pointer;font-size:8px;' +
+                    'text-decoration:underline;padding:0;">re-extract</button></div>';
+          vstrip += '</div>';
+          panel.innerHTML = vstrip + panel.innerHTML;
+        }).catch(function(){});
+
+      // ── LIVE CHART OR CAPTURE PROMPT ─────────────────────────────────────
+      if (data.url) {
+        html += '<div style="margin-bottom:4px;font-size:9px;color:#6b7280;">📸 LIVE MONTHLY CHART · ' + sym +
+                ' · captured ' + (data.age_hours ? data.age_hours + 'h ago' : 'today') +
+                ' · <span style="color:#f85149;">NOT AI training data — real TradingView screenshot</span></div>';
+        html += '<a href="' + data.url + '" target="_blank" title="Click to open full size">' +
+                 '<img src="' + data.url + '" style="width:100%;border-radius:4px;border:1px solid #252A36;cursor:zoom-in;" />' +
+                 '</a>' +
+                 '<div style="font-size:8px;color:#446644;text-align:right;margin-top:2px;">🔍 click to open full size</div>';
+      } else {
+        html += '<div style="background:#0b0e17;border-radius:4px;padding:8px;display:flex;align-items:center;gap:10px;margin-bottom:6px;">';
+        html += '<span style="font-size:10px;color:#6b7280;">No live chart captured yet for ' + sym + '.</span>';
+        html += '<button onclick="captureMonthlyChart(\'' + sym + '\')" ' +
+                'style="background:#1A1E2B;border:1px solid #88cc88;color:#88cc88;font-size:10px;padding:3px 10px;border-radius:3px;cursor:pointer;">' +
+                '\uD83D\uDCF8 Capture Live Chart</button>';
+        html += '</div>';
+      }
+
+      // ── BASELINE CHART (what it looked like on pick day) ────────────────
+      fetch('/api/chart/baseline/' + sym)
+        .then(function(r){ return r.ok ? r.url : null; })
+        .then(function(baseUrl){
+          if (baseUrl) {
+            var baseHtml = '<div style="margin-top:6px;border-top:1px solid #252A36;padding-top:6px;">';
+            baseHtml += '<div style="font-size:9px;color:#4a9eff;font-weight:700;margin-bottom:2px;">';
+            baseHtml += '📅 BASELINE — chart at pick time</div>';
+            baseHtml += '<div style="font-size:8px;color:#6b7280;margin-bottom:4px;">';
+            baseHtml += 'This is what ' + sym + ' looked like ON THE DAY the scanner fired. ';
+            baseHtml += 'Compare to the live chart above to see what has changed.</div>';
+            baseHtml += '<a href="/api/chart/baseline/' + sym + '" target="_blank" title="Click to open full size">' +
+                        '<img src="/api/chart/baseline/' + sym + '" style="width:100%;border-radius:4px;border:1px solid #1a3a5c;opacity:0.88;cursor:zoom-in;" />' +
+                        '</a>' +
+                        '<div style="font-size:8px;color:#446644;text-align:right;margin-top:2px;">🔍 click to open full size</div>';
+            baseHtml += '</div>';
+            panel.innerHTML += baseHtml;
+          }
+        }).catch(function(){});
+
+      // ── WINNER REFERENCE COMPARISON ──────────────────────────────────────
+      if (data.winner_ref_url) {
+        var refTicker = data.winner_ref_ticker || 'reference';
+        var refReason = data.ref_reason || ('closest pattern match for ' + sym);
+        html += '<div style="margin-top:6px;border-top:1px solid #252A36;padding-top:6px;">';
+        html += '<div style="font-size:9px;color:#ffaa00;font-weight:700;margin-bottom:2px;">';
+        html += '📊 WINNER REFERENCE — ' + refTicker + ' · ' + (data.pattern_match || pattern) + '</div>';
+        html += '<div style="font-size:8px;color:#6b7280;margin-bottom:4px;">';
+        html += refReason + ' — Human eyes compare · NOT a scored gate</div>';
+        html += '<a href="' + data.winner_ref_url + '" target="_blank" title="Click to open full size">' +
+                 '<img src="' + data.winner_ref_url + '?sym=' + sym + '" style="width:100%;border-radius:4px;border:1px solid #333;opacity:0.88;cursor:zoom-in;" />' +
+                 '</a>' +
+                 '<div style="font-size:8px;color:#446644;text-align:right;margin-top:2px;">🔍 click to open full size</div>';
+        html += '</div>';
+      }
+
+      panel.innerHTML = html || '<div style="color:var(--muted);font-size:10px;">No chart data.</div>';
+    })
+    .catch(function(e){
+      panel.innerHTML = '<div style="color:#f85149;font-size:10px;">Chart fetch error: ' + e + '</div>';
+    });
+}
+
+function captureMonthlyChart(sym) {
+  var panel = document.getElementById('chart-panel-' + sym);
+  if (panel) panel.innerHTML = '<div style="color:#ffaa00;font-size:10px;padding:6px;">⏳ Capture queued — Hermes will take live monthly chart via TradingView MCP...</div>';
+
+  fetch('/api/chart/capture/' + sym, {method: 'POST'})
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (panel) {
+        var cycleInfo = data.cycle_count ? ' · ' + data.cycle_count + ' cycle annotations' : '';
+        var curCycle  = data.current_cycle ? ' · Current: Cycle ' + data.current_cycle : '';
+        panel.innerHTML =
+          '<div style="background:#0b0e17;border-radius:4px;padding:8px;">' +
+          '<div style="font-size:10px;color:#88cc88;margin-bottom:4px;">✅ Capture queued for ' + sym + cycleInfo + curCycle + '</div>' +
+          '<div style="font-size:9px;color:#6b7280;">In Hermes chat type:</div>' +
+          '<div style="font-family:monospace;font-size:11px;color:#ffaa00;background:#131722;padding:4px 8px;border-radius:3px;margin-top:3px;">' +
+          'capture ' + sym + ' monthly chart</div>' +
+          '<div style="font-size:8px;color:#6b7280;margin-top:4px;">Hermes will: set symbol → monthly → draw cycle A/B/C/D/E troughs → capture chart + HARSI → save PNG</div>' +
+          '</div>';
+      }
+    })
+    .catch(function(e){
+      if (panel) panel.innerHTML = '<div style="color:#f85149;font-size:10px;">Error: ' + e + '</div>';
+    });
+}
+function extractVision(sym) {
+  fetch('/api/chart/extract/' + sym, {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({type:'live'})})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      console.log('Vision extraction started:', sym, d.message);
+      // Refresh panel after 15s
+      setTimeout(function(){ openMonthlyChart(sym, ''); openMonthlyChart(sym, ''); }, 15000);
+    })
+    .catch(function(e){ console.error('extract error:', e); });
+}
+// ── END MONTHLY CHART SYSTEM ──────────────────────────────────────────────────
+
+
 (function(){
   var _picksData = [];
   var _picksSort = 'tier';
@@ -7115,7 +7351,9 @@ function launchMiroShark() {
         '<span style="font-size:9px;color:var(--muted);">' + p.days_held + 'd held</span>' +
         (needsScore ? '<button onclick="scoreOnePick(\'' + p.symbol + '\')" style="margin-left:auto;background:var(--panel);border:1px solid var(--border);color:#6b7280;font-size:9px;padding:2px 8px;border-radius:3px;cursor:pointer;">\u26A1 SCORE IT</button>' :
           '<button onclick="openResearchFlow(\'' + p.symbol + '\')" style="margin-left:auto;background:var(--panel);border:1px solid #4a9eff;color:#4a9eff;font-size:9px;padding:2px 8px;border-radius:3px;cursor:pointer;">\uD83D\uDCCB RESEARCH</button>') +
+      '<button onclick="openMonthlyChart(\'' + p.symbol + '\', \'' + (p.pattern_type||'UNKNOWN') + '\')" style="background:var(--panel);border:1px solid #252A36;color:#88cc88;font-size:9px;padding:2px 8px;border-radius:3px;cursor:pointer;" title="Live monthly chart — real TV data, no AI training data">\uD83D\uDCF8 Chart</button>' +
       '</div>' +
+      '<div id="chart-panel-' + p.symbol + '" style="display:none;margin-top:6px;"></div>' +
       targetRow(p) +
     '</div>';
   }
