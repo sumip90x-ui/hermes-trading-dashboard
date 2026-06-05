@@ -4,7 +4,7 @@
 
 echo "Starting Hermes Trading Dashboard..."
 cd ~/trading_dashboard
-python3 app.py &
+/usr/bin/python3 app.py &
 sleep 2
 
 # Try to open browser

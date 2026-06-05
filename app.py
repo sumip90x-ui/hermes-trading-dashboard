@@ -3959,10 +3959,13 @@ Be specific. Use real numbers. Keep it under 400 words. This goes in the Trading
         brain_path = HOME / 'Documents' / 'Trading Vault' / 'TRADING_BRAIN.md'
         if brain_path.exists():
             brain = brain_path.read_text()
+            brain = brain_path.read_text()
+            phase_nl = '\n'  # avoid backslash in f-string
+            phase_str = curve_context.split('Phase:')[1].split(phase_nl)[0].strip() if 'Phase:' in curve_context else 'unknown'
             summary_line = (
                 f"\n## Session {today} — P/L ${day_pl:+.2f} | High ${intra_high:.2f} | "
                 f"Buys {len(buys)} / Sells {len(sells)} | "
-                f"Phase: {curve_context.split('Phase:')[1].split('\\n')[0].strip() if 'Phase:' in curve_context else 'unknown'}"
+                f"Phase: {phase_str}"
             )
             # Insert after the last ## line or at end
             brain_path.write_text(brain.rstrip() + '\n' + summary_line + '\n')

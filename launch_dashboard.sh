@@ -27,7 +27,7 @@ fi
 # Start fresh
 cd "$DASHBOARD_DIR"
 echo "Starting dashboard with latest code..."
-nohup python3 app.py >> "$LOG" 2>&1 &
+nohup /usr/bin/python3 app.py >> "$LOG" 2>&1 &
 DASHBOARD_PID=$!
 echo "Started dashboard PID $DASHBOARD_PID — waiting for port 6060..."
 
