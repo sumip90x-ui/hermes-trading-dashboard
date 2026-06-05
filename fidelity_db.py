@@ -1061,3 +1061,93 @@ def backtest_signals() -> dict:
             "confidence_rating":    confidence,
         },
     }
+
+
+def get_gain_loss_split_history() -> dict:
+    """
+    For every ingested snapshot, split positions into:
+      - Green pool  = SUM(total_gl) for all symbols where total_gl > 0
+      - Red pool    = SUM(total_gl) for all symbols where total_gl < 0
+      - Net G/L     = green_pool + red_pool  (same as true profit)
+
+    Then compute:
+      - avg_green / avg_red  across ALL snapshots
+      - variance from first snapshot to latest (raw delta + pct change)
+      - green_count / red_count = number of symbols in each bucket per snapshot
+
+    Returns:
+    {
+      points: [
+        { date, green_pool, red_pool, net_gl,
+          green_count, red_count, total_symbols }
+      ],
+      latest:   { date, green_pool, red_pool, net_gl, green_count, red_count },
+      earliest: { date, green_pool, red_pool, net_gl, green_count, red_count },
+      avg_green:      float,  # average green pool across all snapshots
+      avg_red:        float,  # average red pool across all snapshots
+      green_variance: { delta, pct },  # latest.green_pool vs earliest.green_pool
+      red_variance:   { delta, pct },  # latest.red_pool   vs earliest.red_pool
+      total_snapshots: int,
+    }
+    """
+    init_db()
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT
+                snapshot_id,
+                snapshot_date,
+                SUM(CASE WHEN total_gl > 0 THEN total_gl ELSE 0 END) AS green_pool,
+                SUM(CASE WHEN total_gl < 0 THEN total_gl ELSE 0 END) AS red_pool,
+                SUM(total_gl)                                          AS net_gl,
+                COUNT(CASE WHEN total_gl > 0 THEN 1 END)              AS green_count,
+                COUNT(CASE WHEN total_gl < 0 THEN 1 END)              AS red_count,
+                COUNT(*)                                               AS total_symbols
+            FROM snapshots
+            GROUP BY snapshot_id
+            ORDER BY snapshot_date ASC
+        """).fetchall()
+
+    if not rows:
+        return {
+            "points": [], "latest": None, "earliest": None,
+            "avg_green": 0.0, "avg_red": 0.0,
+            "green_variance": {"delta": 0.0, "pct": 0.0},
+            "red_variance":   {"delta": 0.0, "pct": 0.0},
+            "total_snapshots": 0,
+        }
+
+    points = []
+    for r in rows:
+        gp  = round(r["green_pool"] or 0.0, 2)
+        rp  = round(r["red_pool"]   or 0.0, 2)
+        net = round(r["net_gl"]     or 0.0, 2)
+        points.append({
+            "date":          r["snapshot_date"],
+            "green_pool":    gp,
+            "red_pool":      rp,
+            "net_gl":        net,
+            "green_count":   r["green_count"]   or 0,
+            "red_count":     r["red_count"]     or 0,
+            "total_symbols": r["total_symbols"] or 0,
+        })
+
+    avg_green = round(sum(p["green_pool"] for p in points) / len(points), 2)
+    avg_red   = round(sum(p["red_pool"]   for p in points) / len(points), 2)
+
+    first, last = points[0], points[-1]
+
+    def _variance(early_val, late_val):
+        delta = round(late_val - early_val, 2)
+        pct   = round(delta / abs(early_val) * 100, 2) if early_val else 0.0
+        return {"delta": delta, "pct": pct}
+
+    return {
+        "points":           points,
+        "latest":           last,
+        "earliest":         first,
+        "avg_green":        avg_green,
+        "avg_red":          avg_red,
+        "green_variance":   _variance(first["green_pool"], last["green_pool"]),
+        "red_variance":     _variance(first["red_pool"],   last["red_pool"]),
+        "total_snapshots":  len(points),
+    }

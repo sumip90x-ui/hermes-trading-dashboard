@@ -206,6 +206,18 @@ def api_fidelity_true_profit():
         return jsonify({'error': str(exc)}), 500
 
 
+@app.route('/api/fidelity/gain_loss_split')
+def api_fidelity_gain_loss_split():
+    """
+    Green pool vs Red pool split across all Fidelity snapshots.
+    Returns per-snapshot green/red totals + averages + variance from first CSV.
+    """
+    try:
+        return jsonify(fidelity_db.get_gain_loss_split_history())
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
+
 @app.route('/api/market_clock')
 def api_market_clock():
     try:

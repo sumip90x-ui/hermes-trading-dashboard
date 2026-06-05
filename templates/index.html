@@ -908,6 +908,46 @@
           <div id="tp-tooltip" style="font-size:10px;color:var(--muted);margin-top:4px;font-family:monospace;min-height:14px;"></div>
         </div>
 
+        <!-- ── GAIN / LOSS SPLIT TRACKER ── -->
+        <div id="port-gl-split-section" style="margin-top:1.2rem;background:#060d06;border:1px solid #252A36;border-radius:6px;padding:14px 16px;">
+
+          <!-- Header with live stats -->
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+            <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;">
+              📊 Gain Pool vs Loss Pool — Position Split
+            </div>
+            <div style="display:flex;gap:18px;align-items:baseline;flex-wrap:wrap;">
+              <div style="font-size:11px;color:var(--muted);">
+                🟢 <span style="color:#00ff88;font-family:monospace;font-weight:700;" id="gls-green-val">—</span>
+                <span style="font-size:10px;color:#446644;" id="gls-green-count"></span>
+              </div>
+              <div style="font-size:11px;color:var(--muted);">
+                🔴 <span style="color:#f85149;font-family:monospace;font-weight:700;" id="gls-red-val">—</span>
+                <span style="font-size:10px;color:#664444;" id="gls-red-count"></span>
+              </div>
+              <div style="font-size:11px;color:var(--muted);">Net <span style="font-family:monospace;font-weight:700;" id="gls-net-val">—</span></div>
+              <div style="font-size:10px;color:var(--muted);" id="gls-snap-count"></div>
+            </div>
+          </div>
+
+          <!-- Averages row -->
+          <div id="gls-avg-row" style="display:none;background:#0a160a;border:1px solid #1a2e1a;border-radius:4px;padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--muted);display:flex;gap:24px;flex-wrap:wrap;">
+            <span>Avg Green Pool: <strong id="gls-avg-green" style="color:#00ff88;">—</strong></span>
+            <span>Avg Red Pool: <strong id="gls-avg-red" style="color:#f85149;">—</strong></span>
+            <span style="border-left:1px solid #252A36;padding-left:16px;">Green since day 1:
+              <strong id="gls-green-var" style="color:#00ff88;">—</strong>
+            </span>
+            <span>Loss pool change:
+              <strong id="gls-red-var" style="color:#ffaa00;">—</strong>
+            </span>
+            <span id="gls-liquidity-badge" style="margin-left:auto;font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;background:#131722;"></span>
+          </div>
+
+          <!-- Dual-line chart canvas -->
+          <canvas id="gls-canvas" height="120" style="width:100%;display:block;cursor:crosshair;"></canvas>
+          <div id="gls-tooltip" style="font-size:10px;color:var(--muted);margin-top:4px;font-family:monospace;min-height:14px;"></div>
+        </div>
+
         <!-- Snapshot diff bar (hidden until 2nd upload) -->
         <div class="port-snap-bar" id="port-snap-bar" style="display:none">
           <strong>vs previous snapshot:</strong> <span id="port-snap-detail"></span>
@@ -3966,6 +4006,7 @@ function switchChart(view, el) {
   if (view === 'portfolio') loadBacktest();
   if (view === 'portfolio') loadEdgarQueue();
   if (view === 'portfolio') loadTrueProfit();
+  if (view === 'portfolio') loadGainLossSplit();
   if (view === 'portfolio') _portAutoLoadCSV();  // auto-load latest portfolio.csv from server
   if (view === 'portfolio') {
     // restore Alpaca balance from localStorage and re-render sync panel
@@ -6081,6 +6122,255 @@ function fetchProfitBasket() {
     // redraw on resize
     window.addEventListener('resize', () => {
       if (window._tpPoints) drawTpChart(window._tpPoints);
+    });
+  });
+})();
+
+// ── GAIN/LOSS SPLIT TRACKER ─────────────────────────────────────────────────
+(function() {
+  'use strict';
+
+  function fmt$(v) {
+    if (v === null || v === undefined || isNaN(v)) return '—';
+    const abs = Math.abs(v);
+    const s = abs >= 1000 ? '$' + (abs / 1000).toFixed(1) + 'k' : '$' + abs.toFixed(2);
+    return (v < 0 ? '-' : '+') + s;
+  }
+
+  function fmtDelta(delta, pct) {
+    const sign = delta >= 0 ? '+' : '';
+    return `${sign}$${Math.abs(delta).toFixed(2)} (${sign}${pct}%)`;
+  }
+
+  // ---- CHART ----------------------------------------------------------------
+  function drawGlsChart(points) {
+    const canvas = document.getElementById('gls-canvas');
+    if (!canvas) return;
+    canvas.width = canvas.offsetWidth || 800;
+    const W = canvas.width, H = canvas.height;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, W, H);
+
+    if (!points || points.length < 2) {
+      ctx.fillStyle = '#446644';
+      ctx.font = '11px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('Need 2+ snapshots for chart', W / 2, H / 2);
+      return;
+    }
+
+    const PAD = { t: 10, b: 22, l: 56, r: 12 };
+    const cw = W - PAD.l - PAD.r;
+    const ch = H - PAD.t - PAD.b;
+
+    // Find global min/max across both pools
+    const allVals = points.flatMap(p => [p.green_pool, p.red_pool]);
+    let minV = Math.min(...allVals);
+    let maxV = Math.max(...allVals);
+    if (minV === maxV) { minV -= 1; maxV += 1; }
+    const range = maxV - minV;
+
+    function toY(v) { return PAD.t + ch - ((v - minV) / range) * ch; }
+    function toX(i) { return PAD.l + (i / (points.length - 1)) * cw; }
+
+    // Zero line
+    if (minV < 0 && maxV > 0) {
+      const zy = toY(0);
+      ctx.save();
+      ctx.strokeStyle = '#252A36';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 4]);
+      ctx.beginPath();
+      ctx.moveTo(PAD.l, zy);
+      ctx.lineTo(W - PAD.r, zy);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Y-axis labels
+    ctx.fillStyle = '#446644';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'right';
+    [minV, (minV + maxV) / 2, maxV].forEach(v => {
+      const y = toY(v);
+      const label = v >= 0 ? '+$' + v.toFixed(0) : '-$' + Math.abs(v).toFixed(0);
+      ctx.fillText(label, PAD.l - 4, y + 3);
+    });
+
+    // Draw function for one series
+    function drawSeries(color, fillColor, getVal) {
+      const pts = points.map((p, i) => ({ x: toX(i), y: toY(getVal(p)) }));
+
+      // fill
+      const zy = (minV < 0 && maxV > 0) ? toY(0) : (getVal(points[0]) >= 0 ? H - PAD.b : PAD.t);
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, zy);
+      pts.forEach(p => ctx.lineTo(p.x, p.y));
+      ctx.lineTo(pts[pts.length - 1].x, zy);
+      ctx.closePath();
+      ctx.fillStyle = fillColor;
+      ctx.fill();
+
+      // line
+      ctx.beginPath();
+      pts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // dots (only when few snapshots)
+      if (points.length <= 60) {
+        ctx.fillStyle = color;
+        pts.forEach(p => {
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      }
+    }
+
+    drawSeries('#00ff88', 'rgba(0,255,136,0.08)', p => p.green_pool);
+    drawSeries('#f85149', 'rgba(248,81,73,0.07)',  p => p.red_pool);
+
+    // Date labels
+    ctx.fillStyle = '#446644';
+    ctx.font = '9px monospace';
+    [
+      [0, 'left'],
+      [Math.floor((points.length - 1) / 2), 'center'],
+      [points.length - 1, 'right']
+    ].forEach(([i, align]) => {
+      if (!points[i]) return;
+      ctx.textAlign = align;
+      ctx.fillText(points[i].date.slice(0, 10), toX(i), H - 4);
+    });
+
+    // Legend
+    ctx.font = '9px monospace';
+    ctx.fillStyle = '#00ff88'; ctx.textAlign = 'left';
+    ctx.fillText('▲ Gains', PAD.l + 4, PAD.t + 10);
+    ctx.fillStyle = '#f85149';
+    ctx.fillText('▼ Losses', PAD.l + 60, PAD.t + 10);
+
+    // Store for hover
+    canvas._glsPoints = points;
+    canvas._glsPad    = PAD;
+    canvas._glsRange  = { minV, range, cw, ch };
+  }
+
+  // ---- HOVER ----------------------------------------------------------------
+  function glsHover(e) {
+    const canvas = document.getElementById('gls-canvas');
+    const tip    = document.getElementById('gls-tooltip');
+    if (!canvas || !canvas._glsPoints || !tip) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx   = e.clientX - rect.left;
+    const { l, r } = canvas._glsPad;
+    const cw   = canvas.width - l - r;
+    const pts  = canvas._glsPoints;
+    const idx  = Math.round((mx - l) / cw * (pts.length - 1));
+    if (idx < 0 || idx >= pts.length) { tip.textContent = ''; return; }
+    const p = pts[idx];
+    const netColor = p.net_gl >= 0 ? 'color:#00ff88' : 'color:#f85149';
+    tip.innerHTML =
+      `<span style="color:#446644">${p.date.slice(0,10)}</span>  ` +
+      `🟢 <span style="color:#00ff88">${fmt$(p.green_pool)}</span> (${p.green_count} pos)  ` +
+      `🔴 <span style="color:#f85149">${fmt$(p.red_pool)}</span> (${p.red_count} pos)  ` +
+      `Net: <span style="${netColor}">${fmt$(p.net_gl)}</span>  ` +
+      `${p.total_symbols} total`;
+  }
+
+  // ---- LOAD -----------------------------------------------------------------
+  window.loadGainLossSplit = function() {
+    fetch('/api/fidelity/gain_loss_split')
+      .then(r => r.json())
+      .then(function(data) {
+        if (!data || data.error || !data.latest) return;
+        const L = data.latest;
+        const E = data.earliest;
+
+        // Header stats
+        const gv = document.getElementById('gls-green-val');
+        const rv = document.getElementById('gls-red-val');
+        const nv = document.getElementById('gls-net-val');
+        const gc = document.getElementById('gls-green-count');
+        const rc = document.getElementById('gls-red-count');
+        const sc = document.getElementById('gls-snap-count');
+
+        if (gv) gv.textContent = fmt$(L.green_pool);
+        if (rv) rv.textContent = fmt$(L.red_pool);
+        if (nv) {
+          nv.textContent = fmt$(L.net_gl);
+          nv.style.color = L.net_gl >= 0 ? '#00ff88' : '#f85149';
+        }
+        if (gc) gc.textContent = `(${L.green_count} pos)`;
+        if (rc) rc.textContent = `(${L.red_count} pos)`;
+        if (sc) sc.textContent = `${data.total_snapshots} snapshots`;
+
+        // Averages row
+        const avgRow = document.getElementById('gls-avg-row');
+        const ag  = document.getElementById('gls-avg-green');
+        const ar  = document.getElementById('gls-avg-red');
+        const gVar = document.getElementById('gls-green-var');
+        const rVar = document.getElementById('gls-red-var');
+        const badge = document.getElementById('gls-liquidity-badge');
+
+        if (avgRow) avgRow.style.display = 'flex';
+        if (ag) ag.textContent = fmt$(data.avg_green);
+        if (ar) ar.textContent = fmt$(data.avg_red);
+
+        // Green variance — growing gains = good
+        if (gVar) {
+          const gv2 = data.green_variance;
+          gVar.textContent = fmtDelta(gv2.delta, gv2.pct);
+          gVar.style.color = gv2.delta >= 0 ? '#00ff88' : '#f85149';
+        }
+
+        // Red variance — growing losses = bad, shrinking = good
+        if (rVar) {
+          const rv2 = data.red_variance;
+          // red_pool is negative, so delta < 0 means losses grew, delta > 0 means improved
+          const improved = rv2.delta >= 0;
+          rVar.textContent = fmtDelta(rv2.delta, rv2.pct);
+          rVar.style.color = improved ? '#00ff88' : '#ffaa00';
+        }
+
+        // Liquidity health badge
+        if (badge && E) {
+          const greenGrowth = data.green_variance.delta;
+          const redGrowth   = Math.abs(data.red_variance.delta);  // losses grew by this much
+          if (greenGrowth > 0 && greenGrowth > redGrowth * 2) {
+            badge.textContent = '💧 STABLE GAINS — Gains growing 2× faster than losses';
+            badge.style.color = '#00ff88';
+            badge.style.borderColor = '#1a5530';
+            badge.style.border = '1px solid #1a5530';
+          } else if (greenGrowth > 0 && greenGrowth > redGrowth) {
+            badge.textContent = '⚖ BALANCED — Gains outpacing losses';
+            badge.style.color = '#ffaa00';
+            badge.style.border = '1px solid #664400';
+          } else if (greenGrowth > 0) {
+            badge.textContent = '⚠ DIVERGING — Losses growing faster than gains';
+            badge.style.color = '#f85149';
+            badge.style.border = '1px solid #661100';
+          } else {
+            badge.textContent = '📉 CONTRACTION — Both pools shrinking';
+            badge.style.color = '#888';
+            badge.style.border = '1px solid #333';
+          }
+        }
+
+        window._glsPoints = data.points;
+        setTimeout(() => drawGlsChart(data.points), 50);
+      })
+      .catch(function() {});
+  };
+
+  // Wire hover + resize
+  document.addEventListener('DOMContentLoaded', function() {
+    const canvas = document.getElementById('gls-canvas');
+    if (canvas) canvas.addEventListener('mousemove', glsHover);
+    window.addEventListener('resize', function() {
+      if (window._glsPoints) drawGlsChart(window._glsPoints);
     });
   });
 })();
