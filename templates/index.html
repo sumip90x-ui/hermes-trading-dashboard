@@ -891,6 +891,31 @@
           <div class="port-card"><div class="port-card-lbl">Return %</div><div class="port-card-val" id="pc-ret">—</div></div>
         </div>
 
+        <!-- ── COMPOUNDING ENGINE HEALTH BANNER ── -->
+        <div id="comp-banner" style="display:none;margin-top:1rem;border-radius:6px;padding:10px 16px;border:1px solid #252A36;background:#060d06;">
+          <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
+            <!-- Verdict badge -->
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="font-size:10px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;">Engine</span>
+              <span id="comp-verdict-badge" style="font-size:12px;font-weight:700;padding:3px 10px;border-radius:4px;font-family:monospace;">—</span>
+            </div>
+            <!-- Gain velocity -->
+            <div style="font-size:11px;color:var(--muted);">
+              📈 Gains <span id="comp-green-vel" style="color:#00ff88;font-family:monospace;font-weight:700;">—</span>/snapshot
+            </div>
+            <!-- Loss velocity -->
+            <div style="font-size:11px;color:var(--muted);">
+              📉 Losses <span id="comp-red-vel" style="font-family:monospace;font-weight:700;">—</span>/snapshot
+            </div>
+            <!-- Recovered -->
+            <div style="font-size:11px;color:var(--muted);">
+              🔄 Recovered <span id="comp-recovered" style="color:#00ff88;font-family:monospace;font-weight:700;">—</span> positions
+            </div>
+            <!-- ETF basket mini -->
+            <div style="margin-left:auto;display:flex;gap:10px;font-size:10px;font-family:monospace;" id="comp-etf-row"></div>
+          </div>
+        </div>
+
         <!-- ── TRUE PROFIT TRACKER ── -->
         <div id="port-tp-section" style="margin-top:1.2rem;background:#050e05;border:1px solid #252A36;border-radius:6px;padding:14px 16px;">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
@@ -990,10 +1015,11 @@
                 <th data-pcol="Total_Cost"  style="width:100px">Cost basis</th>
                 <th data-pcol="Total_GL"    style="width:95px">G/L $</th>
                 <th data-pcol="GL_Pct"      style="width:70px">G/L %</th>
+                <th data-pcol="Trend"       style="width:44px" title="Trend over last 3 snapshots">Trend</th>
               </tr>
             </thead>
             <tbody id="port-tbl-body">
-              <tr class="port-empty-row"><td colspan="9">Upload a Fidelity CSV above to populate this table</td></tr>
+              <tr class="port-empty-row"><td colspan="10">Upload a Fidelity CSV above to populate this table</td></tr>
             </tbody>
           </table>
         </div>
@@ -1003,6 +1029,58 @@
           <span id="port-pager-info"></span>
           <button class="port-pager-btn" id="port-prev-btn" disabled>← Prev</button>
           <button class="port-pager-btn" id="port-next-btn" disabled>Next →</button>
+        </div>
+
+        <!-- ── COMPOUNDING SCORECARD FOOTER ── -->
+        <div id="comp-scorecard" style="display:none;margin-top:1.5rem;background:#060d06;border:1px solid #252A36;border-radius:6px;padding:16px;">
+          <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:12px;">
+            🔄 Is the Compounding System Working?
+          </div>
+
+          <!-- 4 metric cards -->
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;">
+            <div style="background:#0a160a;border:1px solid #1a2e1a;border-radius:4px;padding:10px 12px;text-align:center;">
+              <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">Gain Velocity</div>
+              <div id="cs-green-vel" style="font-size:16px;font-weight:700;font-family:monospace;color:#00ff88;">—</div>
+              <div style="font-size:9px;color:#446644;">per snapshot</div>
+            </div>
+            <div style="background:#0a160a;border:1px solid #1a2e1a;border-radius:4px;padding:10px 12px;text-align:center;">
+              <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">Loss Velocity</div>
+              <div id="cs-red-vel" style="font-size:16px;font-weight:700;font-family:monospace;">—</div>
+              <div style="font-size:9px;color:#446644;">per snapshot</div>
+            </div>
+            <div style="background:#0a160a;border:1px solid #1a2e1a;border-radius:4px;padding:10px 12px;text-align:center;">
+              <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">Recovered</div>
+              <div id="cs-recovered" style="font-size:16px;font-weight:700;font-family:monospace;color:#00ff88;">—</div>
+              <div style="font-size:9px;color:#446644;">red → green</div>
+            </div>
+            <div style="background:#0a160a;border:1px solid #1a2e1a;border-radius:4px;padding:10px 12px;text-align:center;">
+              <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">Snapshots</div>
+              <div id="cs-snaps" style="font-size:16px;font-weight:700;font-family:monospace;color:var(--muted);">—</div>
+              <div style="font-size:9px;color:#446644;">tracked</div>
+            </div>
+          </div>
+
+          <!-- ETF basket row -->
+          <div style="margin-bottom:12px;">
+            <div style="font-size:10px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em;">🛡 Safe Harbor Basket</div>
+            <div id="cs-etf-cards" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+          </div>
+
+          <!-- Recovered symbols -->
+          <div id="cs-recovered-row" style="display:none;margin-bottom:12px;">
+            <div style="font-size:10px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em;">✅ Positions Recovered Since Day 1</div>
+            <div id="cs-recovered-chips" style="display:flex;flex-wrap:wrap;gap:5px;"></div>
+          </div>
+
+          <!-- Final verdict -->
+          <div style="border-top:1px solid #1a2e1a;padding-top:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+            <div>
+              <div style="font-size:10px;color:var(--muted);margin-bottom:3px;">System Verdict</div>
+              <div id="cs-verdict-text" style="font-size:13px;font-family:monospace;font-weight:700;">—</div>
+            </div>
+            <div id="cs-verdict-badge-big" style="font-size:14px;font-weight:700;padding:5px 16px;border-radius:5px;font-family:monospace;">—</div>
+          </div>
         </div>
 
         <!-- ── ALPACA SYNC PANEL ── -->
@@ -4007,6 +4085,7 @@ function switchChart(view, el) {
   if (view === 'portfolio') loadEdgarQueue();
   if (view === 'portfolio') loadTrueProfit();
   if (view === 'portfolio') loadGainLossSplit();
+  if (view === 'portfolio') loadCompoundingScorecard();
   if (view === 'portfolio') _portAutoLoadCSV();  // auto-load latest portfolio.csv from server
   if (view === 'portfolio') {
     // restore Alpaca balance from localStorage and re-render sync panel
@@ -5113,9 +5192,16 @@ function fetchProfitBasket() {
     const tbody = document.getElementById('port-tbl-body');
     if (!tbody) return;
     if (!slice.length) {
-      tbody.innerHTML = '<tr class="port-empty-row"><td colspan="9">No results match your filters</td></tr>';
+      tbody.innerHTML = '<tr class="port-empty-row"><td colspan="10">No results match your filters</td></tr>';
     } else {
-      tbody.innerHTML = slice.map(r => `<tr>
+      const trends = window._compSymTrends || {};
+      tbody.innerHTML = slice.map(r => {
+        const trend = trends[r.Symbol];
+        let trendCell = '<td style="text-align:center;color:#446644;font-size:13px;">—</td>';
+        if (trend === 'UP')   trendCell = '<td style="text-align:center;font-size:14px;color:#00ff88;" title="G/L improving last 3 snapshots">↑</td>';
+        if (trend === 'DOWN') trendCell = '<td style="text-align:center;font-size:14px;color:#f85149;" title="G/L worsening last 3 snapshots">↓</td>';
+        if (trend === 'FLAT') trendCell = '<td style="text-align:center;font-size:13px;color:#446644;" title="G/L flat last 3 snapshots">→</td>';
+        return `<tr>
         <td style="font-weight:600">${r.Symbol}</td>
         <td style="font-size:10px;color:var(--muted)">${r.Description}</td>
         <td>${r.Accounts}</td>
@@ -5125,7 +5211,9 @@ function fetchProfitBasket() {
         <td>${pFmtD(r.Total_Cost)}</td>
         <td class="${r.Total_GL >= 0 ? 'port-gl-pos' : 'port-gl-neg'}">${pFmtD(r.Total_GL)}</td>
         <td class="${r.GL_Pct  >= 0 ? 'port-gl-pos' : 'port-gl-neg'}">${pFmtP(r.GL_Pct)}</td>
-      </tr>`).join('');
+        ${trendCell}
+      </tr>`;
+      }).join('');
     }
 
     const pi = document.getElementById('port-pager-info');
@@ -5248,7 +5336,7 @@ function fetchProfitBasket() {
     const exportBtn = document.getElementById('port-export-btn');
     if (exportBtn) exportBtn.addEventListener('click', function() {
       if (!portFiltered.length) return;
-      const cols = ['Symbol','Description','Accounts','Total_Qty','Last_Price','Total_Value','Total_Cost','Total_GL','GL_Pct'];
+      const cols = ['Symbol','Description','Accounts','Total_Qty','Last_Price','Total_Value','Total_Cost','Total_GL','GL_Pct','Trend'];
       const csvLines = [cols.join(','), ...portFiltered.map(r =>
         cols.map(c => { const v = r[c]; return typeof v === 'string' && v.includes(',') ? `"${v}"` : (v ?? ''); }).join(',')
       )];
@@ -6374,6 +6462,130 @@ function fetchProfitBasket() {
     });
   });
 })();
+
+// ── COMPOUNDING SCORECARD ────────────────────────────────────────────────────
+window.loadCompoundingScorecard = function() {
+  fetch('/api/fidelity/compounding_scorecard')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d || d.error) return;
+
+      // Store sym_trends globally so portRenderPage can use them
+      window._compSymTrends = d.sym_trends || {};
+
+      // ── Health banner (top) ──
+      const banner = document.getElementById('comp-banner');
+      if (banner) banner.style.display = '';
+
+      const verdictColors = {
+        COMPOUNDING: { bg: '#0a2a0a', border: '#00ff88', text: '#00ff88' },
+        STABLE:      { bg: '#1a1a0a', border: '#ffaa00', text: '#ffaa00' },
+        WATCH:       { bg: '#1a1000', border: '#ff8800', text: '#ff8800' },
+        DRAWDOWN:    { bg: '#2a0a0a', border: '#f85149', text: '#f85149' },
+      };
+      const vc = verdictColors[d.verdict] || verdictColors.STABLE;
+
+      const vb = document.getElementById('comp-verdict-badge');
+      if (vb) {
+        vb.textContent = d.verdict;
+        vb.style.background   = vc.bg;
+        vb.style.border       = `1px solid ${vc.border}`;
+        vb.style.color        = vc.text;
+      }
+      const gvEl = document.getElementById('comp-green-vel');
+      if (gvEl) gvEl.textContent = (d.green_velocity >= 0 ? '+' : '') + '$' + d.green_velocity.toFixed(2);
+
+      const rvEl = document.getElementById('comp-red-vel');
+      if (rvEl) {
+        rvEl.textContent = (d.red_velocity >= 0 ? '+' : '') + '$' + d.red_velocity.toFixed(2);
+        rvEl.style.color = d.red_velocity >= 0 ? '#00ff88' : '#ffaa00';
+      }
+      const recEl = document.getElementById('comp-recovered');
+      if (recEl) recEl.textContent = d.recovered_count;
+
+      // ETF basket mini in banner
+      const etfRow = document.getElementById('comp-etf-row');
+      if (etfRow && d.etf_health) {
+        etfRow.innerHTML = Object.entries(d.etf_health).map(([sym, v]) => {
+          const c = v.gl >= 0 ? '#00ff88' : '#f85149';
+          const pct = (v.gl_pct >= 0 ? '+' : '') + v.gl_pct.toFixed(1) + '%';
+          return `<span style="color:${c}">${sym} <strong>${pct}</strong></span>`;
+        }).join(' · ');
+      }
+
+      // ── Scorecard footer ──
+      const sc = document.getElementById('comp-scorecard');
+      if (sc) sc.style.display = '';
+
+      const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+      setEl('cs-green-vel', (d.green_velocity >= 0 ? '+' : '') + '$' + d.green_velocity.toFixed(2));
+      setEl('cs-snaps', d.total_snapshots);
+      setEl('cs-recovered', d.recovered_count);
+
+      const csRv = document.getElementById('cs-red-vel');
+      if (csRv) {
+        csRv.textContent = (d.red_velocity >= 0 ? '+' : '') + '$' + d.red_velocity.toFixed(2);
+        csRv.style.color = d.red_velocity >= 0 ? '#00ff88' : '#ffaa00';
+      }
+
+      // ETF basket cards
+      const etfCards = document.getElementById('cs-etf-cards');
+      if (etfCards && d.etf_health) {
+        const etfDesc = { DIA: 'Dow 30', QQQ: 'Nasdaq', VOO: 'S&P 500', SGOL: 'Gold hedge' };
+        etfCards.innerHTML = Object.entries(d.etf_health).map(([sym, v]) => {
+          const c  = v.gl >= 0 ? '#00ff88' : '#f85149';
+          const bc = v.gl >= 0 ? '#1a3a1a' : '#3a1a1a';
+          const pct = (v.gl_pct >= 0 ? '+' : '') + v.gl_pct.toFixed(2) + '%';
+          const gl  = (v.gl >= 0 ? '+' : '') + '$' + Math.abs(v.gl).toFixed(2);
+          return `<div style="background:${bc};border:1px solid ${c}33;border-radius:4px;padding:7px 12px;min-width:90px;">
+            <div style="font-size:12px;font-weight:700;color:${c};font-family:monospace;">${sym}</div>
+            <div style="font-size:9px;color:#446644;margin-bottom:2px;">${etfDesc[sym] || ''}</div>
+            <div style="font-size:12px;color:${c};font-family:monospace;">${pct}</div>
+            <div style="font-size:10px;color:${c}99;">${gl}</div>
+          </div>`;
+        }).join('');
+      }
+
+      // Recovered chips
+      if (d.recovered_syms && d.recovered_syms.length > 0) {
+        const rRow = document.getElementById('cs-recovered-row');
+        const rChips = document.getElementById('cs-recovered-chips');
+        if (rRow) rRow.style.display = '';
+        if (rChips) {
+          rChips.innerHTML = d.recovered_syms.map(sym =>
+            `<span style="background:#0a2a0a;border:1px solid #1a5530;color:#00ff88;
+                          font-size:10px;font-family:monospace;padding:2px 7px;
+                          border-radius:3px;">${sym}</span>`
+          ).join('');
+          if (d.recovered_count > 20) {
+            rChips.innerHTML += `<span style="color:#446644;font-size:10px;">+${d.recovered_count - 20} more</span>`;
+          }
+        }
+      }
+
+      // Verdict section
+      const verdictMessages = {
+        COMPOUNDING: 'Gain pool growing faster than losses — every dollar is working. System is compounding.',
+        STABLE:      'Gains holding, losses contained. System is stable — watch for acceleration.',
+        WATCH:       'Loss pool growing faster than gains. Consider a rotation cycle.',
+        DRAWDOWN:    'Gain pool is shrinking. Losses are eroding profits. Review positions.',
+      };
+      const cvt = document.getElementById('cs-verdict-text');
+      if (cvt) { cvt.textContent = verdictMessages[d.verdict] || d.verdict; cvt.style.color = vc.text; }
+
+      const cvb = document.getElementById('cs-verdict-badge-big');
+      if (cvb) {
+        cvb.textContent = d.verdict;
+        cvb.style.background = vc.bg;
+        cvb.style.border     = `2px solid ${vc.border}`;
+        cvb.style.color      = vc.text;
+      }
+
+      // Re-render table to inject trend column if rows already loaded
+      if (typeof portRenderPage === 'function') portRenderPage();
+    })
+    .catch(function() {});
+};
 
 function loadBacktest() {
   fetch('/api/fidelity/backtest')

@@ -1151,3 +1151,141 @@ def get_gain_loss_split_history() -> dict:
         "red_variance":     _variance(first["red_pool"],   last["red_pool"]),
         "total_snapshots":  len(points),
     }
+
+
+def get_compounding_scorecard() -> dict:
+    """
+    Compounding engine scorecard — answers: is the system working?
+
+    Returns per-symbol trend (last 3 snapshots), recovered positions count,
+    velocity of gain/loss pools, system verdict, and ETF basket health.
+
+    System verdict:
+      COMPOUNDING  — green pool growing, loss pool stable or recovering
+      STABLE       — green pool holding, losses not growing meaningfully
+      WATCH        — losses growing faster than gains
+      DRAWDOWN     — green pool shrinking
+    """
+    init_db()
+    with get_conn() as conn:
+        # --- last 5 distinct snapshot IDs in chronological order ---
+        snap_ids = [r["snapshot_id"] for r in conn.execute("""
+            SELECT DISTINCT snapshot_id, MIN(snapshot_date) AS sd
+            FROM snapshots GROUP BY snapshot_id ORDER BY sd ASC
+        """).fetchall()]
+
+        if len(snap_ids) < 2:
+            return {"error": "Need at least 2 snapshots", "verdict": "INSUFFICIENT_DATA"}
+
+        last5 = snap_ids[-5:]   # up to 5 most recent
+        prev3 = snap_ids[-3:]   # last 3 for per-symbol trend
+
+        # --- per-symbol gl in the last 3 snapshots ---
+        placeholders = ",".join("?" * len(prev3))
+        sym_rows = conn.execute(f"""
+            SELECT snapshot_id, symbol, total_gl, total_value, last_price
+            FROM snapshots
+            WHERE snapshot_id IN ({placeholders})
+            ORDER BY symbol, snapshot_id
+        """, prev3).fetchall()
+
+        # Build { symbol: [(snap_id, total_gl, total_value, last_price), ...] }
+        from collections import defaultdict
+        sym_history: dict = defaultdict(list)
+        for r in sym_rows:
+            sym_history[r["symbol"]].append({
+                "snap": r["snapshot_id"],
+                "gl":   r["total_gl"]   or 0.0,
+                "val":  r["total_value"] or 0.0,
+                "px":   r["last_price"]  or 0.0,
+            })
+
+        # Per-symbol trend: UP / DOWN / FLAT
+        sym_trends = {}
+        for sym, hist in sym_history.items():
+            if len(hist) < 2:
+                sym_trends[sym] = "FLAT"
+                continue
+            delta = hist[-1]["gl"] - hist[0]["gl"]
+            if delta > 0.50:
+                sym_trends[sym] = "UP"
+            elif delta < -0.50:
+                sym_trends[sym] = "DOWN"
+            else:
+                sym_trends[sym] = "FLAT"
+
+        # --- green/red pool per snapshot for last 5 ---
+        pool_rows = conn.execute(f"""
+            SELECT snapshot_id, MIN(snapshot_date) AS sd,
+                   SUM(CASE WHEN total_gl > 0 THEN total_gl ELSE 0 END) AS green_pool,
+                   SUM(CASE WHEN total_gl < 0 THEN total_gl ELSE 0 END) AS red_pool,
+                   COUNT(CASE WHEN total_gl > 0 THEN 1 END) AS green_count,
+                   COUNT(CASE WHEN total_gl < 0 THEN 1 END) AS red_count
+            FROM snapshots
+            WHERE snapshot_id IN ({",".join("?" * len(last5))})
+            GROUP BY snapshot_id ORDER BY sd ASC
+        """, last5).fetchall()
+        pools = [{"green": r["green_pool"] or 0.0, "red": r["red_pool"] or 0.0,
+                  "green_count": r["green_count"] or 0, "red_count": r["red_count"] or 0,
+                  "date": r["sd"]} for r in pool_rows]
+
+        # --- recovered positions: red in earliest snap, green in latest snap ---
+        earliest_id = snap_ids[0]
+        latest_id   = snap_ids[-1]
+        recovered_rows = conn.execute("""
+            SELECT e.symbol
+            FROM snapshots e
+            JOIN snapshots l ON e.symbol = l.symbol
+            WHERE e.snapshot_id = ? AND l.snapshot_id = ?
+              AND e.total_gl < 0 AND l.total_gl > 0
+        """, [earliest_id, latest_id]).fetchall()
+        recovered = [r["symbol"] for r in recovered_rows]
+
+        # --- ETF basket health (DIA, QQQ, VOO, SGOL) in latest snapshot ---
+        etf_syms = ("DIA", "QQQ", "VOO", "SGOL")
+        etf_rows = conn.execute(f"""
+            SELECT symbol, total_gl, gl_pct, total_value
+            FROM snapshots
+            WHERE snapshot_id = ? AND symbol IN ({",".join("?" * len(etf_syms))})
+        """, [latest_id, *etf_syms]).fetchall()
+        etf_health = {r["symbol"]: {"gl": r["total_gl"] or 0.0,
+                                    "gl_pct": r["gl_pct"] or 0.0,
+                                    "val": r["total_value"] or 0.0}
+                      for r in etf_rows}
+
+        # --- velocity: avg change per snapshot over last 5 ---
+        if len(pools) >= 2:
+            green_velocity = round(
+                (pools[-1]["green"] - pools[0]["green"]) / (len(pools) - 1), 2)
+            red_velocity = round(
+                (pools[-1]["red"] - pools[0]["red"]) / (len(pools) - 1), 2)
+        else:
+            green_velocity = red_velocity = 0.0
+
+        # --- verdict logic ---
+        latest_green = pools[-1]["green"] if pools else 0.0
+        latest_red   = pools[-1]["red"]   if pools else 0.0
+        first_green  = pools[0]["green"]  if pools else 0.0
+
+        if green_velocity > 0 and abs(red_velocity) < green_velocity * 0.5:
+            verdict = "COMPOUNDING"
+        elif green_velocity > 0 and abs(red_velocity) < green_velocity:
+            verdict = "STABLE"
+        elif green_velocity > 0 and abs(red_velocity) >= green_velocity:
+            verdict = "WATCH"
+        else:
+            verdict = "DRAWDOWN"
+
+    return {
+        "verdict":          verdict,
+        "green_velocity":   green_velocity,   # $ per snapshot
+        "red_velocity":     red_velocity,
+        "recovered_count":  len(recovered),
+        "recovered_syms":   recovered[:20],   # cap at 20 for UI
+        "sym_trends":       sym_trends,        # { SYM: UP/DOWN/FLAT }
+        "etf_health":       etf_health,
+        "latest_green":     round(latest_green, 2),
+        "latest_red":       round(latest_red, 2),
+        "pools_history":    pools,             # last 5 for mini sparkline
+        "total_snapshots":  len(snap_ids),
+    }

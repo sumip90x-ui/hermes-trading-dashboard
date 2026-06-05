@@ -218,6 +218,18 @@ def api_fidelity_gain_loss_split():
         return jsonify({'error': str(exc)}), 500
 
 
+@app.route('/api/fidelity/compounding_scorecard')
+def api_fidelity_compounding_scorecard():
+    """
+    Compounding engine scorecard — verdict, velocities, recovered positions,
+    per-symbol trends, ETF basket health.
+    """
+    try:
+        return jsonify(fidelity_db.get_compounding_scorecard())
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
+
 @app.route('/api/market_clock')
 def api_market_clock():
     try:
