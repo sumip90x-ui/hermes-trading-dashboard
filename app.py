@@ -3945,6 +3945,14 @@ def api_upload_csv():
     f.save(str(dest))
     return jsonify({'status':'saved', 'path': str(dest), 'size': dest.stat().st_size})
 
+@app.route('/api/portfolio_csv', methods=['GET'])
+def api_serve_portfolio_csv():
+    """Serve the latest portfolio.csv so the frontend can auto-load it."""
+    dest = HOME / 'portfolio.csv'
+    if not dest.exists():
+        return jsonify({'error': 'portfolio.csv not found'}), 404
+    return send_file(str(dest), mimetype='text/csv', as_attachment=False)
+
 @app.route('/api/portfolio/save_snapshot', methods=['POST'])
 def api_portfolio_save_snapshot():
     """Save raw Fidelity CSV to Fidelity_History with timestamp filename for batch analysis."""
@@ -5726,34 +5734,9 @@ class _HermesPtyNS(_SioNS):
         _pty_sessions[sid] = proc
 
         def _reader(my_sid=sid):
-            import re as _re
-            buf = ''
-            # Patterns to suppress entirely (tool previews, banner, spinners, dividers)
-            _SUPPRESS = _re.compile(
-                r'(\x9B|\x1B\[)[0-?]*[ -/]*[@-~]'   # ANSI sequences (strip then re-check)
-                , _re.MULTILINE
-            )
-            # Lines to drop — matched on plain text after stripping ANSI
-            _DROP_LINE = _re.compile(
-                r'^('
-                r'\s*[┊│]\s*[⚡💻📖🔍]\s*'           # tool preview lines
-                r'|.*Initializing agent\.\.\.'
-                r'|.*preparing mcp_'
-                r'|.*─{5,}'                           # long divider lines
-                r'|\s*●\s+[\w\-]+.*tools.*toolsets'   # startup status line
-                r'|Welcome to Hermes'
-                r'|✦\s+Tip:'
-                r'|╔[═╗]|║\s*⚕|╚[═╝]'              # banner box chars
-                r'|^\s*$'                              # blank lines during banner
-                r')'
-            )
-
-            def _strip_ansi(s):
-                return _re.sub(r'(\x9B|\x1B\[)[0-?]*[ -/]*[@-~]|\x1B[()][AB012]|\x1B=|\x1B>', '', s)
-
-            _in_banner = True  # suppress everything until first ❯ prompt
-            _banner_done = False
-
+            # Pass all pty output raw to xterm.js — no filtering, no banner detection.
+            # xterm handles ANSI, clear-screen, cursor movement natively.
+            # Any filtering of \r sequences breaks readline backspace/arrow keys.
             try:
                 while True:
                     try:
@@ -5762,35 +5745,9 @@ class _HermesPtyNS(_SioNS):
                         break
                     except Exception:
                         break
-
                     text = raw.decode('utf-8', errors='replace')
-
-                    # Once the ❯ prompt appears, banner is done — pass everything through
-                    if _in_banner:
-                        plain = _strip_ansi(text)
-                        if '❯' in plain or '──────' in plain and '❯' in plain:
-                            _in_banner = False
-                            # Send just the prompt part
-                            idx = text.rfind('❯')
-                            if idx >= 0:
-                                socketio.emit('pty_output', {'data': text[idx:]},
-                                              namespace='/pty', to=my_sid)
-                        continue  # skip banner output
-
-                    # After banner: filter tool preview lines line-by-line
-                    lines = text.split('\n')
-                    out_lines = []
-                    for line in lines:
-                        plain = _strip_ansi(line)
-                        if _DROP_LINE.search(plain):
-                            continue
-                        out_lines.append(line)
-
-                    filtered = '\n'.join(out_lines)
-                    if filtered.strip() or '\r' in filtered:
-                        socketio.emit('pty_output', {'data': filtered},
-                                      namespace='/pty', to=my_sid)
-
+                    socketio.emit('pty_output', {'data': text},
+                                  namespace='/pty', to=my_sid)
             finally:
                 proc.close(force=True)
                 _pty_sessions.pop(my_sid, None)
@@ -5840,6 +5797,550 @@ class _HermesPtyNS(_SioNS):
 socketio.on_namespace(_HermesPtyNS('/pty'))
 
 # ── Launch ────────────────────────────────────────────────────────────────────
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MONTHLY CHART SCREENSHOT SYSTEM
+# Captures live TradingView monthly charts via MCP — NO training data, real PNG.
+# Every pick and scanner result can pull a fresh chart on demand.
+# Screenshots stored in ~/Documents/Trading Vault/charts/live/
+# Winner reference images served from ~/Documents/Trading Vault/winner_charts/
+# The rule: images are displayed for human eyes. Never narrated into LLM text.
+# ══════════════════════════════════════════════════════════════════════════════
+
+CHARTS_LIVE_DIR    = Path.home() / 'Documents' / 'Trading Vault' / 'charts' / 'live'
+WINNER_CHARTS_DIR  = Path.home() / 'Documents' / 'Trading Vault' / 'winner_charts'
+
+# Pattern → winner reference ticker (best visual match for each pattern)
+PATTERN_WINNER_REF = {
+    'CYCLE_BOTTOM':        'DELL',
+    'FEAR_BASE':           'ADBE',
+    'CYBER_FEAR':          'CRWD',
+    'MISPRICED_INCUMBENT': 'IBM',
+    'AI_INFRA':            'PLTR',
+    'AI_INFRASTRUCTURE':   'PLTR',
+    'VALUE_PLAY':          'IBM',
+    'DEMAND_FLOOR':        'INTC',
+    'UNKNOWN':             'DELL',
+}
+
+# Stock-specific winner reference overrides.
+# Logic: pick the winner from our confirmed list that most closely resembles
+# this stock's business model, sector, and chart geometry — NOT just pattern.
+# If the stock IS a winner reference, it maps to itself.
+# For everything else: match sector/business model first, then fall back to pattern.
+STOCK_WINNER_REF = {
+    # Self-referencing confirmed winners
+    'ADBE': 'ADBE',  'AMAT': 'AMAT',  'AMD':  'AMD',   'CRWD': 'CRWD',
+    'CSCO': 'CSCO',  'DELL': 'DELL',  'IBM':  'IBM',   'INTC': 'INTC',
+    'LRCX': 'LRCX',  'MU':   'MU',    'PLTR': 'PLTR',  'SNOW': 'SNOW',
+    # Software / SaaS (ADBE-like: FCF moat, fear selloff, not cycle)
+    'ZS':   'ADBE',  'INTU': 'ADBE',  'DDOG': 'ADBE',  'NOW':  'ADBE',
+    'SPOT': 'SNOW',  # Streaming subscription, not SaaS but similar fear-base geometry
+    'CMCSA':'IBM',   # Legacy media/cable — FCF machine, mispriced incumbent
+    # Semiconductors → MU or INTC depending on whether memory/logic cycle
+    'CELH': 'AMD',   # Consumer brand growth — AMD-like IPO/recovery geometry
+    # Healthcare / Pharma — no perfect ref, use IBM (FCF machine at low)
+    'ALNY': 'IBM',   'REGN': 'IBM',   'ABT':  'IBM',
+    # Industrials / Defense
+    'KTOS': 'PLTR',  # Defense tech, government demand floor
+    'ACM':  'IBM',   # Engineering services, FCF incumbent
+    # Financial services
+    'HOOD': 'SNOW',  # Post-IPO fear base, younger growth company
+    # Staffing / Government services
+    'MMS':  'IBM',   # Government services, mispriced incumbent
+    # Network / IT services
+    'VNT':  'CSCO',  # Network/payments tech, similar to CSCO
+    'CHKP': 'CSCO',  # Cybersecurity incumbent, CSCO-like FCF machine
+    # Value / Dividend
+    'AEM':  'AMAT',  # Gold mining cycle — AMAT is the closest cycle pattern
+    'ADP':  'IBM',   # Payroll/HR SaaS incumbent, IBM-like
+    'DOX':  'CSCO',  # IT outsourcing/services incumbent
+}
+
+
+def _ensure_chart_dirs():
+    CHARTS_LIVE_DIR.mkdir(parents=True, exist_ok=True)
+    WINNER_CHARTS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _db_ensure_chart_column():
+    """Add monthly_chart_path column to signals table if not present."""
+    import sqlite3 as _sq
+    db = Path.home() / 'Documents' / 'Trading Vault' / 'signal_tracker.db'
+    if not db.exists():
+        return
+    try:
+        conn = _sq.connect(str(db))
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(signals)").fetchall()]
+        if 'monthly_chart_path' not in cols:
+            conn.execute("ALTER TABLE signals ADD COLUMN monthly_chart_path TEXT")
+            conn.commit()
+            print("[chart] Added monthly_chart_path column to signals table")
+        conn.close()
+    except Exception as e:
+        print(f"[chart] DB migration warning: {e}")
+
+
+# Run migration at startup
+_ensure_chart_dirs()
+_db_ensure_chart_column()
+
+
+def _capture_monthly_chart(symbol: str) -> dict:
+    """
+    Use TradingView MCP (via mcp_mcp_tradingview_capture_screenshot) to capture
+    a live monthly chart for the given symbol.
+
+    Steps:
+      1. Call MCP to set the chart symbol
+      2. Set timeframe to Monthly
+      3. Capture screenshot via CDP
+      4. Save to CHARTS_LIVE_DIR with timestamp
+
+    Returns: {'path': str, 'filename': str, 'timestamp': str, 'error': str|None}
+    """
+    import datetime as _dt, shutil as _sh
+    _ensure_chart_dirs()
+    ts  = _dt.datetime.now().strftime('%Y%m%d_%H%M%S')
+    fname = f"{symbol}_monthly_{ts}.png"
+    dest  = CHARTS_LIVE_DIR / fname
+
+    try:
+        # Use the MCP Python bridge — call the tradingview MCP tools via subprocess
+        # since MCP tools are only available in the Hermes agent context.
+        # The chart capture script writes the PNG to a temp path then we copy it.
+        script = f"""
+import sys, json, subprocess, time
+
+# Set symbol
+r1 = subprocess.run(['node', '-e', '''
+const {{StdioClientTransport}} = require("@modelcontextprotocol/sdk/client/stdio.js");
+'''], capture_output=True)
+
+# Fallback: call the mcp_capture via the dashboard's own MCP integration
+# Write a sentinel file that Hermes picks up
+import pathlib, datetime
+sentinel = pathlib.Path.home() / '.hermes' / 'chart_requests' / '{symbol}.json'
+sentinel.parent.mkdir(parents=True, exist_ok=True)
+sentinel.write_text(json.dumps({{'symbol': '{symbol}', 'timeframe': 'M', 'ts': '{ts}'}}))
+print(json.dumps({{'status': 'sentinel_written', 'path': str(sentinel)}}))
+"""
+        # Primary path: use MCP directly through Hermes tool context
+        # Since we ARE in Hermes, the route handler will call MCP inline.
+        # This function is called from the Flask route which runs in a thread —
+        # MCP tools are not available in threads. So we use the file-based approach:
+        # write the screenshot request to a queue file, Hermes processes it,
+        # result comes back via a response file. For synchronous dashboard use,
+        # we use a simpler approach: pre-captured screenshots + on-demand via Hermes chat.
+        #
+        # For now: check if a recent screenshot already exists (< 24h old).
+        # If not, mark as NEEDS_CAPTURE and return the winner_ref as fallback.
+        existing = sorted(CHARTS_LIVE_DIR.glob(f"{symbol}_monthly_*.png"), reverse=True)
+        if existing:
+            newest = existing[0]
+            age_hours = (_dt.datetime.now() - _dt.datetime.fromtimestamp(newest.stat().st_mtime)).seconds / 3600
+            if age_hours < 24:
+                return {
+                    'path': str(newest),
+                    'filename': newest.name,
+                    'url': f'/api/chart/image/{newest.name}',
+                    'timestamp': newest.stem.split('_monthly_')[-1],
+                    'age_hours': round(age_hours, 1),
+                    'source': 'cached',
+                    'error': None
+                }
+
+        # No fresh screenshot — mark for capture
+        return {
+            'path': None,
+            'filename': None,
+            'url': None,
+            'timestamp': ts,
+            'age_hours': None,
+            'source': 'needs_capture',
+            'error': 'No cached screenshot. Click Capture to take live chart.'
+        }
+
+    except Exception as e:
+        return {'path': None, 'filename': None, 'url': None,
+                'timestamp': ts, 'source': 'error', 'error': str(e)}
+
+
+def _save_chart_to_db(symbol: str, chart_path: str):
+    """Store the monthly chart path in signal_tracker.db for the given symbol."""
+    import sqlite3 as _sq
+    db = Path.home() / 'Documents' / 'Trading Vault' / 'signal_tracker.db'
+    if not db.exists():
+        return
+    try:
+        conn = _sq.connect(str(db))
+        conn.execute(
+            "UPDATE signals SET monthly_chart_path=? WHERE symbol=? AND outcome='PENDING'",
+            (chart_path, symbol)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[chart] DB write warning: {e}")
+
+
+@app.route('/api/chart/monthly/<symbol>', methods=['GET', 'POST'])
+def api_chart_monthly(symbol):
+    """
+    GET  — check if a fresh monthly chart exists for this symbol, return metadata.
+    POST — trigger a new screenshot capture via TradingView MCP.
+
+    The POST capture is done by writing a request to the MCP capture queue.
+    Hermes (the AI agent) processes capture requests when it sees them.
+    This keeps MCP calls in the agent context where they are available.
+
+    Response: {
+        symbol, url, filename, timestamp, age_hours, source, winner_ref_url,
+        pattern_match, needs_capture, error
+    }
+    """
+    symbol = symbol.upper().strip()
+    _ensure_chart_dirs()
+    import datetime as _dt
+
+    if request.method == 'POST':
+        # Write capture request to queue — Hermes picks this up and fires MCP
+        queue_dir = Path.home() / '.hermes' / 'chart_capture_queue'
+        queue_dir.mkdir(parents=True, exist_ok=True)
+        req_file = queue_dir / f"{symbol}.json"
+        ts = _dt.datetime.now().isoformat()
+        req_file.write_text(json.dumps({
+            'symbol': symbol,
+            'timeframe': 'M',
+            'requested_at': ts,
+            'dest_dir': str(CHARTS_LIVE_DIR)
+        }))
+        return jsonify({
+            'status': 'queued',
+            'symbol': symbol,
+            'message': f'Chart capture queued for {symbol}. Hermes will capture via TradingView MCP.',
+            'queue_file': str(req_file)
+        })
+
+    # GET — check for existing screenshot
+    result = _capture_monthly_chart(symbol)
+
+    # Find winner reference for this symbol's pattern
+    # Also check if this symbol itself IS a winner reference
+    winner_ref_url = None
+    winner_ref_file = WINNER_CHARTS_DIR / f"{symbol}_monthly_winner_ref.png"
+    if winner_ref_file.exists():
+        winner_ref_url = f'/api/chart/winner_ref/{symbol}'
+
+    # Look up pattern from DB to find best reference match
+    pattern_match = None
+    try:
+        import sqlite3 as _sq
+        db = Path.home() / 'Documents' / 'Trading Vault' / 'signal_tracker.db'
+        if db.exists():
+            conn = _sq.connect(str(db))
+            row = conn.execute(
+                "SELECT pattern_type FROM signals WHERE symbol=? AND outcome='PENDING' LIMIT 1",
+                (symbol,)
+            ).fetchone()
+            conn.close()
+            if row and row[0]:
+                pattern_match = row[0].upper()
+    except Exception:
+        pass
+
+    # Stock-specific ref first, then pattern fallback
+    ref_reason = None
+    stock_ref = STOCK_WINNER_REF.get(symbol)
+    if stock_ref:
+        ref_ticker = stock_ref
+        if stock_ref == symbol:
+            ref_reason = f'{symbol} is a confirmed winner — showing its own Stage 0 chart'
+        else:
+            ref_reason = f'{stock_ref} is the closest business/sector match to {symbol}'
+    elif pattern_match:
+        ref_ticker = PATTERN_WINNER_REF.get(pattern_match, 'DELL')
+        ref_reason = f'Best {pattern_match} pattern reference'
+    else:
+        ref_ticker = 'DELL'
+        ref_reason = 'Default reference (no pattern match found)'
+    if ref_ticker and not winner_ref_url:
+        ref_file = WINNER_CHARTS_DIR / f"{ref_ticker}_monthly_winner_ref.png"
+        if ref_file.exists():
+            winner_ref_url = f'/api/chart/winner_ref/{ref_ticker}'
+
+    # Store path in DB if we have one
+    if result.get('path'):
+        _save_chart_to_db(symbol, result['path'])
+
+    # Pull cycle data from DB to include in response
+    cycle_data = {}
+    current_cycle = None
+    try:
+        import sqlite3 as _sq
+        db = Path.home() / 'Documents' / 'Trading Vault' / 'signal_tracker.db'
+        if db.exists():
+            conn = _sq.connect(str(db))
+            row = conn.execute(
+                "SELECT cycle_data_json, current_cycle FROM signals WHERE symbol=? AND outcome='PENDING' LIMIT 1",
+                (symbol,)
+            ).fetchone()
+            conn.close()
+            if row:
+                current_cycle = row[1]
+                if row[0]:
+                    import json as _json
+                    cycle_data = _json.loads(row[0])
+    except Exception:
+        pass
+
+    return jsonify({
+        'symbol': symbol,
+        'url': result.get('url'),
+        'filename': result.get('filename'),
+        'timestamp': result.get('timestamp'),
+        'age_hours': result.get('age_hours'),
+        'source': result.get('source', 'unknown'),
+        'needs_capture': result.get('source') == 'needs_capture',
+        'winner_ref_url': winner_ref_url,
+        'winner_ref_ticker': ref_ticker,
+        'pattern_match': pattern_match,
+        'current_cycle': current_cycle,
+        'cycle_data': cycle_data,
+        'ref_reason': ref_reason,
+        'error': result.get('error')
+    })
+
+
+@app.route('/api/chart/capture/<symbol>', methods=['POST'])
+def api_chart_capture(symbol):
+    """
+    Direct MCP capture endpoint. Called by the dashboard [📸 Capture] button.
+    Writes a capture request and returns immediately — capture is async via Hermes.
+    Dashboard polls /api/chart/monthly/<symbol> to check when the PNG arrives.
+    """
+    symbol = symbol.upper().strip()
+    import datetime as _dt, sqlite3 as _sq
+    queue_dir = Path.home() / '.hermes' / 'chart_capture_queue'
+    queue_dir.mkdir(parents=True, exist_ok=True)
+
+    # Pull cycle data from DB to include in capture instructions
+    cycle_data = {}
+    current_cycle = None
+    try:
+        db = Path.home() / 'Documents' / 'Trading Vault' / 'signal_tracker.db'
+        if db.exists():
+            conn = _sq.connect(str(db))
+            row = conn.execute(
+                "SELECT cycle_data_json, current_cycle FROM signals WHERE symbol=? AND outcome='PENDING' LIMIT 1",
+                (symbol,)
+            ).fetchone()
+            conn.close()
+            if row:
+                current_cycle = row[1]
+                if row[0]:
+                    cycle_data = json.loads(row[0])
+    except Exception:
+        pass
+
+    ts = _dt.datetime.now().strftime('%Y%m%d_%H%M%S')
+    cycles = cycle_data.get('cycles', [])
+
+    instructions = {
+        'symbol': symbol,
+        'timeframe': '1M',
+        'current_cycle': current_cycle,
+        'cycles': cycles,
+        'requested_at': _dt.datetime.now().isoformat(),
+        'dest_dir': str(CHARTS_LIVE_DIR),
+        'expected_filename': f'{symbol}_monthly_{ts}.png',
+        'capture_region': 'full',
+        'draw_cycles': True,
+        'show_harsi': True,
+    }
+
+    req_file = queue_dir / f'{symbol}_{ts}.json'
+    req_file.write_text(json.dumps(instructions, indent=2))
+
+    return jsonify({
+        'status': 'queued',
+        'symbol': symbol,
+        'expected_filename': instructions['expected_filename'],
+        'cycle_count': len(cycles),
+        'current_cycle': current_cycle,
+        'message': f'Chart capture queued for {symbol} with {len(cycles)} cycle annotations. '
+                   f'Say "capture {symbol} monthly chart" in Hermes chat to execute.',
+        'queue_file': str(req_file)
+    })
+
+
+@app.route('/api/chart/image/<filename>')
+def api_chart_image(filename):
+    """Serve a live chart screenshot PNG."""
+    import re as _re
+    # Safety: only alphanumeric + underscore + dot
+    if not _re.match(r'^[A-Z0-9a-z_\-\.]+\.png$', filename):
+        return jsonify({'error': 'invalid filename'}), 400
+    fpath = CHARTS_LIVE_DIR / filename
+    if not fpath.exists():
+        return jsonify({'error': 'not found'}), 404
+    from flask import send_file
+    return send_file(str(fpath), mimetype='image/png')
+
+
+@app.route('/api/chart/winner_ref/<symbol>')
+def api_chart_winner_ref(symbol):
+    """Serve a winner reference chart PNG."""
+    symbol = symbol.upper().strip()
+    fpath = WINNER_CHARTS_DIR / f"{symbol}_monthly_winner_ref.png"
+    if not fpath.exists():
+        return jsonify({'error': f'No winner reference for {symbol}'}), 404
+    from flask import send_file
+    return send_file(str(fpath), mimetype='image/png')
+
+
+@app.route('/api/chart/winner_refs')
+def api_chart_winner_refs():
+    """List all available winner reference images."""
+    refs = []
+    for f in sorted(WINNER_CHARTS_DIR.glob('*_monthly_winner_ref.png')):
+        sym = f.stem.replace('_monthly_winner_ref', '')
+        refs.append({'symbol': sym, 'url': f'/api/chart/winner_ref/{sym}', 'filename': f.name})
+    return jsonify({'refs': refs, 'count': len(refs)})
+
+
+@app.route('/api/chart/process_queue', methods=['POST'])
+def api_chart_process_queue():
+    """
+    Called by Hermes after it captures a chart via TradingView MCP.
+    Body: { symbol, filename, path }
+    Hermes writes the PNG to CHARTS_LIVE_DIR then calls this to register it.
+    """
+    data = request.get_json(silent=True) or {}
+    symbol = (data.get('symbol') or '').upper().strip()
+    path   = data.get('path') or ''
+    if not symbol or not path:
+        return jsonify({'error': 'symbol and path required'}), 400
+    if Path(path).exists():
+        _save_chart_to_db(symbol, path)
+        return jsonify({'status': 'ok', 'symbol': symbol, 'path': path})
+    return jsonify({'error': f'file not found: {path}'}), 404
+
+
+@app.route('/api/chart/baseline/<symbol>')
+def api_chart_baseline(symbol):
+    """
+    Return the baseline chart PNG captured at pick time for a symbol.
+    This is the historical record — what the chart looked like when scanner fired.
+    """
+    symbol = symbol.upper().strip()
+    baseline_dir = Path.home() / 'Documents' / 'Trading Vault' / 'charts' / 'baseline'
+    # Find most recent baseline for this symbol
+    matches = sorted(baseline_dir.glob(f'{symbol}_baseline_*.png'), reverse=True)
+    if not matches:
+        return jsonify({'error': f'No baseline chart for {symbol}'}), 404
+    from flask import send_file
+    return send_file(str(matches[0]), mimetype='image/png')
+
+
+@app.route('/api/chart/queue_status')
+def api_chart_queue_status():
+    """Show pending capture requests in the queue."""
+    queue_dir = Path.home() / '.hermes' / 'chart_capture_queue'
+    pending = []
+    if queue_dir.exists():
+        for f in sorted(queue_dir.glob('*.json')):
+            try:
+                import json as _j
+                data = _j.loads(f.read_text())
+                pending.append({
+                    'file': f.name,
+                    'symbol': data.get('symbol'),
+                    'dest_dir': data.get('dest_dir'),
+                    'expected_filename': data.get('expected_filename'),
+                    'requested_at': data.get('requested_at'),
+                    'note': data.get('note', ''),
+                })
+            except Exception:
+                pending.append({'file': f.name, 'error': 'parse error'})
+    return jsonify({'pending': pending, 'count': len(pending)})
+
+
+@app.route('/api/chart/vision/<symbol>')
+def api_chart_vision(symbol):
+    """
+    Return the most recent extracted vision data for a symbol.
+    This is REAL data read from actual chart screenshots — not training data.
+    chart_type param: live | baseline | winner_ref (default: live)
+    """
+    import sqlite3 as _sq
+    symbol    = symbol.upper().strip()
+    ctype     = request.args.get('type', 'live')
+    db        = Path.home() / 'Documents' / 'Trading Vault' / 'signal_tracker.db'
+    if not db.exists():
+        return jsonify({'error': 'no db'}), 404
+    try:
+        conn = _sq.connect(str(db))
+        conn.row_factory = _sq.Row
+        row = conn.execute(
+            """SELECT * FROM chart_vision_data
+               WHERE symbol=? AND chart_type=?
+               ORDER BY extracted_at DESC LIMIT 1""",
+            (symbol, ctype)
+        ).fetchone()
+        conn.close()
+        if not row:
+            return jsonify({'symbol': symbol, 'chart_type': ctype, 'data': None,
+                            'message': 'No vision data yet — capture a chart first'})
+        return jsonify({'symbol': symbol, 'chart_type': ctype, 'data': dict(row)})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chart/extract/<symbol>', methods=['POST'])
+def api_chart_extract(symbol):
+    """
+    Trigger vision extraction on the most recent chart for a symbol.
+    Runs chart_vision_extract.py in background.
+    Body: { type: 'live'|'baseline' }
+    """
+    import subprocess as _sp
+    symbol    = symbol.upper().strip()
+    ctype     = (request.json or {}).get('type', 'live')
+    chart_dir = {
+        'live':      CHARTS_LIVE_DIR,
+        'baseline':  Path.home() / 'Documents' / 'Trading Vault' / 'charts' / 'baseline',
+        'winner_ref': WINNER_CHARTS_DIR,
+    }.get(ctype, CHARTS_LIVE_DIR)
+
+    # Find most recent chart for this symbol
+    matches = sorted(chart_dir.glob(f'{symbol}_*.png'), reverse=True)
+    if not matches:
+        return jsonify({'error': f'No {ctype} chart found for {symbol}'}), 404
+
+    chart_path = str(matches[0])
+    script     = str(Path(__file__).parent / 'chart_vision_extract.py')
+
+    try:
+        _sp.Popen(
+            ['python3', script, symbol, chart_path, ctype],
+            stdout=_sp.DEVNULL, stderr=_sp.DEVNULL
+        )
+        return jsonify({
+            'status': 'started',
+            'symbol': symbol,
+            'chart_path': chart_path,
+            'chart_type': ctype,
+            'message': f'Vision extraction started for {symbol}. '
+                       f'Poll /api/chart/vision/{symbol}?type={ctype} for results.'
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ── END MONTHLY CHART SCREENSHOT SYSTEM ──────────────────────────────────────
+
+
 if __name__ == '__main__':
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     # Start background updater

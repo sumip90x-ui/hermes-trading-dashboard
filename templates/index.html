@@ -43,12 +43,12 @@
 
   /* Header */
   .header { grid-column: 1/-1; display: flex; flex-direction: column; justify-content: center; padding: 4px 16px; gap: 3px; }
-  .header-row1 { display: flex; align-items: center; gap: 8px; }
-  .header-row2 { display: flex; align-items: center; gap: 14px; padding: 2px 0; border-top: 1px solid var(--border); }
-  .header h1 { font-size: 16px; color: var(--gold); font-weight: 700; white-space: nowrap; }
+  .header-row1 { display: flex; align-items: center; gap: 6px; }
+  .header-row2 { display: flex; align-items: center; gap: 12px; padding: 2px 0; border-top: 1px solid var(--border); }
+  .header h1 { font-size: 14px; color: var(--gold); font-weight: 700; white-space: nowrap; }
   .metric { text-align: center; }
-  .metric .val { font-size: 20px; font-weight: 700; }
-  .metric .lbl { font-size: 10px; color: var(--muted); }
+  .metric .val { font-size: 18px; font-weight: 700; }
+  .metric .lbl { font-size: 9px; color: var(--muted); }
   .metric2 { text-align: center; white-space: nowrap; }
   .metric2 .val2 { font-size: 15px; font-weight: 700; }
   .metric2 .lbl2 { font-size: 9px; color: var(--muted); letter-spacing: .3px; }
@@ -65,7 +65,7 @@
   .blue  { color: var(--blue); }
 
   /* ATH badge — also a button */
-  .ath-badge { margin-left: auto; padding: 6px 14px; border-radius: 20px; font-weight: 700; font-size: 13px; border: 2px solid; cursor: pointer; background: none; font-family: inherit; transition: transform .1s; }
+  .ath-badge { margin-left: auto; padding: 4px 10px; border-radius: 20px; font-weight: 700; font-size: 11px; border: 2px solid; cursor: pointer; background: none; font-family: inherit; transition: transform .1s; }
   .ath-badge:hover { transform: scale(1.05); }
   .ath-badge:active { transform: scale(.97); }
   .ath-badge.triggered  { border-color: var(--green); color: var(--green); background: #131722; animation: pulse 1s infinite; }
@@ -471,8 +471,8 @@
       </div>
       <button class="ath-badge waiting" id="ath_badge" onclick="badgeClick()" title="Click for Hermes analysis">ATH WATCH</button>
       <button id="best-signal-btn" onclick="openBestSignal()" title="Run convergence score — show best trade now">⚡ BEST SIGNAL</button>
-      <div id="macro_signal_badge" style="padding:4px 10px;font-size:11px;font-family:monospace;
-           border:1px solid #252A36;border-radius:4px;cursor:pointer;white-space:nowrap"
+      <div id="macro_signal_badge" style="padding:3px 8px;font-size:10px;font-family:monospace;
+           border:1px solid #252A36;border-radius:4px;cursor:pointer;white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis"
            onclick="openMacroAdvisory()"
            title="Click for ORACLE macro buy suggestions">⚪ NEUTRAL</div>
       <button class="btn-muted" style="padding:4px 12px;font-size:11px;margin-left:8px" onclick="saveSessionNote()" id="save-note-btn" title="Save today's session note to Trading Vault">📝 Save Note</button>
@@ -1331,7 +1331,6 @@
   <div class="right-panel panel">
     <div class="rpanel-tabs">
       <div class="tab active" onclick="switchPanel('chat',this)">💬 <span class="rtab-lbl">Chat</span></div>
-      <div class="tab" onclick="switchPanel('trade',this)">⚡ <span class="rtab-lbl">Trade</span></div>
       <div class="tab" onclick="switchPanel('candle',this)">🕯 <span class="rtab-lbl">Candle</span></div>
       <div class="tab" onclick="switchPanel('buys',this)">📋 <span class="rtab-lbl">Buys</span></div>
       <div class="tab" onclick="switchPanel('journey',this)">🗺 <span class="rtab-lbl">Journey</span></div>
@@ -3799,9 +3798,11 @@ function sendChat() {
 
 // ── Trade ─────────────────────────────────────────────────────────────────
 function prefillTrade(sym) {
-  switchPanel('trade', document.querySelector('.rpanel-tabs .tab:nth-child(2)'));
-  document.getElementById('t-sym').value = sym;
-  document.getElementById('t-notional').focus();
+  // Trade tab removed — just log the symbol to chat terminal
+  if (window._ptyTerm) {
+    window._ptyTerm.focus();
+  }
+  switchPanel('chat', document.querySelector('.rpanel-tabs .tab'));
 }
 
 function executeTrade() {
@@ -6908,6 +6909,7 @@ function launchMiroShark() {
       cursorBlink: true,
       scrollback: 2000,
       allowProposedApi: true,
+      convertEol: true,
     });
 
     _ptyFit = new window.FitAddon.FitAddon();
