@@ -762,24 +762,137 @@
         <div id="candle-stats" style="display:none"></div>
       </div>
       <!-- Positions list -->
-      <div id="view-positions" style="display:none;overflow-y:auto;height:100%">
-        <table id="pos-table" style="width:100%;border-collapse:collapse;font-size:11px">
-          <thead>
-            <tr style="border-bottom:1px solid var(--border);color:var(--muted);position:sticky;top:0;background:var(--panel);z-index:1">
-              <th style="padding:5px 6px;text-align:left">SYM</th>
-              <th style="padding:5px 6px;text-align:right">CUR</th>
-              <th style="padding:5px 6px;text-align:right">ENTRY</th>
-              <th style="padding:5px 6px;text-align:right">GAP</th>
-              <th style="padding:5px 6px;text-align:right">TODAY</th>
-              <th style="padding:5px 6px;text-align:right">TOTAL</th>
-              <th style="padding:5px 6px;text-align:right">MV</th>
-              <th style="padding:5px 6px;text-align:right">ACCTS</th>
-              <th style="padding:5px 6px;text-align:right">DCA</th>
-              <th style="padding:5px 6px;text-align:left">ACTION</th>
-            </tr>
-          </thead>
-          <tbody id="pos-list"></tbody>
-        </table>
+      <div id="view-positions" style="display:none;overflow-y:auto;height:100%;padding:12px;box-sizing:border-box;background:var(--bg);">
+
+        <!-- ── DUAL PORTFOLIO HEADER ── -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+          <span style="font-size:13px;font-weight:700;color:#00ff88;">📊 Dual Portfolio View</span>
+          <div style="display:flex;gap:10px;align-items:center;">
+            <button onclick="loadCombinedPositions()" style="background:var(--panel);border:1px solid var(--border);color:var(--text);font-size:10px;padding:3px 10px;border-radius:3px;cursor:pointer;">↻ Refresh</button>
+          </div>
+        </div>
+
+        <!-- ── SUMMARY BAR ── -->
+        <div id="dpos-summary" style="display:none;background:#060d06;border:1px solid #252A36;border-radius:6px;padding:10px 14px;margin-bottom:12px;display:flex;gap:24px;flex-wrap:wrap;font-size:11px;">
+          <div>
+            <span style="color:var(--muted);">🚀 Alpaca MV</span>
+            <span id="dpos-alp-mv" style="color:#00ff88;font-family:monospace;font-weight:700;margin-left:6px;">—</span>
+            <span id="dpos-alp-upl" style="font-family:monospace;font-size:10px;margin-left:4px;">—</span>
+          </div>
+          <div style="border-left:1px solid #252A36;padding-left:16px;">
+            <span style="color:var(--muted);">🔬 Fidelity Value</span>
+            <span id="dpos-fid-val" style="color:#4a9eff;font-family:monospace;font-weight:700;margin-left:6px;">—</span>
+            <span id="dpos-fid-gl" style="font-family:monospace;font-size:10px;margin-left:4px;">—</span>
+          </div>
+          <div style="border-left:1px solid #252A36;padding-left:16px;">
+            <span style="color:var(--muted);">⚡ Scanner Picks</span>
+            <span id="dpos-scanner-ct" style="color:#ffaa00;font-family:monospace;font-weight:700;margin-left:6px;">—</span>
+          </div>
+          <div style="border-left:1px solid #252A36;padding-left:16px;">
+            <span style="color:#ffaa00;">🎯 Not Yet Bought</span>
+            <span id="dpos-pending-ct" style="color:#ffaa00;font-family:monospace;font-weight:700;margin-left:6px;">—</span>
+          </div>
+        </div>
+
+        <!-- ── ALPACA 10x MOONSHOT TABLE ── -->
+        <div style="margin-bottom:14px;">
+          <div style="font-size:10px;font-weight:700;color:#00ff88;letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid #1a3a1a;">
+            🚀 Alpaca — 10x Moonshot Portfolio &nbsp;<span style="color:#446644;font-weight:400;">Buy &amp; hold. Let the thesis run.</span>
+          </div>
+          <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:11px;font-family:monospace;">
+              <thead>
+                <tr style="color:var(--muted);border-bottom:1px solid #1a3a1a;font-size:10px;">
+                  <th style="padding:4px 6px;text-align:left;">SYM</th>
+                  <th style="padding:4px 6px;text-align:center;">SCORE</th>
+                  <th style="padding:4px 6px;text-align:left;">PATTERN</th>
+                  <th style="padding:4px 6px;text-align:right;">ALPACA MV</th>
+                  <th style="padding:4px 6px;text-align:right;">ALPACA %</th>
+                  <th style="padding:4px 6px;text-align:right;">TODAY</th>
+                  <th style="padding:4px 6px;text-align:right;">DAYS</th>
+                  <th style="padding:4px 8px;text-align:right;">FID VALUE</th>
+                  <th style="padding:4px 6px;text-align:right;">FID G/L</th>
+                  <th style="padding:4px 6px;text-align:right;">FID G/L%</th>
+                  <th style="padding:4px 6px;text-align:center;">ACCTS</th>
+                  <th style="padding:4px 6px;text-align:center;">TREND</th>
+                </tr>
+              </thead>
+              <tbody id="dpos-alpaca-body">
+                <tr><td colspan="12" style="text-align:center;color:var(--muted);padding:20px;">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ── PENDING BUYS (scanner picks not yet in Alpaca) ── -->
+        <div id="dpos-pending-section" style="display:none;margin-bottom:14px;">
+          <div style="font-size:10px;font-weight:700;color:#ffaa00;letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid #3a2a00;">
+            🎯 Scanner Picks — Not Yet in Alpaca &nbsp;<span style="color:#664400;font-weight:400;">Consider adding these.</span>
+          </div>
+          <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:11px;font-family:monospace;">
+              <thead>
+                <tr style="color:var(--muted);border-bottom:1px solid #3a2a00;font-size:10px;">
+                  <th style="padding:4px 6px;text-align:left;">SYM</th>
+                  <th style="padding:4px 6px;text-align:center;">SCORE</th>
+                  <th style="padding:4px 6px;text-align:left;">PATTERN</th>
+                  <th style="padding:4px 6px;text-align:right;">PICKED</th>
+                  <th style="padding:4px 6px;text-align:right;">PRICE THEN</th>
+                  <th style="padding:4px 8px;text-align:right;">FID VALUE</th>
+                  <th style="padding:4px 6px;text-align:right;">FID G/L</th>
+                  <th style="padding:4px 6px;text-align:right;">FID G/L%</th>
+                  <th style="padding:4px 6px;text-align:center;">ACCTS</th>
+                  <th style="padding:4px 6px;text-align:center;">TREND</th>
+                  <th style="padding:4px 6px;text-align:left;">ACTION</th>
+                </tr>
+              </thead>
+              <tbody id="dpos-pending-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ── FIDELITY CRYSTAL BALL ── -->
+        <div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid #1a2a3a;">
+            <span style="font-size:10px;font-weight:700;color:#4a9eff;letter-spacing:.1em;text-transform:uppercase;">🔬 Fidelity Crystal Ball — All 480 Positions</span>
+            <span style="color:#446644;font-weight:400;font-size:10px;">Fractions accumulating. Scanner picks highlighted.</span>
+            <div style="margin-left:auto;display:flex;gap:6px;">
+              <input type="text" id="dpos-fid-search" placeholder="Filter symbol…" oninput="dposFidFilter()"
+                style="background:#131722;border:1px solid #252A36;color:#88cc88;font-family:monospace;font-size:10px;padding:2px 7px;border-radius:3px;outline:none;width:130px;">
+              <select id="dpos-fid-sort" onchange="dposFidSort()" style="background:#131722;border:1px solid #252A36;color:var(--muted);font-size:10px;padding:2px 5px;border-radius:3px;">
+                <option value="value">Sort: Value</option>
+                <option value="gl">Sort: G/L $</option>
+                <option value="gl_pct">Sort: G/L %</option>
+                <option value="scanner">Sort: Scanner First</option>
+                <option value="accts">Sort: Accounts</option>
+              </select>
+            </div>
+          </div>
+          <div style="overflow-x:auto;max-height:480px;overflow-y:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:11px;font-family:monospace;">
+              <thead style="position:sticky;top:0;background:var(--panel);z-index:1;">
+                <tr style="color:var(--muted);border-bottom:1px solid #1a2a3a;font-size:10px;">
+                  <th style="padding:4px 6px;text-align:left;">SYM</th>
+                  <th style="padding:4px 6px;text-align:left;">DESCRIPTION</th>
+                  <th style="padding:4px 6px;text-align:center;">ACCTS</th>
+                  <th style="padding:4px 6px;text-align:right;">SHARES</th>
+                  <th style="padding:4px 6px;text-align:right;">PRICE</th>
+                  <th style="padding:4px 6px;text-align:right;">VALUE</th>
+                  <th style="padding:4px 6px;text-align:right;">COST</th>
+                  <th style="padding:4px 6px;text-align:right;">G/L $</th>
+                  <th style="padding:4px 6px;text-align:right;">G/L %</th>
+                  <th style="padding:4px 6px;text-align:center;">TREND</th>
+                  <th style="padding:4px 6px;text-align:center;">SCANNER</th>
+                </tr>
+              </thead>
+              <tbody id="dpos-fid-body">
+                <tr><td colspan="11" style="text-align:center;color:var(--muted);padding:20px;">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div id="dpos-fid-pager" style="font-size:10px;color:var(--muted);padding:6px 4px;text-align:right;"></div>
+        </div>
+
       </div>
     </div><!-- end chart-body -->
 
@@ -3254,45 +3367,238 @@ function _legacyLoadCandles() {
 
 // ── Positions ─────────────────────────────────────────────────────────────
 function loadPositions() {
-  fetch('/api/positions').then(r=>r.json()).then(positions => {
-    const tbody = document.getElementById('pos-list');
-    if (!positions.length) {
-      tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:20px">No positions</td></tr>';
-      return;
-    }
-    tbody.innerHTML = positions.map(p => {
-      const uplColor   = p.upl  >= 0 ? 'var(--green)' : 'var(--red)';
-      const dayColor   = p.day_chg >= 0 ? 'var(--green)' : 'var(--red)';
-      const gapColor   = p.gap_pct > 0 ? 'var(--red)' : 'var(--muted)';
-      const mfBadge    = p.is_mf ? '<span style="color:var(--gold);font-size:9px">★MF</span> ' : '';
-      const acctColor  = p.accts >= 10 ? 'var(--green)' : p.accts >= 5 ? 'var(--blue)' : 'var(--muted)';
-
-      // Action cell
-      let action = '';
-      if (p.dca_buy > 0 && p.gap_pct > 0) {
-        action = `<button class="bc-buy" style="font-size:10px;padding:2px 6px" onclick="buyFromCard('${p.sym}',${p.dca_buy})">DCA $${p.dca_buy}</button>`;
-      } else if (p.uplpc >= 10) {
-        action = `<span style="color:var(--gold);font-size:10px">HARVEST</span>`;
-      } else if (p.gap_pct > 5) {
-        action = `<span style="color:var(--muted);font-size:10px">add $1.10</span>`;
-      }
-
-      return `<tr style="border-bottom:1px solid #131722;cursor:pointer" onclick="prefillTrade('${p.sym}')" title="Entry: $${p.entry} | Qty: ${p.qty.toFixed(4)}">
-        <td style="padding:4px 6px;font-weight:700">${mfBadge}${p.sym}</td>
-        <td style="padding:4px 6px;text-align:right">$${p.cur}</td>
-        <td style="padding:4px 6px;text-align:right;color:var(--muted)">$${p.entry}</td>
-        <td style="padding:4px 6px;text-align:right;color:${gapColor}">${p.gap_pct > 0 ? '-'+p.gap_pct+'%' : '—'}</td>
-        <td style="padding:4px 6px;text-align:right;color:${dayColor}">${p.day_chg>=0?'+':''}${p.day_chg.toFixed(1)}%</td>
-        <td style="padding:4px 6px;text-align:right;color:${uplColor}">${p.uplpc>=0?'+':''}${p.uplpc.toFixed(1)}%</td>
-        <td style="padding:4px 6px;text-align:right;color:var(--muted)">$${p.mv.toFixed(0)}</td>
-        <td style="padding:4px 6px;text-align:right;color:${acctColor}">${p.accts||'—'}</td>
-        <td style="padding:4px 6px;text-align:right;color:var(--green)">${p.dca_buy > 0 ? '$'+p.dca_buy : '—'}</td>
-        <td style="padding:4px 6px">${action}</td>
-      </tr>`;
-    }).join('');
-  });
+  // Legacy call — now delegates to combined view
+  loadCombinedPositions();
 }
 
+// ── DUAL PORTFOLIO VIEW ───────────────────────────────────────────────────────
+(function() {
+  'use strict';
+
+  var _fidData   = [];   // full fidelity list from server
+  var _fidFilter = '';   // current search filter
+  var _fidSort   = 'value';
+  var FID_PER_PAGE = 100;
+  var _fidPage   = 0;
+
+  function fmt$(v) {
+    if (v == null || isNaN(v)) return '—';
+    return (v >= 0 ? '+$' : '-$') + Math.abs(v).toFixed(2);
+  }
+  function fmtPct(v) {
+    if (v == null || isNaN(v)) return '—';
+    return (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
+  }
+  function glColor(v) { return v >= 0 ? '#00ff88' : '#f85149'; }
+  function trendArrow(t) {
+    if (t === 'UP')   return '<span style="color:#00ff88;font-size:13px;" title="Improving last 3 snapshots">↑</span>';
+    if (t === 'DOWN') return '<span style="color:#f85149;font-size:13px;" title="Worsening last 3 snapshots">↓</span>';
+    if (t === 'FLAT') return '<span style="color:#446644;font-size:12px;">→</span>';
+    return '<span style="color:#333;">—</span>';
+  }
+  function scoreColor(s) {
+    if (!s) return '#446644';
+    if (s >= 9) return '#00ff88';
+    if (s >= 7) return '#ffaa00';
+    return '#4a9eff';
+  }
+  function patternShort(p) {
+    if (!p || p === '—') return '—';
+    return p.replace('UNCLASSIFIED:', '').replace('_', ' ').substring(0, 14);
+  }
+
+  function renderAlpacaTable(positions) {
+    var tbody = document.getElementById('dpos-alpaca-body');
+    if (!tbody) return;
+    if (!positions || !positions.length) {
+      tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:var(--muted);padding:16px;">No Alpaca positions</td></tr>';
+      return;
+    }
+    tbody.innerHTML = positions.map(function(p) {
+      var uplC  = glColor(p.uplpc);
+      var dayC  = glColor(p.day_chg);
+      var fidC  = glColor(p.fid_gl);
+      var sc    = p.scanner_score;
+      var scBadge = sc
+        ? '<span style="color:' + scoreColor(sc) + ';font-weight:700;">' + sc + '</span>'
+        : '<span style="color:#333;">—</span>';
+      var scannerBorder = p.is_scanner_pick
+        ? 'border-left:2px solid #00ff88;'
+        : 'border-left:2px solid #252A36;';
+      var daysStr = p.days_held != null ? p.days_held + 'd' : '—';
+      var fidValStr = p.fid_value ? '$' + p.fid_value.toFixed(0) : '—';
+      return '<tr style="border-bottom:1px solid #131722;' + scannerBorder + 'cursor:pointer;" onclick="prefillTrade(\'' + p.sym + '\')">' +
+        '<td style="padding:4px 8px;font-weight:700;color:#00ff88;">' + p.sym + '</td>' +
+        '<td style="padding:4px 6px;text-align:center;">' + scBadge + '</td>' +
+        '<td style="padding:4px 6px;color:#446644;font-size:10px;">' + patternShort(p.pattern) + '</td>' +
+        '<td style="padding:4px 6px;text-align:right;">$' + p.mv.toFixed(0) + '</td>' +
+        '<td style="padding:4px 6px;text-align:right;color:' + uplC + ';">' + fmtPct(p.uplpc) + '</td>' +
+        '<td style="padding:4px 6px;text-align:right;color:' + dayC + ';">' + fmtPct(p.day_chg) + '</td>' +
+        '<td style="padding:4px 6px;text-align:right;color:var(--muted);">' + daysStr + '</td>' +
+        '<td style="padding:4px 8px;text-align:right;color:#4a9eff;">' + fidValStr + '</td>' +
+        '<td style="padding:4px 6px;text-align:right;color:' + fidC + ';">' + fmt$(p.fid_gl) + '</td>' +
+        '<td style="padding:4px 6px;text-align:right;color:' + fidC + ';">' + fmtPct(p.fid_gl_pct) + '</td>' +
+        '<td style="padding:4px 6px;text-align:center;color:var(--muted);">' + (p.fid_accounts || '—') + '</td>' +
+        '<td style="padding:4px 6px;text-align:center;">' + trendArrow(p.fid_trend) + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  function renderPendingTable(pending) {
+    var section = document.getElementById('dpos-pending-section');
+    var tbody   = document.getElementById('dpos-pending-body');
+    var ct      = document.getElementById('dpos-pending-ct');
+    if (!pending || !pending.length) {
+      if (section) section.style.display = 'none';
+      if (ct) ct.textContent = '0';
+      return;
+    }
+    if (section) section.style.display = '';
+    if (ct) ct.textContent = pending.length;
+    tbody.innerHTML = pending.map(function(p) {
+      var fidC  = glColor(p.fid_gl);
+      var sc    = p.scanner_score;
+      var scBadge = '<span style="color:' + scoreColor(sc) + ';font-weight:700;">' + (sc || '—') + '</span>';
+      var fidValStr = p.fid_value ? '$' + p.fid_value.toFixed(0) : '—';
+      var buyBtn = '<button onclick="prefillTrade(\'' + p.sym + '\')" ' +
+        'style="background:#1a3a1a;border:1px solid #00ff88;color:#00ff88;font-size:9px;padding:1px 7px;border-radius:3px;cursor:pointer;">+ Add to Alpaca</button>';
+      return '<tr style="border-bottom:1px solid #131722;border-left:2px solid #ffaa00;">' +
+        '<td style="padding:4px 8px;font-weight:700;color:#ffaa00;">' + p.sym + '</td>' +
+        '<td style="padding:4px 6px;text-align:center;">' + scBadge + '</td>' +
+        '<td style="padding:4px 6px;color:#446644;font-size:10px;">' + patternShort(p.pattern) + '</td>' +
+        '<td style="padding:4px 6px;text-align:right;color:var(--muted);">' + (p.date_picked || '—') + '</td>' +
+        '<td style="padding:4px 6px;text-align:right;color:var(--muted);">$' + (p.price_at_pick || 0).toFixed(2) + '</td>' +
+        '<td style="padding:4px 8px;text-align:right;color:#4a9eff;">' + fidValStr + '</td>' +
+        '<td style="padding:4px 6px;text-align:right;color:' + fidC + ';">' + fmt$(p.fid_gl) + '</td>' +
+        '<td style="padding:4px 6px;text-align:right;color:' + fidC + ';">' + fmtPct(p.fid_gl_pct) + '</td>' +
+        '<td style="padding:4px 6px;text-align:center;color:var(--muted);">' + (p.fid_accounts || '—') + '</td>' +
+        '<td style="padding:4px 6px;text-align:center;">' + trendArrow(p.fid_trend) + '</td>' +
+        '<td style="padding:4px 6px;">' + buyBtn + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  function getFidSorted() {
+    var data = _fidData.slice();
+    var q = _fidFilter.toUpperCase().trim();
+    if (q) data = data.filter(function(r) { return r.symbol.indexOf(q) !== -1; });
+    var s = _fidSort;
+    if (s === 'gl')      data.sort(function(a,b) { return a.total_gl - b.total_gl; });
+    else if (s === 'gl_pct') data.sort(function(a,b) { return a.gl_pct - b.gl_pct; });
+    else if (s === 'scanner') data.sort(function(a,b) {
+      if (a.in_scanner !== b.in_scanner) return b.in_scanner ? 1 : -1;
+      return b.total_value - a.total_value;
+    });
+    else if (s === 'accts') data.sort(function(a,b) { return b.accounts - a.accounts; });
+    else data.sort(function(a,b) { return b.total_value - a.total_value; });
+    return data;
+  }
+
+  function renderFidTable() {
+    var tbody  = document.getElementById('dpos-fid-body');
+    var pager  = document.getElementById('dpos-fid-pager');
+    if (!tbody) return;
+    var data   = getFidSorted();
+    var total  = data.length;
+    var pages  = Math.ceil(total / FID_PER_PAGE);
+    _fidPage   = Math.min(_fidPage, Math.max(0, pages - 1));
+    var slice  = data.slice(_fidPage * FID_PER_PAGE, (_fidPage + 1) * FID_PER_PAGE);
+    if (!slice.length) {
+      tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:16px;">No results</td></tr>';
+      if (pager) pager.textContent = '';
+      return;
+    }
+    tbody.innerHTML = slice.map(function(r) {
+      var glC     = glColor(r.total_gl);
+      var scanBorder = r.in_scanner ? 'border-left:2px solid #00ff88;' : 'border-left:2px solid transparent;';
+      var scanBadge  = r.in_scanner
+        ? '<span style="color:' + scoreColor(r.scanner_score) + ';font-weight:700;font-size:10px;">' + (r.scanner_score || '✓') + '</span>'
+        : '<span style="color:#252A36;">—</span>';
+      var desc = r.description ? r.description.substring(0, 22) : '';
+      return '<tr style="border-bottom:1px solid #131722;' + scanBorder + '">' +
+        '<td style="padding:4px 8px;font-weight:700;color:' + (r.in_scanner ? '#00ff88' : 'var(--text)') + ';">' + r.symbol + '</td>' +
+        '<td style="padding:4px 6px;color:#446644;font-size:10px;">' + desc + '</td>' +
+        '<td style="padding:4px 6px;text-align:center;color:var(--muted);">' + r.accounts + '</td>' +
+        '<td style="padding:4px 6px;text-align:right;color:var(--muted);">' + r.total_qty.toFixed(3) + '</td>' +
+        '<td style="padding:4px 6px;text-align:right;color:var(--muted);">$' + r.last_price.toFixed(2) + '</td>' +
+        '<td style="padding:4px 6px;text-align:right;font-weight:600;">$' + r.total_value.toFixed(2) + '</td>' +
+        '<td style="padding:4px 6px;text-align:right;color:var(--muted);">$' + r.total_cost.toFixed(2) + '</td>' +
+        '<td style="padding:4px 6px;text-align:right;color:' + glC + ';">' + fmt$(r.total_gl) + '</td>' +
+        '<td style="padding:4px 6px;text-align:right;color:' + glC + ';">' + fmtPct(r.gl_pct) + '</td>' +
+        '<td style="padding:4px 6px;text-align:center;">' + trendArrow('—') + '</td>' +
+        '<td style="padding:4px 6px;text-align:center;">' + scanBadge + '</td>' +
+        '</tr>';
+    }).join('');
+    if (pager) {
+      pager.innerHTML = 'Showing ' + (_fidPage * FID_PER_PAGE + 1) + '–' +
+        Math.min((_fidPage + 1) * FID_PER_PAGE, total) + ' of ' + total +
+        ' &nbsp; <button onclick="window._dposFidPrev()" style="background:none;border:1px solid #252A36;color:var(--muted);padding:1px 8px;cursor:pointer;border-radius:2px;">← Prev</button>' +
+        ' <button onclick="window._dposFidNext()" style="background:none;border:1px solid #252A36;color:var(--muted);padding:1px 8px;cursor:pointer;border-radius:2px;">Next →</button>';
+    }
+  }
+
+  window._dposFidPrev = function() { if (_fidPage > 0) { _fidPage--; renderFidTable(); } };
+  window._dposFidNext = function() { _fidPage++; renderFidTable(); };
+  window.dposFidFilter = function() {
+    _fidFilter = (document.getElementById('dpos-fid-search') || {}).value || '';
+    _fidPage = 0;
+    renderFidTable();
+  };
+  window.dposFidSort = function() {
+    _fidSort = (document.getElementById('dpos-fid-sort') || {}).value || 'value';
+    _fidPage = 0;
+    renderFidTable();
+  };
+
+  window.loadCombinedPositions = function() {
+    fetch('/api/positions/combined', {cache: 'no-store'})
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        // ── Summary bar ──
+        var sumBar = document.getElementById('dpos-summary');
+        if (sumBar) sumBar.style.display = 'flex';
+
+        var a = d.alpaca;
+        var f = d.fidelity;
+        var alpMvEl  = document.getElementById('dpos-alp-mv');
+        var alpUplEl = document.getElementById('dpos-alp-upl');
+        var fidValEl = document.getElementById('dpos-fid-val');
+        var fidGlEl  = document.getElementById('dpos-fid-gl');
+        var scCtEl   = document.getElementById('dpos-scanner-ct');
+
+        if (alpMvEl)  alpMvEl.textContent  = '$' + a.total_mv.toFixed(2);
+        if (alpUplEl) {
+          var uplSign = a.total_upl >= 0 ? '+' : '';
+          alpUplEl.textContent = '(' + uplSign + '$' + Math.abs(a.total_upl).toFixed(2) + ' / ' + uplSign + a.total_upl_pct.toFixed(1) + '%)';
+          alpUplEl.style.color = a.total_upl >= 0 ? '#00ff88' : '#f85149';
+        }
+        if (fidValEl) fidValEl.textContent = '$' + f.total_value.toFixed(2);
+        if (fidGlEl)  {
+          var fglSign = f.total_gl >= 0 ? '+' : '';
+          fidGlEl.textContent = '(' + fglSign + '$' + Math.abs(f.total_gl).toFixed(2) + ' / ' + fglSign + f.total_gl_pct.toFixed(1) + '%)';
+          fidGlEl.style.color = f.total_gl >= 0 ? '#00ff88' : '#f85149';
+        }
+        if (scCtEl)  scCtEl.textContent  = d.scanner_count + ' PENDING';
+
+        // ── Alpaca table ──
+        renderAlpacaTable(a.positions);
+
+        // ── Pending buys ──
+        renderPendingTable(d.pending_buys);
+
+        // ── Fidelity table ──
+        _fidData = f.positions || [];
+        _fidPage = 0;
+        renderFidTable();
+      })
+      .catch(function(e) {
+        var b = document.getElementById('dpos-alpaca-body');
+        if (b) b.innerHTML = '<tr><td colspan="12" style="color:#f85149;padding:16px;">Error loading positions: ' + e.message + '</td></tr>';
+      });
+  };
+})();
+
+// ── Trigger ───────────────────────────────────────────────────────────────
 // ── Trigger ───────────────────────────────────────────────────────────────
 function fetchTrigger() {
   // Grab current equity from header display so we can detect pullback state

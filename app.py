@@ -1437,6 +1437,224 @@ def api_positions():
     return jsonify(result)
 
 
+@app.route('/api/positions/combined')
+def api_positions_combined():
+    """
+    Dual-portfolio view for the Positions tab.
+
+    Returns three sections:
+      alpaca    — live Alpaca positions enriched with scanner pick data
+      fidelity  — full Fidelity snapshot from latest CSV (all 480 positions)
+      summary   — totals for both portfolios side by side
+      scanner   — all PENDING scanner picks with Alpaca + Fidelity status
+    """
+    from datetime import datetime as _dt
+
+    # ── 1. Alpaca live positions ────────────────────────────────────────────
+    try:
+        raw_positions = alpaca('/v2/positions') or []
+    except Exception:
+        raw_positions = []
+
+    # ── 2. Scanner picks from signal_tracker.db ─────────────────────────────
+    SIGNAL_DB = Path.home() / 'Documents' / 'Trading Vault' / 'signal_tracker.db'
+    scanner_picks = {}   # sym → best pending signal row
+    try:
+        import sqlite3 as _sq
+        sconn = _sq.connect(str(SIGNAL_DB))
+        sconn.row_factory = _sq.Row
+        sig_rows = sconn.execute("""
+            SELECT symbol, MAX(stage0_score) AS score,
+                   date_picked, price_at_pick, pattern_type,
+                   bucket, edgar_score, axis1, axis2, axis3
+            FROM signals
+            WHERE outcome = 'PENDING'
+            GROUP BY symbol
+            ORDER BY score DESC
+        """).fetchall()
+        for r in sig_rows:
+            scanner_picks[r['symbol']] = {
+                'score':         r['score'],
+                'date_picked':   r['date_picked'],
+                'price_at_pick': float(r['price_at_pick'] or 0),
+                'pattern':       r['pattern_type'] or '—',
+                'bucket':        r['bucket'] or '—',
+                'edgar_score':   r['edgar_score'],
+                'axis1':         r['axis1'],
+                'axis2':         r['axis2'],
+                'axis3':         r['axis3'],
+            }
+        sconn.close()
+    except Exception:
+        pass
+
+    # ── 3. Fidelity latest snapshot from SQLite ─────────────────────────────
+    fidelity_rows = {}   # sym → row dict
+    fid_total_value = 0.0
+    fid_total_cost  = 0.0
+    fid_total_gl    = 0.0
+    try:
+        import fidelity_db as _fdb
+        # Get latest snapshot_id
+        with _fdb.get_conn() as _fc:
+            latest_snap = _fc.execute("""
+                SELECT snapshot_id, MAX(snapshot_date) AS sd
+                FROM snapshots GROUP BY snapshot_id
+                ORDER BY sd DESC LIMIT 1
+            """).fetchone()
+            if latest_snap:
+                snap_rows = _fc.execute("""
+                    SELECT symbol, description, accounts, total_qty,
+                           last_price, total_value, total_cost, total_gl,
+                           gl_pct, portfolio_pct
+                    FROM snapshots
+                    WHERE snapshot_id = ?
+                    ORDER BY total_value DESC
+                """, [latest_snap['snapshot_id']]).fetchall()
+                for r in snap_rows:
+                    sym = r['symbol']
+                    gl  = r['total_gl'] or 0.0
+                    val = r['total_value'] or 0.0
+                    cost= r['total_cost'] or 0.0
+                    fidelity_rows[sym] = {
+                        'symbol':      sym,
+                        'description': r['description'] or '',
+                        'accounts':    r['accounts'] or 0,
+                        'total_qty':   round(r['total_qty'] or 0, 4),
+                        'last_price':  round(r['last_price'] or 0, 2),
+                        'total_value': round(val, 2),
+                        'total_cost':  round(cost, 2),
+                        'total_gl':    round(gl, 2),
+                        'gl_pct':      round(r['gl_pct'] or 0, 2),
+                        'in_scanner':  sym in scanner_picks,
+                        'scanner_score': scanner_picks.get(sym, {}).get('score'),
+                    }
+                    fid_total_value += val
+                    fid_total_cost  += cost
+                    fid_total_gl    += gl
+    except Exception:
+        pass
+
+    # ── 4. Sym trends from last 3 snapshots (reuse compounding scorecard) ───
+    sym_trends = {}
+    try:
+        sc = fidelity_db.get_compounding_scorecard()
+        sym_trends = sc.get('sym_trends', {})
+    except Exception:
+        pass
+
+    # ── 5. Build enriched Alpaca rows ───────────────────────────────────────
+    alpaca_rows = []
+    alpaca_total_mv   = 0.0
+    alpaca_total_cost = 0.0
+    alpaca_total_upl  = 0.0
+    today = _dt.now().date()
+
+    for p in raw_positions:
+        sym    = p['symbol']
+        cur    = float(p.get('current_price', 0))
+        entry  = float(p.get('avg_entry_price', 0))
+        upl    = float(p.get('unrealized_pl', 0))
+        uplpc  = float(p.get('unrealized_plpc', 0)) * 100
+        mv     = float(p.get('market_value', 0))
+        cost   = float(p.get('cost_basis', 0))
+        day_chg= float(p.get('change_today', 0)) * 100
+        qty    = float(p.get('qty', 0))
+
+        # Days held — Alpaca doesn't give purchase date directly; use scanner pick date
+        days_held = None
+        pick = scanner_picks.get(sym, {})
+        if pick.get('date_picked'):
+            try:
+                picked = _dt.strptime(pick['date_picked'], '%Y-%m-%d').date()
+                days_held = (today - picked).days
+            except Exception:
+                pass
+
+        # Fidelity cross-reference
+        fid_row = fidelity_rows.get(sym, {})
+
+        alpaca_total_mv   += mv
+        alpaca_total_cost += cost
+        alpaca_total_upl  += upl
+
+        alpaca_rows.append({
+            'sym':            sym,
+            'cur':            round(cur, 2),
+            'entry':          round(entry, 2),
+            'qty':            qty,
+            'mv':             round(mv, 2),
+            'cost':           round(cost, 2),
+            'upl':            round(upl, 2),
+            'uplpc':          round(uplpc, 2),
+            'day_chg':        round(day_chg, 2),
+            'days_held':      days_held,
+            # Scanner pick data
+            'scanner_score':  pick.get('score'),
+            'pattern':        pick.get('pattern', '—'),
+            'bucket':         pick.get('bucket', '—'),
+            'price_at_pick':  pick.get('price_at_pick', 0),
+            'is_scanner_pick': sym in scanner_picks,
+            # Fidelity cross-reference
+            'fid_value':      fid_row.get('total_value', 0),
+            'fid_gl':         fid_row.get('total_gl', 0),
+            'fid_gl_pct':     fid_row.get('gl_pct', 0),
+            'fid_accounts':   fid_row.get('accounts', 0),
+            'fid_trend':      sym_trends.get(sym, '—'),
+        })
+
+    alpaca_rows.sort(key=lambda x: x['uplpc'])  # worst first
+
+    # ── 6. Scanner picks NOT yet in Alpaca ──────────────────────────────────
+    alpaca_syms = {r['sym'] for r in alpaca_rows}
+    pending_buys = []
+    for sym, pick in scanner_picks.items():
+        if sym in alpaca_syms:
+            continue
+        fid_row = fidelity_rows.get(sym, {})
+        pending_buys.append({
+            'sym':           sym,
+            'scanner_score': pick['score'],
+            'pattern':       pick['pattern'],
+            'bucket':        pick['bucket'],
+            'price_at_pick': pick['price_at_pick'],
+            'date_picked':   pick['date_picked'],
+            # Fidelity context
+            'fid_value':     fid_row.get('total_value', 0),
+            'fid_gl':        fid_row.get('total_gl', 0),
+            'fid_gl_pct':    fid_row.get('gl_pct', 0),
+            'fid_accounts':  fid_row.get('accounts', 0),
+            'fid_trend':     sym_trends.get(sym, '—'),
+        })
+    pending_buys.sort(key=lambda x: -(x['scanner_score'] or 0))
+
+    # ── 7. Fidelity full list sorted by value desc ───────────────────────────
+    fidelity_list = sorted(fidelity_rows.values(),
+                           key=lambda r: r['total_value'], reverse=True)
+
+    return jsonify({
+        'alpaca': {
+            'positions':   alpaca_rows,
+            'total_mv':    round(alpaca_total_mv, 2),
+            'total_cost':  round(alpaca_total_cost, 2),
+            'total_upl':   round(alpaca_total_upl, 2),
+            'total_upl_pct': round(alpaca_total_upl / alpaca_total_cost * 100, 2)
+                              if alpaca_total_cost else 0.0,
+        },
+        'fidelity': {
+            'positions':    fidelity_list,
+            'total_value':  round(fid_total_value, 2),
+            'total_cost':   round(fid_total_cost, 2),
+            'total_gl':     round(fid_total_gl, 2),
+            'total_gl_pct': round(fid_total_gl / fid_total_cost * 100, 2)
+                            if fid_total_cost else 0.0,
+            'total_symbols': len(fidelity_list),
+        },
+        'pending_buys':  pending_buys,
+        'scanner_count': len(scanner_picks),
+    })
+
+
 @app.route('/api/candles')
 def api_candles():
     """Build real daily OHLC from Alpaca portfolio history API."""
