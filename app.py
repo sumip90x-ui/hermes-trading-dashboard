@@ -1222,9 +1222,12 @@ def get_trade_ai_config():
 
 @app.route('/')
 def index():
-    resp = make_response(render_template('index.html'))
+    import datetime
+    build_ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    resp = make_response(render_template('index.html', build_ts=build_ts))
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     resp.headers['Pragma'] = 'no-cache'
+    resp.headers['Expires'] = '0'
     return resp
 
 
@@ -5767,6 +5770,79 @@ def api_picks_list():
     return jsonify({'picks': picks})
 
 
+@app.route('/api/picks/rescore-all', methods=['POST'])
+def api_picks_rescore_all():
+    """Backfill axis1/axis2/axis3 for all PENDING picks that are missing them.
+    Runs scanner_engine.score_ticker() for each symbol and writes scores back to DB.
+    """
+    import sqlite3 as _sq, sys as _sys, json as _js, datetime as _dt
+    _sys.path.insert(0, str(Path.home() / 'Documents/EDGAR'))
+
+    DB_PATH = str(Path.home() / 'Documents/Trading Vault/signal_tracker.db')
+
+    try:
+        conn = _sq.connect(DB_PATH)
+        conn.row_factory = _sq.Row
+        rows = conn.execute("""
+            SELECT symbol, edgar_score, fidelity_accounts
+            FROM signals
+            WHERE outcome='PENDING' AND (axis1 IS NULL OR axis3 IS NULL)
+        """).fetchall()
+        conn.close()
+    except Exception as e:
+        return jsonify({'error': str(e), 'updated': 0}), 500
+
+    if not rows:
+        return jsonify({'message': 'All picks already have axis scores', 'updated': 0})
+
+    try:
+        from scanner_engine import run_scanner as _run_scanner_check
+    except ImportError:
+        return jsonify({'error': 'Cannot import scanner_engine — check path', 'updated': 0}), 500
+
+    updated = 0
+    errors = []
+    for r in rows:
+        sym = r['symbol']
+        try:
+            from scanner_engine import run_scanner
+            results, _ = run_scanner(symbols=[sym], top_n=5)
+            if not results:
+                errors.append(f'{sym}: no result')
+                continue
+            # Find our sym in results
+            match = next((x for x in results if isinstance(x, dict) and x.get('sym') == sym), None)
+            if not match:
+                errors.append(f'{sym}: not in results')
+                continue
+            s0 = match.get('stage0', {}) or {}
+            a1 = s0.get('axis1')
+            a2 = s0.get('axis2')
+            a3 = s0.get('axis3')
+            sigs = _js.dumps(s0.get('signals', []))
+            conn = _sq.connect(DB_PATH)
+            conn.execute("""
+                UPDATE signals SET
+                  axis1=?, axis2=?, axis3=?, signals_json=?,
+                  scored_at=?
+                WHERE symbol=? AND outcome='PENDING'
+            """, (a1, a2, a3, sigs,
+                  _dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),
+                  sym))
+            conn.commit()
+            conn.close()
+            updated += 1
+        except Exception as ex:
+            errors.append(f'{sym}: {ex}')
+
+    return jsonify({
+        'updated': updated,
+        'total': len(rows),
+        'errors': errors[:10],
+        'message': f'Rescored {updated}/{len(rows)} picks'
+    })
+
+
 @app.route('/api/picks/prefilter')
 def api_picks_prefilter():
     """Fast price-gate pre-scan against the full Fidelity CSV."""
@@ -6581,6 +6657,202 @@ def api_chart_extract(symbol):
 
 
 # ── END MONTHLY CHART SCREENSHOT SYSTEM ──────────────────────────────────────
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SYSTEM PERFORMANCE TAB — TWRR History (PDF upload → SQLite → Chart)
+# ══════════════════════════════════════════════════════════════════════════════
+
+PERF_DB = Path.home() / 'Documents' / 'Trading Vault' / 'system_performance.db'
+
+def _perf_init_db():
+    """Create performance history table if not exists."""
+    import sqlite3 as _sq
+    conn = _sq.connect(str(PERF_DB))
+    conn.execute('''CREATE TABLE IF NOT EXISTS perf_snapshots (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        upload_date TEXT NOT NULL,
+        period_start TEXT,
+        period_end   TEXT,
+        twrr_pct     REAL,
+        balance      REAL,
+        return_pct   REAL,
+        invested     REAL,
+        cash         REAL,
+        net_deposits REAL,
+        accounts_included INTEGER,
+        accounts_total    INTEGER,
+        raw_text     TEXT,
+        notes        TEXT
+    )''')
+    conn.commit()
+    conn.close()
+
+_perf_init_db()
+
+
+@app.route('/api/performance/upload', methods=['POST'])
+def api_performance_upload():
+    """Accept a PDF upload, extract TWRR and key metrics, store in DB."""
+    import sqlite3 as _sq, datetime as _dt, re as _re, tempfile as _tmp, os as _os
+
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+
+    f = request.files['file']
+    if not f.filename.lower().endswith('.pdf'):
+        return jsonify({'error': 'Must be a PDF file'}), 400
+
+    # Save to temp, extract text with PyMuPDF
+    try:
+        import fitz  # PyMuPDF
+    except ImportError:
+        return jsonify({'error': 'PyMuPDF not installed — run: pip install pymupdf'}), 500
+
+    with _tmp.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
+        f.save(tmp.name)
+        tmp_path = tmp.name
+
+    try:
+        doc = fitz.open(tmp_path)
+        full_text = '\n'.join(page.get_text() for page in doc)
+        doc.close()
+    finally:
+        _os.unlink(tmp_path)
+
+    # ── Parse fields from Fidelity Portfolio Performance PDF ──────────────
+    def _find(pattern, text, group=1, cast=None, default=None):
+        m = _re.search(pattern, text, _re.IGNORECASE | _re.DOTALL)
+        if not m:
+            return default
+        val = m.group(group).strip().replace(',', '').replace('%', '')
+        try:
+            return cast(val) if cast else val
+        except Exception:
+            return default
+
+    twrr     = _find(r'Your return\s*\+?([\d,\.]+)%', full_text, cast=float)
+    balance  = _find(r'Balance\s*\$([\d,\.]+)', full_text, cast=float)
+    ret_pct  = _find(r'Return\s*\+?([\d,\.]+)%', full_text, cast=float)
+    invested = _find(r'Invested\s*\$([\d,\.]+)', full_text, cast=float)
+    cash_v   = _find(r'Cash\s*\$([\d,\.]+)', full_text, cast=float)
+    net_dep  = _find(r'Net deposits and withdrawals\s*\+?\$?([\d,\.]+)', full_text, cast=float)
+
+    # Period: "Jul-29-2020 to May-31-2026"
+    period_m = _re.search(r'(\w{3}-\d{2}-\d{4})\s+to\s+(\w{3}-\d{2}-\d{4})', full_text)
+    period_start = period_m.group(1) if period_m else None
+    period_end   = period_m.group(2) if period_m else None
+
+    # Accounts: "Accounts not included 5 of 38"
+    acc_m = _re.search(r'Accounts not included\s+(\d+)\s+of\s+(\d+)', full_text)
+    if acc_m:
+        excluded = int(acc_m.group(1))
+        total    = int(acc_m.group(2))
+        included = total - excluded
+    else:
+        included, total = None, None
+
+    if twrr is None:
+        return jsonify({'error': 'Could not find TWRR in PDF. Make sure this is a Fidelity Portfolio Performance PDF.'}), 422
+
+    # ── Store in DB ───────────────────────────────────────────────────────
+    upload_date = _dt.datetime.now().strftime('%Y-%m-%d')
+    conn = _sq.connect(str(PERF_DB))
+
+    # Check for duplicate (same period_end and twrr)
+    existing = conn.execute(
+        'SELECT id FROM perf_snapshots WHERE period_end=? AND twrr_pct=?',
+        (period_end, twrr)
+    ).fetchone()
+
+    if existing:
+        conn.close()
+        return jsonify({
+            'status':    'duplicate',
+            'message':   f'This snapshot ({period_end}, TWRR={twrr}%) is already in the database.',
+            'twrr':      twrr,
+            'period_end': period_end,
+        })
+
+    conn.execute('''INSERT INTO perf_snapshots
+        (upload_date, period_start, period_end, twrr_pct, balance, return_pct,
+         invested, cash, net_deposits, accounts_included, accounts_total, raw_text)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)''',
+        (upload_date, period_start, period_end, twrr, balance, ret_pct,
+         invested, cash_v, net_dep, included, total, full_text[:4000]))
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        'status':           'saved',
+        'twrr':             twrr,
+        'balance':          balance,
+        'return_pct':       ret_pct,
+        'invested':         invested,
+        'cash':             cash_v,
+        'net_deposits':     net_dep,
+        'period_start':     period_start,
+        'period_end':       period_end,
+        'accounts_included': included,
+        'accounts_total':   total,
+        'message':          f'Saved! TWRR={twrr}% | Period: {period_start} → {period_end}',
+    })
+
+
+@app.route('/api/performance/history', methods=['GET'])
+def api_performance_history():
+    """Return all TWRR snapshots sorted by period_end for charting."""
+    import sqlite3 as _sq
+    conn = _sq.connect(str(PERF_DB))
+    conn.row_factory = _sq.Row
+    rows = conn.execute('''
+        SELECT id, upload_date, period_start, period_end,
+               twrr_pct, balance, return_pct, invested, cash,
+               net_deposits, accounts_included, accounts_total, notes
+        FROM perf_snapshots
+        ORDER BY period_end ASC, upload_date ASC
+    ''').fetchall()
+    conn.close()
+
+    snapshots = [dict(r) for r in rows]
+
+    # Compute month-over-month TWRR change for buy signal
+    for i, s in enumerate(snapshots):
+        if i == 0:
+            s['twrr_delta'] = None
+            s['signal'] = None
+        else:
+            prev = snapshots[i - 1]['twrr_pct']
+            curr = s['twrr_pct']
+            delta = round(curr - prev, 2) if (prev is not None and curr is not None) else None
+            s['twrr_delta'] = delta
+            # Buy signal: TWRR dropped this month
+            if delta is not None and delta < 0:
+                s['signal'] = 'BUY'
+            elif delta is not None and delta > 0:
+                s['signal'] = 'STRONG'
+            else:
+                s['signal'] = 'HOLD'
+
+    # Latest snapshot stats
+    latest = snapshots[-1] if snapshots else {}
+
+    return jsonify({
+        'snapshots': snapshots,
+        'latest':    latest,
+        'count':     len(snapshots),
+    })
+
+
+@app.route('/api/performance/delete/<int:snap_id>', methods=['DELETE'])
+def api_performance_delete(snap_id):
+    """Delete a single snapshot by ID."""
+    import sqlite3 as _sq
+    conn = _sq.connect(str(PERF_DB))
+    conn.execute('DELETE FROM perf_snapshots WHERE id=?', (snap_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'deleted', 'id': snap_id})
 
 
 if __name__ == '__main__':
