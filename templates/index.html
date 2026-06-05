@@ -298,6 +298,15 @@
   .port-meta { font-size:11px; color:var(--muted); margin-top:3px; }
   .port-upload-btn { display:flex; align-items:center; gap:6px; padding:0 14px; height:32px; font-size:12px; border:1px solid var(--border); border-radius:6px; background:var(--panel); color:var(--text); cursor:pointer; white-space:nowrap; }
   .port-upload-btn:hover { border-color:var(--gold); color:var(--gold); }
+  .port-upload-btn.loaded { border-color:#00ff88; color:#00ff88; }
+  .port-broker-strip { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .port-broker-bar { display:none; margin-top:10px; padding:8px 12px; background:var(--panel); border:1px solid var(--border); border-radius:6px; font-size:11px; color:var(--muted); display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .port-broker-item { display:flex; align-items:center; gap:6px; }
+  .port-broker-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  .port-broker-name { font-weight:600; color:var(--text); }
+  .port-broker-val { color:var(--text); font-family:monospace; }
+  .port-broker-gl { font-family:monospace; }
+  .port-broker-sep { color:var(--border); }
 
   .port-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); gap:8px; margin-bottom:12px; }
   .port-card { background:var(--panel); border:1px solid var(--border); border-radius:6px; padding:8px 12px; }
@@ -986,14 +995,35 @@
         <!-- Header row -->
         <div class="port-hdr">
           <div class="port-hdr-left">
-            <div class="port-title">📊 Portfolio aggregator</div>
-            <div class="port-meta" id="port-meta-line">Upload a Fidelity CSV to begin (File → Positions → Download)</div>
+            <div class="port-title">📊 All-Account Portfolio Aggregator</div>
+            <div class="port-meta" id="port-meta-line">Upload account CSVs to combine all brokers into one view</div>
             <div class="port-meta" id="port-snap-count" style="color:var(--green);margin-top:2px"></div>
           </div>
-          <label class="port-upload-btn">
-            <span id="port-file-label">Load CSV</span>
-            <input type="file" id="port-csv-input" accept=".csv" style="display:none">
-          </label>
+          <!-- Multi-broker upload strip -->
+          <div class="port-broker-strip">
+            <label class="port-upload-btn" id="port-btn-fidelity" title="Fidelity: Portfolio → Positions → Download CSV">
+              <span style="font-size:14px;">🏦</span>
+              <span id="port-lbl-fidelity">Fidelity</span>
+              <input type="file" id="port-csv-fidelity" accept=".csv" style="display:none" data-broker="fidelity">
+            </label>
+            <label class="port-upload-btn" id="port-btn-vanguard" title="Vanguard: My Accounts → Holdings → Download CSV">
+              <span style="font-size:14px;">🟠</span>
+              <span id="port-lbl-vanguard">Vanguard</span>
+              <input type="file" id="port-csv-vanguard" accept=".csv" style="display:none" data-broker="vanguard">
+            </label>
+            <label class="port-upload-btn" id="port-btn-wellsfargo" title="Wells Fargo: Brokerage → Holdings → Export">
+              <span style="font-size:14px;">🔴</span>
+              <span id="port-lbl-wellsfargo">Wells Fargo</span>
+              <input type="file" id="port-csv-wellsfargo" accept=".csv" style="display:none" data-broker="wellsfargo">
+            </label>
+            <button onclick="portClearAll()" style="height:32px;padding:0 10px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--panel);color:var(--muted);cursor:pointer;" title="Clear all loaded files">✕ Clear</button>
+          </div>
+        </div>
+        <!-- Broker breakdown bar — shown once at least one file is loaded -->
+        <div class="port-broker-bar" id="port-broker-bar">
+          <span style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;">Accounts loaded:</span>
+          <span id="port-broker-items" style="display:flex;gap:14px;flex-wrap:wrap;"></span>
+          <span style="margin-left:auto;font-size:11px;font-weight:700;color:var(--gold);" id="port-broker-total"></span>
         </div>
 
         <!-- 6 summary cards -->
@@ -5355,7 +5385,7 @@ function fetchProfitBasket() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// PORTFOLIO TAB — Fidelity CSV aggregator (read-only, no Alpaca connection)
+// PORTFOLIO TAB — Multi-broker aggregator (Fidelity + Vanguard + Wells Fargo)
 // ══════════════════════════════════════════════════════════════════════════════
 (function() {
   let portAllRows  = [];
@@ -5365,6 +5395,16 @@ function fetchProfitBasket() {
   let portSortCol  = 'Total_Value';
   let portSortDir  = 'desc';
   const PORT_PER_PAGE = 50;
+
+  // ── Multi-broker state ──────────────────────────────────────────────────
+  // Each broker stores its parsed rows independently so they can be re-merged
+  const _brokerData = {
+    fidelity:   { rows: [], accounts: 0, filename: '', loaded: false },
+    vanguard:   { rows: [], accounts: 0, filename: '', loaded: false },
+    wellsfargo: { rows: [], accounts: 0, filename: '', loaded: false },
+  };
+  const BROKER_COLORS = { fidelity: '#00a651', vanguard: '#f26522', wellsfargo: '#d71920' };
+  const BROKER_LABELS = { fidelity: 'Fidelity', vanguard: 'Vanguard', wellsfargo: 'Wells Fargo' };
 
   // Alpaca live positions cache — populated by portSyncLoadAlpaca()
   let _syncAlpacaPositions = {};  // { TICKER: marketValue }
@@ -5387,6 +5427,159 @@ function fetchProfitBasket() {
     if (accounts >= 3)  return 0.75;
     return 0.50;
   };
+
+  // ── Multi-broker merge & broker bar ────────────────────────────────────────
+
+  function portMergeAllBrokers() {
+    // Merge rows from all loaded brokers by symbol
+    // Same symbol across brokers → one row, values summed, account count = total across all
+    const merged = {};
+    let totalAccounts = 0;
+    Object.entries(_brokerData).forEach(([broker, bd]) => {
+      if (!bd.loaded) return;
+      totalAccounts += bd.accounts;
+      bd.rows.forEach(r => {
+        const sym = r.Symbol;
+        if (!merged[sym]) {
+          merged[sym] = {
+            Symbol: sym,
+            Description: r.Description || '',
+            acctSet: new Set(),
+            Total_Qty: 0, Last_Price: r.Last_Price,
+            Total_Value: 0, Total_Cost: 0, Total_GL: 0, Today_GL: 0,
+            _brokers: new Set(),
+          };
+        }
+        const m = merged[sym];
+        if (r.Total_Qty  != null) m.Total_Qty   += r.Total_Qty;
+        if (r.Total_Value!= null) m.Total_Value  += r.Total_Value;
+        if (r.Total_Cost != null) m.Total_Cost   += r.Total_Cost;
+        if (r.Total_GL   != null) m.Total_GL     += r.Total_GL;
+        if (r.Today_GL   != null) m.Today_GL     += r.Today_GL;
+        if (r.Last_Price != null) m.Last_Price    = r.Last_Price;
+        // count accounts per symbol across brokers
+        const acctCount = r.Accounts || 1;
+        for (let i = 0; i < acctCount; i++) m.acctSet.add(`${broker}_${i}`);
+        m._brokers.add(broker);
+        if (!m.Description && r.Description) m.Description = r.Description;
+      });
+    });
+    const rows = Object.values(merged).map(r => ({
+      ...r,
+      Accounts: r.acctSet.size,
+      GL_Pct: r.Total_Cost ? r.Total_GL / r.Total_Cost * 100 : null,
+    }));
+    return { rows, totalAccounts };
+  }
+
+  function portUpdateBrokerBar() {
+    const bar = document.getElementById('port-broker-bar');
+    const items = document.getElementById('port-broker-items');
+    const totalEl = document.getElementById('port-broker-total');
+    if (!bar || !items) return;
+
+    const loaded = Object.entries(_brokerData).filter(([,bd]) => bd.loaded);
+    if (!loaded.length) { bar.style.display = 'none'; return; }
+
+    bar.style.display = 'flex';
+    let combinedValue = 0;
+    let combinedGL = 0;
+    items.innerHTML = loaded.map(([broker, bd]) => {
+      const tv  = bd.rows.reduce((s,r) => s + (r.Total_Value||0), 0);
+      const tgl = bd.rows.reduce((s,r) => s + (r.Total_GL||0), 0);
+      combinedValue += tv;
+      combinedGL    += tgl;
+      const glSign = tgl >= 0 ? '+' : '';
+      const glColor = tgl >= 0 ? '#00ff88' : '#f85149';
+      const color = BROKER_COLORS[broker];
+      return `<span class="port-broker-item">
+        <span class="port-broker-dot" style="background:${color};"></span>
+        <span class="port-broker-name">${BROKER_LABELS[broker]}</span>
+        <span class="port-broker-val">$${tv.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+        <span class="port-broker-gl" style="color:${glColor}">(${glSign}$${Math.abs(tgl).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})})</span>
+      </span>`;
+    }).join('<span class="port-broker-sep">|</span>');
+
+    if (totalEl) {
+      const glSign = combinedGL >= 0 ? '+' : '';
+      const glColor = combinedGL >= 0 ? '#00ff88' : '#f85149';
+      totalEl.innerHTML = `Combined: $${combinedValue.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} <span style="color:${glColor}">(${glSign}$${Math.abs(combinedGL).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})})</span>`;
+    }
+  }
+
+  function portClearAll() {
+    Object.keys(_brokerData).forEach(broker => {
+      _brokerData[broker] = { rows: [], accounts: 0, filename: '', loaded: false };
+      const btn = document.getElementById(`port-btn-${broker}`);
+      const lbl = document.getElementById(`port-lbl-${broker}`);
+      const inp = document.getElementById(`port-csv-${broker}`);
+      if (btn) btn.classList.remove('loaded');
+      if (lbl) lbl.textContent = BROKER_LABELS[broker];
+      if (inp) inp.value = '';
+    });
+    portAllRows = [];
+    portFiltered = [];
+    portPrevSnap = null;
+    portPage = 0;
+    portUpdateBrokerBar();
+    portUpdateSummary([], 0);
+    portRender();
+    const meta = document.getElementById('port-meta-line');
+    if (meta) meta.textContent = 'Upload account CSVs to combine all brokers into one view';
+  }
+  window.portClearAll = portClearAll;
+
+  function portOnBrokerLoaded(broker, result, filename) {
+    _brokerData[broker].rows = result.rows;
+    _brokerData[broker].accounts = result.totalAccounts;
+    _brokerData[broker].filename = filename;
+    _brokerData[broker].loaded = true;
+
+    // Update button to show loaded state
+    const btn = document.getElementById(`port-btn-${broker}`);
+    const lbl = document.getElementById(`port-lbl-${broker}`);
+    if (btn) btn.classList.add('loaded');
+    if (lbl) {
+      const count = result.rows.length;
+      lbl.textContent = `${BROKER_LABELS[broker]} ✓ ${count}`;
+    }
+
+    // Merge all brokers and re-render
+    const merged = portMergeAllBrokers();
+    if (portPrevSnap) portShowDiff(portBuildDiff(portPrevSnap, merged.rows));
+    portPrevSnap = merged.rows.map(r => ({ ...r }));
+    portAllRows  = merged.rows;
+    portPage     = 0;
+
+    const ts = new Date().toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+    const brokerCount = Object.values(_brokerData).filter(bd => bd.loaded).length;
+    const meta = document.getElementById('port-meta-line');
+    if (meta) meta.textContent = `${brokerCount} broker${brokerCount>1?'s':''} loaded  ·  ${merged.rows.length} symbols  ·  ${merged.totalAccounts} accounts  ·  ${ts}`;
+
+    portUpdateSummary(merged.rows, merged.totalAccounts);
+    portUpdateBrokerBar();
+    portRender();
+    portSyncLoadAlpaca();
+    portSyncLoadSavingsData();
+
+    // Archive Fidelity to history (keeps deviation signals working)
+    if (broker === 'fidelity') {
+      const inp = document.getElementById('port-csv-fidelity');
+      if (inp && inp.files && inp.files[0]) {
+        const fd = new FormData();
+        fd.append('file', inp.files[0]);
+        fetch('/api/portfolio/save_snapshot', { method: 'POST', body: fd })
+          .then(r => r.json())
+          .then(d => {
+            if (d.total_snapshots !== undefined) {
+              const snap = document.getElementById('port-snap-count');
+              if (snap) snap.textContent = `${d.total_snapshots} Fidelity snapshot${d.total_snapshots===1?'':'s'} archived`;
+            }
+          })
+          .catch(() => {});
+      }
+    }
+  }
 
   // ── Parsing ────────────────────────────────────────────────────────────────
   function portParseMoney(v) {
@@ -5423,7 +5616,7 @@ function fetchProfitBasket() {
     // Fallback: use today's date
     (function() {
       try {
-        const inp = document.getElementById('port-csv-input');
+        const inp = document.getElementById('port-csv-fidelity');
         const fname = inp?.files?.[0]?.name || '';
         const m = fname.match(/(\w+)-(\d+)-(\d{4})/);
         if (m) {
@@ -5492,6 +5685,176 @@ function fetchProfitBasket() {
       GL_Pct: r.Total_Cost ? r.Total_GL / r.Total_Cost * 100 : null,
     }));
     return { rows, totalAccounts: acctSet.size };
+  }
+
+  // ── Vanguard CSV Parser ───────────────────────────────────────────────────
+  // Vanguard exports: "Account Number","Investment Name","Symbol","Shares","Share Price","Total Value"
+  // Some exports have "Cost Basis" column, some don't. We handle both.
+  function portParseVanguardCSV(text) {
+    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+    const lines = text.split('\n').filter(l => l.trim());
+    if (lines.length < 2) return null;
+
+    // Find the header line (may have preamble rows)
+    let headerIdx = -1;
+    for (let i = 0; i < Math.min(lines.length, 15); i++) {
+      const lower = lines[i].toLowerCase();
+      if (lower.includes('symbol') && (lower.includes('shares') || lower.includes('quantity'))) {
+        headerIdx = i;
+        break;
+      }
+    }
+    if (headerIdx < 0) return null;
+
+    const headers = portParseCSVLine(lines[headerIdx]).map(h => h.toLowerCase().trim());
+    const symIdx   = headers.findIndex(h => h === 'symbol' || h === 'ticker');
+    const descIdx  = headers.findIndex(h => h.includes('investment') || h.includes('description') || h.includes('name'));
+    const qtyIdx   = headers.findIndex(h => h === 'shares' || h === 'quantity' || h === 'share quantity');
+    const priceIdx = headers.findIndex(h => h.includes('price') && !h.includes('change'));
+    const valIdx   = headers.findIndex(h => h.includes('total value') || h.includes('current value') || h.includes('market value'));
+    const costIdx  = headers.findIndex(h => h.includes('cost basis') || h.includes('total cost'));
+    const acctIdx  = headers.findIndex(h => h.includes('account'));
+
+    if (symIdx < 0) return null;
+
+    const acctSet = new Set();
+    const map = {};
+
+    for (let i = headerIdx + 1; i < lines.length; i++) {
+      const f = portParseCSVLine(lines[i]);
+      if (f.length < 2) continue;
+      const sym = symIdx >= 0 ? f[symIdx].trim().replace(/\*+$/, '') : '';
+      // Skip money markets, totals rows, blank symbols
+      if (!sym || sym === '—' || sym === '-' || /^\$|^Total|^Grand/i.test(sym)) continue;
+      if (!/^[A-Z0-9][A-Z0-9.\-]{0,9}$/i.test(sym)) continue;
+
+      const acct = acctIdx >= 0 ? (f[acctIdx] || '').trim() : 'VG';
+      if (acct) acctSet.add(acct);
+
+      const desc  = descIdx  >= 0 ? (f[descIdx]  || '').trim() : '';
+      const qty   = qtyIdx   >= 0 ? portParseMoney(f[qtyIdx])   : null;
+      const price = priceIdx >= 0 ? portParseMoney(f[priceIdx]) : null;
+      const val   = valIdx   >= 0 ? portParseMoney(f[valIdx])   : null;
+      const cost  = costIdx  >= 0 ? portParseMoney(f[costIdx])  : null;
+
+      if (!map[sym]) {
+        map[sym] = { Symbol: sym, Description: desc, acctSet: new Set(),
+                     Total_Qty: 0, Last_Price: price,
+                     Total_Value: 0, Total_Cost: 0, Total_GL: 0, Today_GL: 0 };
+      }
+      const r = map[sym];
+      r.acctSet.add(acct || 'VG');
+      if (qty   != null) r.Total_Qty   += qty;
+      if (val   != null) r.Total_Value += val;
+      if (cost  != null) r.Total_Cost  += cost;
+      if (price != null) r.Last_Price   = price;
+    }
+
+    // Derive GL if we have both value and cost
+    const rows = Object.values(map).map(r => {
+      r.Total_GL = (r.Total_Value && r.Total_Cost) ? r.Total_Value - r.Total_Cost : 0;
+      return { ...r, Accounts: r.acctSet.size,
+               GL_Pct: r.Total_Cost ? r.Total_GL / r.Total_Cost * 100 : null };
+    });
+    return { rows, totalAccounts: acctSet.size || 1 };
+  }
+
+  // ── Wells Fargo CSV Parser ────────────────────────────────────────────────
+  // WF Brokerage exports vary — handle: "Symbol","Description","Quantity","Price","Mkt Value","Cost Basis","Gain/Loss"
+  // Also handle WF "Account Summary" format with account sections
+  function portParseWellsFargoCSV(text) {
+    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+    const lines = text.split('\n').filter(l => l.trim());
+    if (lines.length < 2) return null;
+
+    // Find header line
+    let headerIdx = -1;
+    for (let i = 0; i < Math.min(lines.length, 20); i++) {
+      const lower = lines[i].toLowerCase();
+      if ((lower.includes('symbol') || lower.includes('ticker')) &&
+          (lower.includes('quantity') || lower.includes('shares') || lower.includes('market'))) {
+        headerIdx = i;
+        break;
+      }
+    }
+    if (headerIdx < 0) return null;
+
+    const headers = portParseCSVLine(lines[headerIdx]).map(h => h.toLowerCase().trim());
+    const symIdx   = headers.findIndex(h => h === 'symbol' || h === 'ticker' || h === 'cusip/symbol');
+    const descIdx  = headers.findIndex(h => h.includes('description') || h.includes('security name') || h.includes('name'));
+    const qtyIdx   = headers.findIndex(h => h === 'quantity' || h === 'shares' || h.includes('qty'));
+    const priceIdx = headers.findIndex(h => (h.includes('price') || h === 'last price') && !h.includes('change') && !h.includes('gain'));
+    const valIdx   = headers.findIndex(h => h.includes('mkt value') || h.includes('market value') || h.includes('current value') || h === 'value');
+    const costIdx  = headers.findIndex(h => h.includes('cost basis') || h.includes('total cost') || h === 'cost');
+    const glIdx    = headers.findIndex(h => (h.includes('gain') || h.includes('loss')) && !h.includes('%'));
+    const acctIdx  = headers.findIndex(h => h.includes('account'));
+
+    if (symIdx < 0) return null;
+
+    const acctSet = new Set();
+    const map = {};
+    let currentAcct = 'WF';
+
+    for (let i = headerIdx + 1; i < lines.length; i++) {
+      const f = portParseCSVLine(lines[i]);
+      if (f.length < 2) continue;
+
+      // WF sometimes has account label rows between data rows
+      if (f.length === 1 || (acctIdx < 0 && f[0] && f[1] === '' && f[0].length > 10)) {
+        currentAcct = f[0].trim() || currentAcct;
+        continue;
+      }
+
+      const sym = symIdx >= 0 ? f[symIdx].trim().replace(/\*+$/, '') : '';
+      if (!sym || sym === '—' || /^Total|^Grand|^Account/i.test(sym)) continue;
+      if (!/^[A-Z0-9][A-Z0-9.\-]{0,9}$/i.test(sym)) continue;
+
+      const acct = acctIdx >= 0 ? (f[acctIdx] || currentAcct).trim() : currentAcct;
+      acctSet.add(acct);
+
+      const desc  = descIdx  >= 0 ? (f[descIdx]  || '').trim() : '';
+      const qty   = qtyIdx   >= 0 ? portParseMoney(f[qtyIdx])   : null;
+      const price = priceIdx >= 0 ? portParseMoney(f[priceIdx]) : null;
+      const val   = valIdx   >= 0 ? portParseMoney(f[valIdx])   : null;
+      const cost  = costIdx  >= 0 ? portParseMoney(f[costIdx])  : null;
+      const gl    = glIdx    >= 0 ? portParseMoney(f[glIdx])    : null;
+
+      if (!map[sym]) {
+        map[sym] = { Symbol: sym, Description: desc, acctSet: new Set(),
+                     Total_Qty: 0, Last_Price: price,
+                     Total_Value: 0, Total_Cost: 0, Total_GL: 0, Today_GL: 0 };
+      }
+      const r = map[sym];
+      r.acctSet.add(acct);
+      if (qty   != null) r.Total_Qty   += qty;
+      if (val   != null) r.Total_Value += val;
+      if (cost  != null) r.Total_Cost  += cost;
+      if (gl    != null) r.Total_GL    += gl;
+      if (price != null) r.Last_Price   = price;
+    }
+
+    const rows = Object.values(map).map(r => {
+      if (!r.Total_GL && r.Total_Value && r.Total_Cost) {
+        r.Total_GL = r.Total_Value - r.Total_Cost;
+      }
+      return { ...r, Accounts: r.acctSet.size,
+               GL_Pct: r.Total_Cost ? r.Total_GL / r.Total_Cost * 100 : null };
+    });
+    return { rows, totalAccounts: acctSet.size || 1 };
+  }
+
+  // ── Auto-detect broker + parse (fallback to Fidelity parser) ─────────────
+  function portAutoDetectAndParse(text, broker) {
+    if (broker === 'vanguard') {
+      const result = portParseVanguardCSV(text);
+      if (result && result.rows.length) return result;
+    }
+    if (broker === 'wellsfargo') {
+      const result = portParseWellsFargoCSV(text);
+      if (result && result.rows.length) return result;
+    }
+    // Fidelity or fallback
+    return portProcessCSV(text);
   }
 
   // ── Diff ───────────────────────────────────────────────────────────────────
@@ -5616,47 +5979,26 @@ function fetchProfitBasket() {
 
   // ── Event wiring ───────────────────────────────────────────────────────────
   window.addEventListener('DOMContentLoaded', function() {
-    const csvInput = document.getElementById('port-csv-input');
-    if (csvInput) {
-      csvInput.addEventListener('change', function(e) {
+    // Wire all three broker file inputs
+    ['fidelity', 'vanguard', 'wellsfargo'].forEach(function(broker) {
+      const inp = document.getElementById('port-csv-' + broker);
+      if (!inp) return;
+      inp.addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (!file) return;
-        const lbl = document.getElementById('port-file-label');
-        if (lbl) lbl.textContent = file.name;
         const reader = new FileReader();
         reader.onload = function(ev) {
-          const result = portProcessCSV(ev.target.result);
+          const result = portAutoDetectAndParse(ev.target.result, broker);
           const meta = document.getElementById('port-meta-line');
           if (!result || !result.rows.length) {
-            if (meta) meta.textContent = 'Could not parse CSV — check Fidelity export format.';
+            if (meta) meta.textContent = 'Could not parse ' + file.name + ' — check export format. Try re-downloading from your broker.';
             return;
           }
-          if (portPrevSnap) portShowDiff(portBuildDiff(portPrevSnap, result.rows));
-          portPrevSnap = result.rows.map(r => ({ ...r }));
-          portAllRows  = result.rows;
-          portPage     = 0;
-          const ts = new Date().toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
-          if (meta) meta.textContent = `${file.name}  ·  loaded ${ts}  ·  ${result.rows.length} symbols across ${result.totalAccounts} accounts`;
-          portUpdateSummary(result.rows, result.totalAccounts);
-          portRender();
-          portSyncLoadAlpaca();  // fetches live positions then calls portSyncRender
-          portSyncLoadSavingsData();
-          // ── silently archive to Fidelity_History ──────────────────────────
-          const fd = new FormData();
-          fd.append('file', file);
-          fetch('/api/portfolio/save_snapshot', { method: 'POST', body: fd })
-            .then(r => r.json())
-            .then(d => {
-              if (d.total_snapshots !== undefined) {
-                const snap = document.getElementById('port-snap-count');
-                if (snap) snap.textContent = `${d.total_snapshots} snapshot${d.total_snapshots===1?'':'s'} saved`;
-              }
-            })
-            .catch(() => {});
+          portOnBrokerLoaded(broker, result, file.name);
         };
         reader.readAsText(file, 'utf-8');
       });
-    }
+    });
 
     const search = document.getElementById('port-search');
     if (search) search.addEventListener('input', () => { portPage = 0; portRender(); });
@@ -6413,6 +6755,7 @@ function fetchProfitBasket() {
   window.portProcessCSV    = portProcessCSV;
   window.portRender        = portRender;
   window.portUpdateSummary = portUpdateSummary;
+  window._portOnBrokerLoaded = portOnBrokerLoaded;
   window._portGetState     = function() { return { rows: portAllRows, page: portPage }; };
   window._portSetState     = function(rows) {
     portPrevSnap = null;
@@ -7849,16 +8192,23 @@ function _portAutoLoadCSV() {
     .then(function(csvText) {
       var result = window.portProcessCSV(csvText);
       if (!result || !result.rows.length) return;
-      window._portSetState(result.rows);
-      window.portUpdateSummary(result.rows, result.totalAccounts);
-      window.portRender();
-      window.portSyncLoadAlpaca();
-      window.portSyncLoadSavingsData();
-      var meta = document.getElementById('port-meta-line');
-      var ts = new Date().toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
-      if (meta) meta.textContent = 'portfolio.csv  ·  loaded ' + ts + '  ·  ' + result.rows.length + ' symbols across ' + result.totalAccounts + ' accounts';
-      var lbl = document.getElementById('port-file-label');
-      if (lbl) lbl.textContent = 'portfolio.csv';
+      // Inject as Fidelity broker
+      if (window._portOnBrokerLoaded) {
+        window._portOnBrokerLoaded('fidelity', result, 'portfolio.csv');
+      } else {
+        window._portSetState(result.rows);
+        window.portUpdateSummary(result.rows, result.totalAccounts);
+        window.portRender();
+        window.portSyncLoadAlpaca();
+        window.portSyncLoadSavingsData();
+        var meta = document.getElementById('port-meta-line');
+        var ts = new Date().toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+        if (meta) meta.textContent = 'portfolio.csv  ·  loaded ' + ts + '  ·  ' + result.rows.length + ' symbols across ' + result.totalAccounts + ' accounts';
+      }
+      var lbl = document.getElementById('port-lbl-fidelity');
+      if (lbl) lbl.textContent = 'Fidelity ✓ ' + result.rows.length;
+      var btn = document.getElementById('port-btn-fidelity');
+      if (btn) btn.classList.add('loaded');
       _portAutoLoadDone = true;
     })
     .catch(function() {}); // silently fail if no CSV on server
