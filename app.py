@@ -533,6 +533,11 @@ _brief_cache: dict = {}
 _BRIEF_CACHE_TTL  = 600  # 10 minutes
 _brief_cache_ts   = 0.0
 
+# Gain Guard cache
+_gl_health_cache: dict = {}
+_gl_health_cache_ts: float = 0.0
+_GL_HEALTH_CACHE_TTL = 300  # 5 minutes — refresh after CSV upload
+
 
 def _edgar_bonus(base: float, edgar_score) -> float:
     if edgar_score is None:
@@ -4289,11 +4294,13 @@ def api_portfolio_upload_broker():
     except Exception:
         pass
 
-    # Invalidate intelligence brief cache
-    global _brief_cache, _brief_cache_ts
+    # Invalidate intelligence brief cache + Gain Guard cache on every upload
+    global _brief_cache, _brief_cache_ts, _gl_health_cache, _gl_health_cache_ts
     try:
         _brief_cache = {}
         _brief_cache_ts = 0.0
+        _gl_health_cache = {}
+        _gl_health_cache_ts = 0.0
     except Exception:
         pass
 
@@ -4312,6 +4319,31 @@ def api_portfolio_combined_latest():
         # Inject 401k as metadata only — do NOT add to totals (client adds it)
         k401 = _load_401k()
         data['k401'] = k401
+        return jsonify(data)
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
+
+@app.route('/api/portfolio/gl_health')
+def api_portfolio_gl_health():
+    """
+    Gain Guard — total GL health history from all Fidelity CSV uploads.
+
+    Returns the full history of total_gl per upload, peak GL, current drawdown,
+    velocity trend, and recovery status. Cached for 5 minutes; invalidated
+    automatically on every Fidelity CSV upload via /api/portfolio/upload_broker.
+
+    Driving data: SQLite snapshots table — no extra uploads needed.
+    Every Fidelity CSV upload in the Portfolio tab updates this automatically.
+    """
+    global _gl_health_cache, _gl_health_cache_ts
+    now = time.time()
+    if _gl_health_cache and (now - _gl_health_cache_ts) < _GL_HEALTH_CACHE_TTL:
+        return jsonify(_gl_health_cache)
+    try:
+        data = fidelity_db.get_gl_health_history()
+        _gl_health_cache = data
+        _gl_health_cache_ts = now
         return jsonify(data)
     except Exception as exc:
         return jsonify({'error': str(exc)}), 500

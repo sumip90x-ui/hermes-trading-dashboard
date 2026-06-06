@@ -655,13 +655,14 @@
   <!-- MAIN CHART PANEL -->
   <div class="chart-panel panel">
     <div class="chart-tabs">
-      <div class="tab active" onclick="switchChart('intraday',this)">Intraday</div>
+      <div class="tab active" onclick="switchChart('intraday',this)">📈 Portfolio Chart</div>
       <div class="tab" onclick="switchChart('scanner',this)">🔍 Scanner</div>
       <div class="tab" onclick="switchChart('positions',this)">Positions</div>
       <div class="tab" id="tab-research" onclick="switchChart('research',this)">Research</div>
-      <div class="tab" id="tab-portfolio" onclick="switchChart('portfolio',this)">📊 Portfolio</div>
+      <div class="tab" id="tab-portfolio" onclick="switchChart('portfolio',this)">📁 Upload & Accounts</div>
       <div class="tab" id="tab-priority" onclick="switchChart('priority',this)">🎯 Priority Research</div>
       <div class="tab" id="tab-picks" onclick="switchChart('picks',this)">⚡ Picks</div>
+      <div class="tab" id="tab-gainguard" onclick="switchChart('gainguard',this)">🛡 Gain Guard</div>
       <div class="tab" id="tab-performance" onclick="switchChart('performance',this)">📈 Performance</div>
     </div>
     <div class="chart-body">
@@ -1627,6 +1628,104 @@
         </div>
       </div>
       <!-- END view-performance -->
+
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <!-- 🛡 GAIN GUARD — GL health tracker                              -->
+      <!-- Driven by Fidelity CSV uploads. No extra uploads needed.       -->
+      <!-- Every upload in "Upload & Accounts" tab auto-refreshes this.   -->
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <div id="view-gainguard" style="display:none;flex:1;min-height:0;overflow-y:auto;
+           padding:16px;background:var(--bg);box-sizing:border-box;width:100%">
+
+        <!-- ── Top: Status badges ───────────────────────────────────── -->
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;align-items:stretch">
+
+          <!-- Verdict -->
+          <div style="background:var(--panel);border:1px solid var(--border);border-radius:8px;
+                      padding:12px 18px;display:flex;flex-direction:column;gap:4px;min-width:160px">
+            <div style="font-size:9px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase">Status</div>
+            <div id="gg-verdict" style="font-size:20px;font-weight:800;color:var(--green)">—</div>
+            <div id="gg-velocity-lbl" style="font-size:10px;color:var(--muted)">loading...</div>
+          </div>
+
+          <!-- Current GL -->
+          <div style="background:var(--panel);border:1px solid var(--border);border-radius:8px;
+                      padding:12px 18px;display:flex;flex-direction:column;gap:4px;min-width:160px">
+            <div style="font-size:9px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase">Current Gain</div>
+            <div id="gg-current-gl" style="font-size:20px;font-weight:800">—</div>
+            <div id="gg-current-gl-pct" style="font-size:11px;color:var(--muted)">— of cost basis</div>
+          </div>
+
+          <!-- Peak GL -->
+          <div style="background:var(--panel);border:1px solid var(--border);border-radius:8px;
+                      padding:12px 18px;display:flex;flex-direction:column;gap:4px;min-width:160px">
+            <div style="font-size:9px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase">Peak Gain (All-Time)</div>
+            <div id="gg-peak-gl" style="font-size:20px;font-weight:800;color:#88ccff">—</div>
+            <div id="gg-peak-gl-date" style="font-size:10px;color:var(--muted)">—</div>
+          </div>
+
+          <!-- Drawdown from peak -->
+          <div style="background:var(--panel);border:1px solid var(--border);border-radius:8px;
+                      padding:12px 18px;display:flex;flex-direction:column;gap:4px;min-width:180px">
+            <div style="font-size:9px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase">Drawdown from Peak</div>
+            <div id="gg-drawdown" style="font-size:20px;font-weight:800">—</div>
+            <div id="gg-recovery" style="font-size:10px;color:var(--muted)">—</div>
+          </div>
+
+          <!-- Velocity -->
+          <div style="background:var(--panel);border:1px solid var(--border);border-radius:8px;
+                      padding:12px 18px;display:flex;flex-direction:column;gap:4px;min-width:160px">
+            <div style="font-size:9px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase">5-Upload Velocity</div>
+            <div id="gg-velocity" style="font-size:20px;font-weight:800">—</div>
+            <div style="font-size:10px;color:var(--muted)">avg gain per upload</div>
+          </div>
+
+          <!-- Snapshots count -->
+          <div style="background:var(--panel);border:1px solid var(--border);border-radius:8px;
+                      padding:12px 18px;display:flex;flex-direction:column;gap:4px;min-width:130px">
+            <div style="font-size:9px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase">Data Points</div>
+            <div id="gg-snaps" style="font-size:20px;font-weight:800;color:var(--gold)">—</div>
+            <div style="font-size:10px;color:var(--muted)">CSV uploads tracked</div>
+          </div>
+        </div>
+
+        <!-- ── GL Trend chart ────────────────────────────────────────── -->
+        <div style="background:var(--panel);border:1px solid var(--border);border-radius:8px;
+                    padding:12px;margin-bottom:14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div style="font-size:11px;font-weight:700;color:var(--gold);letter-spacing:.04em">
+              💰 Total Gain Trajectory
+            </div>
+            <div style="font-size:10px;color:var(--muted)">Each point = one CSV upload. Rising = compounding. Falling = eroding.</div>
+          </div>
+          <canvas id="gg-chart" height="160" style="width:100%;display:block;cursor:crosshair"></canvas>
+          <div id="gg-tooltip" style="font-size:10px;color:var(--muted);margin-top:4px;
+               font-family:monospace;min-height:14px"></div>
+        </div>
+
+        <!-- ── Recent upload log ─────────────────────────────────────── -->
+        <div style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px">
+          <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:8px;
+               letter-spacing:.04em;text-transform:uppercase">Recent Uploads</div>
+          <table style="width:100%;border-collapse:collapse;font-size:11px;font-family:monospace">
+            <thead>
+              <tr style="color:var(--muted);border-bottom:1px solid var(--border)">
+                <th style="text-align:left;padding:3px 6px">Date</th>
+                <th style="text-align:right;padding:3px 6px">Portfolio Value</th>
+                <th style="text-align:right;padding:3px 6px">Total Gain</th>
+                <th style="text-align:right;padding:3px 6px">Gain %</th>
+                <th style="text-align:right;padding:3px 6px">Upload Δ</th>
+                <th style="text-align:right;padding:3px 6px">Today's Move</th>
+              </tr>
+            </thead>
+            <tbody id="gg-table-body">
+              <tr><td colspan="6" style="text-align:center;padding:12px;color:var(--muted)">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+      <!-- END view-gainguard -->
 
   </div><!-- end chart-panel -->
 
@@ -4871,11 +4970,11 @@ function _renderCandidates(cands) {
 
 // ── Tab switching ─────────────────────────────────────────────────────────
 function switchChart(view, el) {
-  ['intraday','scanner','positions','research','portfolio','priority','picks','performance'].forEach(v => {
+  ['intraday','scanner','positions','research','portfolio','priority','picks','performance','gainguard'].forEach(v => {
     const p = document.getElementById(`view-${v}`);
     if (p) {
       if (v === view) {
-        p.style.display = (v === 'priority') ? 'flex' : (v === 'picks' || v === 'performance') ? 'block' : '';
+        p.style.display = (v === 'priority') ? 'flex' : (v === 'picks' || v === 'performance' || v === 'gainguard') ? 'block' : '';
       } else {
         p.style.display = 'none';
       }
@@ -4888,7 +4987,7 @@ function switchChart(view, el) {
   const rightPanel = document.querySelector('.right-panel');
   const chartPanel = document.querySelector('.chart-panel');
   const buyPanel   = document.querySelector('.buy-panel');
-  const fullWidth  = view === 'research' || view === 'portfolio' || view === 'priority' || view === 'picks' || view === 'performance';
+  const fullWidth  = view === 'research' || view === 'portfolio' || view === 'priority' || view === 'picks' || view === 'performance' || view === 'gainguard';
   const grid = document.querySelector('.grid');
   const chartBody = document.querySelector('.chart-body');
   if (fullWidth) {
@@ -4929,6 +5028,7 @@ function switchChart(view, el) {
     portSyncLoadSavingsData();
   }
   if (view === 'priority')  loadPriorityQueue();
+  if (view === 'gainguard') loadGainGuard();
 }
 
 function switchPanel(panel, el) {
@@ -6027,6 +6127,14 @@ function fetchProfitBasket() {
           })
           .catch(() => {});
       }
+    }
+    // Gain Guard: refresh if tab is open, or invalidate so next open is fresh
+    if (window._ggRefresh) {
+      const ggView = document.getElementById('view-gainguard');
+      if (ggView && ggView.style.display !== 'none') {
+        window._ggRefresh();  // tab is open — refresh immediately
+      }
+      // Either way, mark cache stale so next tab open fetches fresh data
     }
   }
 
@@ -7318,6 +7426,252 @@ function fetchProfitBasket() {
     portAllRows  = rows;
     portPage     = 0;
   };
+
+})();
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 🛡 GAIN GUARD — GL health tracker
+// Fetches /api/portfolio/gl_health, which reads from SQLite (no extra uploads).
+// Automatically refreshes when you upload a Fidelity CSV in Upload & Accounts tab.
+// ══════════════════════════════════════════════════════════════════════════════
+(function() {
+  'use strict';
+
+  let _ggData = null;
+  let _ggChartPoints = [];
+
+  const $ = id => document.getElementById(id);
+  const fmtD = n => {
+    if (n == null) return '—';
+    const sign = n >= 0 ? '+' : '-';
+    return sign + '$' + Math.abs(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+  };
+  const fmtK = n => {
+    if (n == null) return '—';
+    const sign = n >= 0 ? '+' : '-';
+    const abs = Math.abs(n);
+    return abs >= 1000 ? sign + '$' + (abs/1000).toFixed(1) + 'k' : sign + '$' + abs.toFixed(0);
+  };
+
+  window.loadGainGuard = function() {
+    fetch('/api/portfolio/gl_health')
+      .then(r => r.json())
+      .then(d => {
+        if (d.error) return;
+        _ggData = d;
+        _ggChartPoints = d.points || [];
+        _renderBadges(d);
+        _renderTable(d.points || []);
+        _drawGGChart(d.points || [], d.peak_gl);
+      })
+      .catch(() => {});
+  };
+
+  // Also expose so portOnBrokerLoaded can trigger refresh after upload
+  window._ggRefresh = window.loadGainGuard;
+
+  function _renderBadges(d) {
+    // Status / verdict
+    const vColor = {
+      'COMPOUNDING': '#00ff88',
+      'STABLE':      '#88ccff',
+      'FLAT':        '#446644',
+      'RECOVERING':  '#f5a623',
+      'ERODING':     '#f85149',
+      'NO DATA':     '#446644',
+    }[d.velocity_label] || '#88ccff';
+
+    const vEl = $('gg-verdict');
+    if (vEl) { vEl.textContent = d.velocity_label; vEl.style.color = vColor; }
+
+    const velLbl = $('gg-velocity-lbl');
+    if (velLbl) velLbl.textContent = d.total_snapshots + ' uploads tracked';
+
+    // Current GL
+    const curEl = $('gg-current-gl');
+    if (curEl) {
+      curEl.textContent = fmtD(d.current_gl);
+      curEl.style.color = d.current_gl >= 0 ? 'var(--green)' : 'var(--red)';
+    }
+    const curPctEl = $('gg-current-gl-pct');
+    if (curPctEl) curPctEl.textContent = (d.current_gl_pct >= 0 ? '+' : '') + d.current_gl_pct.toFixed(2) + '% of cost basis';
+
+    // Peak GL
+    const pkEl = $('gg-peak-gl');
+    if (pkEl) pkEl.textContent = fmtD(d.peak_gl);
+    const pkDt = $('gg-peak-gl-date');
+    if (pkDt) pkDt.textContent = 'Reached ' + (d.peak_gl_date || '—');
+
+    // Drawdown
+    const ddEl = $('gg-drawdown');
+    if (ddEl) {
+      const atPeak = d.drawdown_gl === 0;
+      ddEl.textContent = atPeak ? '✅ AT PEAK' : fmtD(d.drawdown_gl);
+      ddEl.style.color = atPeak ? 'var(--green)' : (d.drawdown_gl > -100 ? 'var(--gold)' : 'var(--red)');
+    }
+    const recEl = $('gg-recovery');
+    if (recEl) {
+      if (d.drawdown_gl >= 0) {
+        recEl.textContent = 'All-time high — no recovery needed';
+        recEl.style.color = 'var(--green)';
+      } else {
+        recEl.textContent = 'Need +$' + d.recovery_needed.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' to recover peak (' + d.drawdown_gl_pct.toFixed(1) + '% eroded)';
+        recEl.style.color = 'var(--muted)';
+      }
+    }
+
+    // Velocity
+    const velEl = $('gg-velocity');
+    if (velEl) {
+      velEl.textContent = fmtD(d.velocity_5);
+      velEl.style.color = d.velocity_5 >= 0 ? 'var(--green)' : 'var(--red)';
+    }
+
+    // Snaps
+    const snEl = $('gg-snaps');
+    if (snEl) snEl.textContent = d.total_snapshots;
+  }
+
+  function _renderTable(points) {
+    const tbody = $('gg-table-body');
+    if (!tbody || !points.length) return;
+
+    // Show last 15, newest first
+    const rows = [...points].reverse().slice(0, 15);
+    tbody.innerHTML = rows.map(p => {
+      const gl    = p.total_gl || 0;
+      const delta = p.gl_delta || 0;
+      const today = p.today_gl || 0;
+      const glColor  = gl >= 0 ? '#00ff88' : '#f85149';
+      const dColor   = delta > 0 ? '#00ff88' : delta < 0 ? '#f85149' : '#446644';
+      const tdColor  = today > 0 ? '#00ff88' : today < 0 ? '#f85149' : '#446644';
+      return `<tr style="border-bottom:1px solid #131722">
+        <td style="padding:4px 6px;color:var(--muted)">${p.date}</td>
+        <td style="padding:4px 6px;text-align:right">$${(p.total_value||0).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
+        <td style="padding:4px 6px;text-align:right;color:${glColor};font-weight:600">${fmtD(gl)}</td>
+        <td style="padding:4px 6px;text-align:right;color:${glColor}">${(p.gl_pct||0) >= 0?'+':''}${(p.gl_pct||0).toFixed(2)}%</td>
+        <td style="padding:4px 6px;text-align:right;color:${dColor}">${delta !== 0 ? fmtD(delta) : '—'}</td>
+        <td style="padding:4px 6px;text-align:right;color:${tdColor}">${today !== 0 ? fmtD(today) : '—'}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function _drawGGChart(points, peakGL) {
+    const canvas = $('gg-chart');
+    if (!canvas || !points.length) return;
+
+    canvas.width = canvas.offsetWidth || 800;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    const PAD = { top: 16, right: 12, bottom: 28, left: 60 };
+    const cW = W - PAD.left - PAD.right;
+    const cH = H - PAD.top - PAD.bottom;
+
+    ctx.clearRect(0, 0, W, H);
+
+    const vals = points.map(p => p.total_gl || 0);
+    const minV = Math.min(...vals, 0);
+    const maxV = Math.max(...vals, peakGL || 0);
+    const range = maxV - minV || 1;
+
+    const xOf = i => PAD.left + (i / (vals.length - 1)) * cW;
+    const yOf = v => PAD.top + cH - ((v - minV) / range) * cH;
+
+    // Grid lines
+    ctx.strokeStyle = '#1a2020';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+      const y = PAD.top + (i / 4) * cH;
+      ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(W - PAD.right, y); ctx.stroke();
+      const v = maxV - (i / 4) * range;
+      ctx.fillStyle = '#446644';
+      ctx.font = '9px monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText((v >= 0 ? '+$' : '-$') + Math.abs(v).toFixed(0), PAD.left - 4, y + 3);
+    }
+
+    // Peak GL reference line
+    if (peakGL) {
+      const py = yOf(peakGL);
+      ctx.strokeStyle = 'rgba(100,150,255,0.35)';
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath(); ctx.moveTo(PAD.left, py); ctx.lineTo(W - PAD.right, py); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#6496ff';
+      ctx.font = '8px monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText('PEAK $' + peakGL.toFixed(0), PAD.left + 4, py - 3);
+    }
+
+    // Zero line
+    if (minV < 0 && maxV > 0) {
+      const zy = yOf(0);
+      ctx.strokeStyle = '#252A36';
+      ctx.setLineDash([2, 2]);
+      ctx.beginPath(); ctx.moveTo(PAD.left, zy); ctx.lineTo(W - PAD.right, zy); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // Fill
+    const lastV = vals[vals.length - 1];
+    const fillColor = lastV >= 0 ? 'rgba(0,255,136,0.08)' : 'rgba(248,81,73,0.08)';
+    ctx.beginPath();
+    ctx.moveTo(xOf(0), yOf(vals[0]));
+    vals.forEach((v, i) => { if (i > 0) ctx.lineTo(xOf(i), yOf(v)); });
+    ctx.lineTo(xOf(vals.length - 1), PAD.top + cH);
+    ctx.lineTo(xOf(0), PAD.top + cH);
+    ctx.closePath();
+    ctx.fillStyle = fillColor;
+    ctx.fill();
+
+    // Line
+    const lineColor = lastV >= 0 ? '#00ff88' : '#f85149';
+    ctx.strokeStyle = lineColor;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(xOf(0), yOf(vals[0]));
+    vals.forEach((v, i) => { if (i > 0) ctx.lineTo(xOf(i), yOf(v)); });
+    ctx.stroke();
+
+    // Dots
+    if (vals.length <= 40) {
+      vals.forEach((v, i) => {
+        ctx.beginPath();
+        ctx.arc(xOf(i), yOf(v), 3, 0, Math.PI * 2);
+        ctx.fillStyle = v >= 0 ? '#00ff88' : '#f85149';
+        ctx.fill();
+      });
+    }
+
+    // Date labels (first, middle, last)
+    ctx.fillStyle = '#446644';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center';
+    [[0, PAD.left], [Math.floor(vals.length / 2), xOf(Math.floor(vals.length / 2))], [vals.length - 1, xOf(vals.length - 1)]].forEach(([idx, x]) => {
+      if (points[idx]) ctx.fillText(points[idx].date.slice(5), x, H - 6);
+    });
+
+    // Hover tooltip
+    canvas.onmousemove = function(e) {
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left - PAD.left;
+      const idx = Math.max(0, Math.min(vals.length - 1, Math.round(mx / cW * (vals.length - 1))));
+      const p = points[idx];
+      if (!p) return;
+      const tip = $('gg-tooltip');
+      if (tip) {
+        tip.textContent = `${p.date}  GL ${fmtD(p.total_gl)}  Δ ${fmtD(p.gl_delta)}  Value $${(p.total_value||0).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}  Today ${p.today_gl ? fmtD(p.today_gl) : '—'}`;
+      }
+    };
+    canvas.onmouseleave = function() {
+      const tip = $('gg-tooltip');
+      if (tip) tip.textContent = '';
+    };
+
+    window.addEventListener('resize', () => {
+      if (_ggChartPoints.length) _drawGGChart(_ggChartPoints, peakGL);
+    });
+  }
 
 })();
 

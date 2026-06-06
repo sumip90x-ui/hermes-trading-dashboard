@@ -1310,6 +1310,156 @@ def get_portfolio_chart_history(range_days: int = 0) -> list[dict]:
     return points
 
 
+# ── Gain Guard — GL health tracking ──────────────────────────────────────────
+
+def get_gl_health_history() -> dict:
+    """
+    Track total gain/loss trajectory over time from all Fidelity CSV uploads.
+
+    For each snapshot, uses the most-complete upload per day (max symbols).
+    Returns:
+    {
+      points: [
+        {
+          date:        'YYYY-MM-DD',
+          snapshot_ts: 'ISO datetime',
+          total_value: float,
+          total_gl:    float,       # total unrealised gain/loss on Fidelity
+          total_cost:  float,
+          gl_pct:      float,       # total_gl / total_cost * 100
+          gl_delta:    float,       # change in total_gl since previous upload
+          today_gl:    float,       # CSV today's gain/loss column (day's move)
+        }, ...
+      ],
+      peak_gl:          float,    # highest total_gl ever recorded
+      peak_gl_date:     str,
+      peak_value:       float,    # highest portfolio value ever
+      peak_value_date:  str,
+      current_gl:       float,
+      current_gl_pct:   float,
+      current_value:    float,
+      drawdown_gl:      float,    # current_gl - peak_gl (negative = eroding)
+      drawdown_gl_pct:  float,    # drawdown_gl / peak_gl * 100
+      recovery_needed:  float,    # abs(drawdown_gl) — dollars to recover
+      velocity_5:       float,    # avg gl_delta over last 5 uploads
+      velocity_label:   str,      # 'COMPOUNDING' | 'STABLE' | 'ERODING' | 'RECOVERING'
+      total_snapshots:  int,
+    }
+    """
+    init_db()
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT
+                DATE(snapshot_date)      AS day,
+                snapshot_date,
+                snapshot_id,
+                COUNT(DISTINCT symbol)   AS syms,
+                SUM(total_value)         AS val,
+                SUM(total_cost)          AS cost,
+                SUM(total_gl)            AS gl,
+                COALESCE(SUM(today_gl), 0) AS day_gl
+            FROM snapshots
+            WHERE broker = 'fidelity'
+            GROUP BY snapshot_id
+            HAVING syms > 400
+            ORDER BY snapshot_date ASC
+        """).fetchall()
+
+    if not rows:
+        return {
+            "points": [], "peak_gl": 0, "peak_gl_date": None,
+            "peak_value": 0, "peak_value_date": None,
+            "current_gl": 0, "current_gl_pct": 0, "current_value": 0,
+            "drawdown_gl": 0, "drawdown_gl_pct": 0, "recovery_needed": 0,
+            "velocity_5": 0, "velocity_label": "NO DATA", "total_snapshots": 0,
+        }
+
+    # Deduplicate: best snapshot per day = most symbols, then latest time
+    best_by_day: dict[str, dict] = {}
+    for r in rows:
+        day = r["day"]
+        if day not in best_by_day or r["syms"] > best_by_day[day]["syms"]:
+            best_by_day[day] = dict(r)
+
+    ordered = sorted(best_by_day.values(), key=lambda x: x["snapshot_date"])
+
+    # Build points with running gl_delta
+    points = []
+    prev_gl = None
+    peak_gl = None
+    peak_gl_date = None
+    peak_value = None
+    peak_value_date = None
+
+    for r in ordered:
+        val  = round(r["val"]   or 0, 2)
+        cost = round(r["cost"]  or 0, 2)
+        gl   = round(r["gl"]    or 0, 2)
+        dgl  = round(r["day_gl"] or 0, 2)
+        gl_pct = round(gl / cost * 100, 2) if cost else 0.0
+        gl_delta = round(gl - prev_gl, 2) if prev_gl is not None else 0.0
+        prev_gl = gl
+
+        if peak_gl is None or gl > peak_gl:
+            peak_gl = gl
+            peak_gl_date = r["day"]
+        if peak_value is None or val > peak_value:
+            peak_value = val
+            peak_value_date = r["day"]
+
+        points.append({
+            "date":        r["day"],
+            "snapshot_ts": r["snapshot_date"],
+            "total_value": val,
+            "total_cost":  cost,
+            "total_gl":    gl,
+            "gl_pct":      gl_pct,
+            "gl_delta":    gl_delta,
+            "today_gl":    dgl,
+        })
+
+    # Current values (latest point)
+    latest = points[-1]
+    current_gl    = latest["total_gl"]
+    current_value = latest["total_value"]
+    current_gl_pct = latest["gl_pct"]
+
+    # Drawdown from peak GL
+    drawdown_gl     = round(current_gl - (peak_gl or 0), 2)
+    drawdown_gl_pct = round(drawdown_gl / peak_gl * 100, 2) if peak_gl else 0.0
+    recovery_needed = round(abs(drawdown_gl), 2) if drawdown_gl < 0 else 0.0
+
+    # Velocity: avg gl_delta over last 5 uploads (excluding first point which has delta=0)
+    recent_deltas = [p["gl_delta"] for p in points[-5:] if p["gl_delta"] != 0]
+    velocity_5 = round(sum(recent_deltas) / len(recent_deltas), 2) if recent_deltas else 0.0
+
+    if velocity_5 > 50:
+        velocity_label = "COMPOUNDING"
+    elif velocity_5 > 0:
+        velocity_label = "STABLE"
+    elif velocity_5 > -50:
+        velocity_label = "RECOVERING" if drawdown_gl < 0 else "FLAT"
+    else:
+        velocity_label = "ERODING"
+
+    return {
+        "points":            points,
+        "peak_gl":           round(peak_gl or 0, 2),
+        "peak_gl_date":      peak_gl_date,
+        "peak_value":        round(peak_value or 0, 2),
+        "peak_value_date":   peak_value_date,
+        "current_gl":        current_gl,
+        "current_gl_pct":    current_gl_pct,
+        "current_value":     current_value,
+        "drawdown_gl":       drawdown_gl,
+        "drawdown_gl_pct":   drawdown_gl_pct,
+        "recovery_needed":   recovery_needed,
+        "velocity_5":        velocity_5,
+        "velocity_label":    velocity_label,
+        "total_snapshots":   len(points),
+    }
+
+
 # ── Fidelity today's G/L ─────────────────────────────────────────────────────
 
 def get_fidelity_today_gl() -> dict:
