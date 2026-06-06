@@ -507,11 +507,9 @@
 
       <div style="margin-left:auto;display:flex;align-items:center;gap:6px;flex-wrap:nowrap">
         <button class="ath-badge waiting" id="ath_badge" onclick="badgeClick()" title="Click for Hermes analysis">ATH WATCH</button>
-        <button id="best-signal-btn" onclick="openBestSignal()" title="Run convergence score — show best trade now">⚡ BEST SIGNAL</button>
-        <div id="macro_signal_badge" style="padding:3px 8px;font-size:10px;font-family:monospace;
-             border:1px solid #252A36;border-radius:4px;cursor:pointer;white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis"
-             onclick="openMacroAdvisory()"
-             title="Click for ORACLE macro buy suggestions">⚪ NEUTRAL</div>
+        <!-- best-signal and macro badge hidden but kept for JS compatibility -->
+        <div id="macro_signal_badge" style="display:none"></div>
+        <button id="best-signal-btn" style="display:none" onclick="openBestSignal()"></button>
         <button class="btn-muted" style="padding:4px 10px;font-size:11px" onclick="saveSessionNote()" id="save-note-btn" title="Save today's session note">📝</button>
         <button class="btn-muted" style="padding:4px 10px;font-size:11px" onclick="openReadNotes()" title="Read recent session notes">📖</button>
         <button class="btn-muted" style="padding:4px 10px;font-size:11px" onclick="location.reload(true)" title="Hard refresh">🔄</button>
