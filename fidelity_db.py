@@ -145,15 +145,16 @@ def _is_valid_account(val: str) -> bool:
     """
     Valid Fidelity account numbers:
       - Letter-prefixed:   X91923586, Z23806303
-      - Purely numeric:    227867696
+      - Purely numeric:    227867696, 13066 (401k plans can be short)
     Invalid (footer/header junk):
       - Starts with quote, blank, disclaimer text, 'Account Number' header repeat
     """
     if not val or not isinstance(val, str):
         return False
     val = val.strip()
-    # Must start with a letter followed by digits, OR be all digits (8-10 chars)
-    return bool(re.match(r'^[A-Z]\d+$', val) or re.match(r'^\d{6,12}$', val))
+    # Must start with a letter followed by digits, OR be all digits (4-12 chars)
+    # 401k plans like "13066" are only 5 digits — allow 4+ digits
+    return bool(re.match(r'^[A-Z]\d+$', val) or re.match(r'^\d{4,12}$', val))
 
 
 def parse_fidelity_csv(filepath: str | Path) -> list[dict]:
