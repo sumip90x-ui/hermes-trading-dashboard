@@ -17,6 +17,7 @@ Usage:
 import sqlite3
 import uuid
 import re
+import json
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
@@ -983,6 +984,143 @@ def parse_wellsfargo_csv(filepath: str | Path) -> list[dict]:
     return rows
 
 
+# ── Performance PDF parser (Vanguard + WF) ───────────────────────────────────
+
+PERF_OVERRIDE_PATH = Path.home() / "Documents" / "Trading Vault" / "broker_performance.json"
+
+def _load_perf_overrides() -> dict:
+    """Load manually-parsed performance figures per broker."""
+    try:
+        if PERF_OVERRIDE_PATH.exists():
+            return json.loads(PERF_OVERRIDE_PATH.read_text())
+    except Exception:
+        pass
+    return {}
+
+def _save_perf_overrides(data: dict) -> None:
+    PERF_OVERRIDE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PERF_OVERRIDE_PATH.write_text(json.dumps(data, indent=2))
+
+def parse_performance_pdf(filepath: str | Path) -> dict:
+    """
+    Extract account-level performance from a Vanguard or WF performance PDF.
+
+    Uses pdftotext to extract text, then parses key fields:
+      - current_value   (most recent ending balance)
+      - total_deposited (total deposits/withdrawals = cost basis)
+      - investment_returns (total gain/loss in dollars)
+      - rate_of_return (percentage)
+      - as_of_date
+
+    Returns dict suitable for storing as broker GL override.
+    Raises ValueError if required fields cannot be found.
+    """
+    import subprocess, re
+    filepath = Path(filepath)
+
+    result = subprocess.run(
+        ["pdftotext", "-layout", str(filepath), "-"],
+        capture_output=True, text=True, timeout=30
+    )
+    if result.returncode != 0:
+        raise ValueError(f"pdftotext failed: {result.stderr[:200]}")
+
+    text = result.stdout
+
+    parsed = {
+        "source_file":  filepath.name,
+        "parsed_at":    datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S'),
+        "current_value":       None,
+        "total_deposited":     None,
+        "investment_returns":  None,
+        "rate_of_return":      None,
+        "as_of_date":          None,
+        "broker_hint":         None,
+    }
+
+    # ── Detect broker ────────────────────────────────────────────────────────
+    if "vanguard" in text.lower():
+        parsed["broker_hint"] = "vanguard"
+    elif "wells fargo" in text.lower() or "welltrade" in text.lower():
+        parsed["broker_hint"] = "wellsfargo"
+
+    # ── Current value ────────────────────────────────────────────────────────
+    # Vanguard: "• $1,763.45" near top
+    m = re.search(r'•\s*\$([0-9,]+\.\d{2})', text)
+    if m:
+        parsed["current_value"] = float(m.group(1).replace(",", ""))
+
+    # ── Rate of return ────────────────────────────────────────────────────────
+    # Vanguard: "19.1% (As of"
+    m = re.search(r'([\d.]+)%\s*\(As of', text)
+    if m:
+        parsed["rate_of_return"] = float(m.group(1))
+
+    # ── As-of date ────────────────────────────────────────────────────────────
+    m = re.search(r'Value as of:\s*(.+?),\s*Eastern time', text)
+    if m:
+        parsed["as_of_date"] = m.group(1).strip()
+    if not parsed["as_of_date"]:
+        m = re.search(r'(\d{2}/\d{2}/\d{4})', text)
+        if m:
+            parsed["as_of_date"] = m.group(1)
+
+    # ── Performance summary table ─────────────────────────────────────────────
+    # Vanguard format:
+    #   $1,826.93   $0.00    +$1,018.65    +$808.28
+    # Columns: Ending balance, Beginning balance, Investment returns, Deposits & Withdrawals
+    # We want: investment_returns (+$1,018.65) and deposits (+$808.28)
+    m = re.search(
+        r'\$([\d,]+\.\d{2})\s+\$([\d,]+\.\d{2})\s+[+\-]?\$([\d,]+\.\d{2})\s+[+\-]?\$([\d,]+\.\d{2})',
+        text
+    )
+    if m:
+        parsed["investment_returns"] = float(m.group(3).replace(",", ""))
+        parsed["total_deposited"]    = float(m.group(4).replace(",", ""))
+
+    # Fallback: look for "Total" row at bottom
+    # " Total    $808.28   $965.50   $53.56   $1,018.65"
+    m = re.search(r'Total\s+\$?([\d,]+\.\d{2})\s+\$?([\d,]+\.\d{2})\s+\$?([\d,]+\.\d{2})\s+\$?([\d,]+\.\d{2})', text)
+    if m and not parsed["investment_returns"]:
+        parsed["total_deposited"]   = float(m.group(1).replace(",", ""))
+        parsed["investment_returns"]= float(m.group(4).replace(",", ""))
+
+    # ── Validate ──────────────────────────────────────────────────────────────
+    if parsed["current_value"] is None:
+        raise ValueError("Could not find current account value in PDF")
+
+    # Derive GL: if we have deposits and current value but not returns
+    if parsed["investment_returns"] is None and parsed["total_deposited"] is not None:
+        parsed["investment_returns"] = round(
+            (parsed["current_value"] or 0) - parsed["total_deposited"], 2
+        )
+
+    return parsed
+
+
+def ingest_performance_pdf(filepath: str | Path, broker: str) -> dict:
+    """
+    Parse a performance PDF and store the GL override for the given broker.
+    Saves to broker_performance.json.
+    Returns the parsed performance dict.
+    """
+    parsed = parse_performance_pdf(filepath)
+
+    overrides = _load_perf_overrides()
+    overrides[broker] = {
+        **parsed,
+        "broker":       broker,
+        "updated_at":   parsed["parsed_at"],
+        "value":        parsed["current_value"],
+        "cost":         parsed["total_deposited"],
+        "gl":           parsed["investment_returns"],
+        "gl_pct":       parsed["rate_of_return"],
+        "has_cost":     True,
+    }
+    _save_perf_overrides(overrides)
+    return overrides[broker]
+
+
 # ── Broker-aware ingest ───────────────────────────────────────────────────────
 
 BROKER_PARSERS = {
@@ -1162,6 +1300,7 @@ def get_combined_latest_positions() -> dict:
     # Broker breakdown — pull stored GL from DB, NOT recomputed from value-cost
     # This is critical for brokers like Vanguard that have no cost basis data.
     # value - cost = wrong GL when cost = 0. Use stored total_gl which is 0 when unknown.
+    perf_overrides = _load_perf_overrides()
     broker_breakdown = {}
     for b, snap in best.items():
         tv  = snap["total_value"] or 0
@@ -1172,17 +1311,30 @@ def get_combined_latest_positions() -> dict:
                 SELECT SUM(total_gl) AS gl, SUM(accounts) AS accts
                 FROM snapshots WHERE snapshot_id = ?
             """, [snap["snapshot_id"]]).fetchone()
-        gl       = round(stored["gl"] or 0, 2)
+        gl         = round(stored["gl"] or 0, 2)
         acct_count = stored["accts"] or 0
+
+        # Apply performance PDF override if available (Vanguard, WF)
+        perf = perf_overrides.get(b)
+        if perf and perf.get("has_cost"):
+            gl      = round(perf.get("gl") or gl, 2)
+            tc_disp = perf.get("cost") or tc
+            gl_pct  = round(gl / tc_disp * 100, 2) if tc_disp else perf.get("gl_pct")
+        else:
+            tc_disp = tc
+            gl_pct  = round(gl / tc * 100, 2) if tc else None
+
         broker_breakdown[b] = {
             "value":         round(tv, 2),
-            "cost":          round(tc, 2),
+            "cost":          round(tc_disp, 2),
             "gl":            gl,
-            "gl_pct":        round(gl / tc * 100, 2) if tc else None,
+            "gl_pct":        gl_pct,
             "symbols":       snap["symbol_count"],
             "snapshot_date": snap["snapshot_date"],
             "accounts":      acct_count,
-            "has_cost":      tc > 0,   # flag: False means no cost basis available
+            "has_cost":      tc > 0 or (perf is not None and perf.get("has_cost")),
+            "perf_source":   perf.get("source_file") if perf else None,
+            "perf_as_of":    perf.get("as_of_date")  if perf else None,
         }
 
     # Grand totals

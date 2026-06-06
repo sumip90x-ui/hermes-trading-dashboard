@@ -540,6 +540,9 @@
         <span class="pill-label">VANGUARD</span>
         <span class="pill-val" id="pill-vanguard-val">—</span>
         <span class="pill-gl" id="pill-vanguard-gl"></span>
+        <label title="Upload Vanguard performance PDF for real G/L" style="cursor:pointer;font-size:9px;color:var(--muted);margin-left:2px">
+          📄<input type="file" accept=".pdf" style="display:none" onchange="uploadPerfPdf(this,'vanguard')">
+        </label>
       </div>
 
       <!-- Wells Fargo pill -->
@@ -548,6 +551,9 @@
         <span class="pill-label">WELLS FARGO</span>
         <span class="pill-val" id="pill-wellsfargo-val">—</span>
         <span class="pill-gl" id="pill-wellsfargo-gl"></span>
+        <label title="Upload Wells Fargo performance PDF for real G/L" style="cursor:pointer;font-size:9px;color:var(--muted);margin-left:2px">
+          📄<input type="file" accept=".pdf" style="display:none" onchange="uploadPerfPdf(this,'wellsfargo')">
+        </label>
       </div>
 
       <!-- Alpaca pill -->
@@ -2756,6 +2762,41 @@ function save401k(raw) {
     }
   })
   .catch(() => {});
+}
+
+// ── Performance PDF upload (Vanguard / WF) ──────────────────────────────────
+// Uploads a performance PDF to extract real G/L that the CSV/XLS doesn't have.
+// Triggered by the 📄 button on the Vanguard or WF pill.
+function uploadPerfPdf(inputEl, broker) {
+  const file = inputEl.files[0];
+  if (!file) return;
+  const glEl  = document.getElementById('pill-' + broker + '-gl');
+  if (glEl) { glEl.textContent = '⟳'; glEl.style.color = 'var(--muted)'; }
+
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('broker', broker);
+
+  fetch('/api/portfolio/upload_performance_pdf', { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) {
+        if (glEl) { glEl.textContent = '✗ ' + d.error.slice(0, 30); glEl.style.color = 'var(--red)'; }
+        return;
+      }
+      // Refresh all broker data so the new GL shows
+      fetchAllAccountsTotal();
+      // Flash confirmation
+      if (glEl) {
+        const gl = d.gl || 0;
+        glEl.textContent = (gl >= 0 ? '+' : '') + '$' + Math.abs(gl).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
+        glEl.style.color = gl >= 0 ? 'var(--green)' : 'var(--red)';
+      }
+    })
+    .catch(err => {
+      if (glEl) { glEl.textContent = '✗ upload failed'; glEl.style.color = 'var(--red)'; }
+    });
+  inputEl.value = '';  // reset so same file can be re-uploaded
 }
 
 function fetchAccount() {

@@ -4352,6 +4352,48 @@ def api_portfolio_get_401k():
     return jsonify(_load_401k())
 
 
+@app.route('/api/portfolio/upload_performance_pdf', methods=['POST'])
+def api_portfolio_upload_performance_pdf():
+    """
+    Upload a Vanguard or WF performance PDF.
+    Extracts: current value, total deposited (cost), investment returns (GL), rate of return.
+    Stores as GL override in broker_performance.json — used by combined_latest to show real G/L.
+
+    Form fields: file (multipart), broker (vanguard|wellsfargo)
+    """
+    if 'file' not in request.files:
+        return jsonify({'error': 'no file'}), 400
+    broker = request.form.get('broker', '').lower().strip()
+    if broker not in ('vanguard', 'wellsfargo'):
+        return jsonify({'error': 'broker must be vanguard or wellsfargo'}), 400
+
+    f    = request.files['file']
+    ts   = datetime.now().strftime('%Y-%m-%d_%H%M%S')
+    orig = f.filename or 'performance.pdf'
+    safe = re.sub(r'[^\w.\-]', '_', orig)
+    fname = f'{broker}_perf_{ts}_{safe}'
+
+    # Save to broker history dir
+    broker_dir = fidelity_db.BROKER_DIRS.get(broker, HOME / 'Documents' / 'Trading Vault')
+    dest = broker_dir / fname
+    f.save(str(dest))
+
+    try:
+        result = fidelity_db.ingest_performance_pdf(dest, broker)
+        return jsonify({
+            'status':    'parsed',
+            'broker':    broker,
+            'value':     result.get('value'),
+            'cost':      result.get('cost'),
+            'gl':        result.get('gl'),
+            'gl_pct':    result.get('gl_pct'),
+            'as_of':     result.get('as_of_date'),
+            'filename':  fname,
+        })
+    except Exception as exc:
+        return jsonify({'error': str(exc), 'filename': fname}), 422
+
+
 # ── Background live updater ───────────────────────────────────────────────────
 
 def _proactive_brain():
