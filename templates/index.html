@@ -468,7 +468,12 @@
       <span class="live-dot"></span>
       <div class="metric">
         <div class="val" id="equity">—</div>
-        <div class="lbl">EQUITY</div>
+        <div class="lbl">ALPACA</div>
+      </div>
+      <div style="width:1px;height:28px;background:var(--border);margin:0 2px"></div>
+      <div class="metric" title="Combined total: Fidelity + Vanguard + Wells Fargo + Alpaca">
+        <div class="val" id="all-accounts-val" style="color:#88ccff">—</div>
+        <div class="lbl" style="color:#88ccff">ALL ACCOUNTS</div>
       </div>
       <div class="metric">
         <div class="val" id="day_pl">—</div>
@@ -2575,6 +2580,7 @@ window.onload = () => {
   fetchHouseMoney();
   loadPreviousSessions();  // load last 3 session notes into Hermes brain
   fetchStopTiers();        // load stop loss tiers on page load
+  fetchAllAccountsTotal(); // load combined broker total on startup
   // Seed dismissed set from today's actual Alpaca buy orders — survives page refresh
   fetch('/api/today_buys').then(r=>r.json()).then(d => {
     let added = 0;
@@ -2592,12 +2598,44 @@ window.onload = () => {
   fetchProfitBasket();
   setInterval(fetchMacroSignal, 300000);  // refresh every 5 min
   fetchMacroSignal();
+  setInterval(fetchAllAccountsTotal, 300000); // refresh broker totals every 5 min
 };
 
 // ── Account ───────────────────────────────────────────────────────────────
 // Track last known intra_high for live pullback counter
 let _lastIntraHigh = 0;
 let _lastEquity    = 0;
+
+// ── All-accounts combined total ────────────────────────────────────────────
+// Fetches broker totals from SQLite (Fidelity + Vanguard + WF) and adds Alpaca equity.
+// Updates the ALL ACCOUNTS header metric. Called on load + every 5 min.
+let _brokerTotalValue = 0;  // non-Alpaca brokers combined, used to build total
+function fetchAllAccountsTotal() {
+  fetch('/api/portfolio/combined_latest')
+    .then(r => r.json())
+    .then(data => {
+      const t = data.totals || {};
+      _brokerTotalValue = t.value || 0;
+      _updateAllAccountsDisplay();
+
+      // Also update the Portfolio tab broker bar if it's already open
+      if (window.portLoadCombinedFromServer && document.getElementById('view-portfolio') &&
+          document.getElementById('view-portfolio').style.display !== 'none') {
+        window.portLoadCombinedFromServer();
+      }
+    })
+    .catch(() => {});
+}
+
+function _updateAllAccountsDisplay() {
+  // Combined = broker total (Fidelity + Vanguard + WF) + Alpaca equity
+  const alpacaEquity = window.portfolioData ? (window.portfolioData.equity || 0) : (_lastEquity || 0);
+  const combined = _brokerTotalValue + alpacaEquity;
+  const el = document.getElementById('all-accounts-val');
+  if (el && combined > 0) {
+    el.textContent = '$' + combined.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+  }
+}
 
 function fetchAccount() {
   fetch('/api/account').then(r=>r.json()).then(d => {
@@ -2629,6 +2667,7 @@ function fetchAccount() {
     _lastIntraHigh = d.intra_high;
     _lastEquity    = d.equity;
     updatePullbackCounter(d.equity, d.intra_high);
+    _updateAllAccountsDisplay(); // refresh ALL ACCOUNTS header with new Alpaca equity
 
     // True profit vs $1,154 principal
     const tp2El  = document.getElementById('true_profit_val');
