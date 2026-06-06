@@ -6125,26 +6125,36 @@ function fetchProfitBasket() {
     portSyncLoadAlpaca();
     portSyncLoadSavingsData();
 
-    // Archive Fidelity to history (keeps deviation signals working)
+    // Archive Fidelity to history AND ingest to SQLite (so Gain Guard reads fresh data)
+    // IMPORTANT: must use upload_broker (not save_snapshot) — save_snapshot only saves to disk,
+    // upload_broker does the full SQLite ingest that Gain Guard depends on.
     if (broker === 'fidelity') {
       const inp = document.getElementById('port-csv-fidelity');
       if (inp && inp.files && inp.files[0]) {
         const fd = new FormData();
         fd.append('file', inp.files[0]);
-        fetch('/api/portfolio/save_snapshot', { method: 'POST', body: fd })
+        fd.append('broker', 'fidelity');
+        fetch('/api/portfolio/upload_broker', { method: 'POST', body: fd })
           .then(r => r.json())
           .then(d => {
-            if (d.total_snapshots !== undefined) {
+            if (d.symbol_count !== undefined) {
               const snap = document.getElementById('port-snap-count');
-              if (snap) snap.textContent = `${d.total_snapshots} Fidelity snapshot${d.total_snapshots===1?'':'s'} archived`;
+              if (snap) snap.textContent = `${d.symbol_count} symbols ingested to DB`;
             }
+            // Now that SQLite is updated, refresh Gain Guard with fresh data
+            if (window._ggRefresh) { window._ggRefresh(); }
           })
-          .catch(() => {});
+          .catch(() => {
+            // Fallback: still try to refresh in case partial data landed
+            if (window._ggRefresh) { window._ggRefresh(); }
+          });
+      } else {
+        // No file input (e.g. auto-loaded from disk) — just refresh
+        if (window._ggRefresh) { window._ggRefresh(); }
       }
-    }
-    // Gain Guard: always refresh after any upload so numbers stay current
-    if (window._ggRefresh) {
-      window._ggRefresh();  // fetches fresh data regardless of which tab is open
+    } else {
+      // Non-Fidelity broker: always refresh Gain Guard
+      if (window._ggRefresh) { window._ggRefresh(); }
     }
   }
 
