@@ -4232,9 +4232,10 @@ def api_portfolio_save_snapshot():
 @app.route('/api/portfolio/upload_broker', methods=['POST'])
 def api_portfolio_upload_broker():
     """
-    Upload any broker CSV → save to broker-specific history dir → ingest to SQLite.
+    Upload any broker CSV/XLS → save to broker-specific history dir → ingest to SQLite.
     Form fields: file (multipart), broker (fidelity|vanguard|wellsfargo)
     Returns ingest summary including symbol_count, total_value, broker_breakdown.
+    Wells Fargo exports .xls — accepted alongside .csv.
     """
     if 'file' not in request.files:
         return jsonify({'error': 'no file'}), 400
@@ -4245,6 +4246,8 @@ def api_portfolio_upload_broker():
     f    = request.files['file']
     ts   = datetime.now().strftime('%Y-%m-%d_%H%M%S')
     orig = f.filename or 'snapshot'
+    # Preserve original extension (.xls, .csv)
+    ext  = Path(orig).suffix.lower() or '.csv'
     safe = re.sub(r'[^\w.\-]', '_', orig)
     fname = f'{broker}_{ts}_{safe}'
 

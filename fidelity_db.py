@@ -521,6 +521,366 @@ def calculate_deviations(curr_snapshot_id: str) -> list[dict]:
 
 def parse_vanguard_csv(filepath: str | Path) -> list[dict]:
     """
+    Parse a Vanguard brokerage holdings CSV export (OfxDownload format).
+
+    Vanguard CSV format:
+      Account Number, Investment Name, Symbol, Shares, Share Price, Total Value,
+
+    The file has TWO sections separated by a blank row:
+      Section 1: Holdings (positions) — ONLY this is used for portfolio snapshot
+      Section 2: Transactions — must be IGNORED
+
+    Money market funds (VMFXX, VMMXX, VUSXX etc.) are excluded.
+    Symbols with spaces (e.g. 'BRK B') are normalized to remove spaces.
+    Returns same schema as parse_fidelity_csv().
+    """
+    filepath = Path(filepath)
+    with open(filepath, encoding="utf-8-sig") as fh:
+        raw = fh.read()
+
+    lines = raw.splitlines()
+
+    # Find the FIRST header row (holdings section)
+    holdings_header_idx = -1
+    for i, line in enumerate(lines):
+        lower = line.lower()
+        if "account number" in lower and "symbol" in lower and "shares" in lower:
+            holdings_header_idx = i
+            break
+    if holdings_header_idx < 0:
+        return []
+
+    # Find where the holdings section ends — blank line or second header with "Trade Date"
+    holdings_end_idx = len(lines)
+    for i in range(holdings_header_idx + 1, len(lines)):
+        stripped = lines[i].strip().strip(",")
+        if not stripped:
+            holdings_end_idx = i
+            break
+        # Transactions header starts with "Account Number,Trade Date"
+        if "trade date" in lines[i].lower():
+            holdings_end_idx = i
+            break
+
+    # Parse only the holdings section
+    import io
+    holdings_text = "\n".join(lines[holdings_header_idx:holdings_end_idx])
+    try:
+        df = pd.read_csv(io.StringIO(holdings_text), dtype=str, on_bad_lines="skip")
+    except Exception:
+        return []
+
+    # Column mapping — Vanguard uses exact names
+    def _col(patterns):
+        for p in patterns:
+            for c in df.columns:
+                if p.lower() in c.lower().strip():
+                    return c
+        return None
+
+    sym_col   = _col(["symbol"])
+    desc_col  = _col(["investment name", "description", "name"])
+    qty_col   = _col(["shares", "quantity"])
+    price_col = _col(["share price", "price"])
+    val_col   = _col(["total value", "market value", "current value"])
+    cost_col  = _col(["cost basis", "total cost"])
+    acct_col  = _col(["account number", "account"])
+
+    if not sym_col:
+        return []
+
+    # Money market tickers to exclude
+    MONEY_MARKET = {"VMFXX", "VMMXX", "VUSXX", "VMRXX", "VPDFX", "VMSXX"}
+
+    acct_set_all = set()
+    map_: dict = {}
+
+    for _, row in df.iterrows():
+        raw_sym = str(row.get(sym_col, "")).strip()
+        # Normalize: remove spaces (e.g. 'BRK B' → 'BRKB')
+        sym = raw_sym.replace(" ", "").rstrip("*")
+        if not sym or sym in ("nan", "—", "-", "Symbol"):
+            continue
+        if sym in MONEY_MARKET:
+            continue
+        if not re.match(r'^[A-Z0-9][A-Z0-9.\-]{0,9}$', sym):
+            continue
+
+        acct = str(row.get(acct_col, "VG")).strip() if acct_col else "VG"
+        acct_set_all.add(acct)
+
+        desc  = str(row.get(desc_col, "")).strip() if desc_col else ""
+        qty   = _parse_money(row.get(qty_col))   if qty_col   else None
+        price = _parse_money(row.get(price_col)) if price_col else None
+        val   = _parse_money(row.get(val_col))   if val_col   else None
+        cost  = _parse_money(row.get(cost_col))  if cost_col  else None
+
+        if sym not in map_:
+            map_[sym] = {
+                "symbol": sym, "description": desc,
+                "_accts": set(), "total_qty": 0.0,
+                "last_price": price, "total_value": 0.0,
+                "total_cost": 0.0, "total_gl": 0.0,
+            }
+        r = map_[sym]
+        r["_accts"].add(acct)
+        if qty   is not None: r["total_qty"]   += qty
+        if val   is not None: r["total_value"] += val
+        if cost  is not None: r["total_cost"]  += cost
+        if price is not None: r["last_price"]   = price
+
+    rows = []
+    total_val = sum(r["total_value"] for r in map_.values())
+    for sym, r in map_.items():
+        r["total_gl"]      = r["total_value"] - r["total_cost"] if r["total_cost"] else 0.0
+        r["gl_pct"]        = (r["total_gl"] / r["total_cost"] * 100) if r["total_cost"] else None
+        r["portfolio_pct"] = (r["total_value"] / total_val * 100) if total_val else None
+        r["accounts"]      = len(r["_accts"])
+        del r["_accts"]
+        rows.append(r)
+    return rows
+
+
+# ── Wells Fargo XLS parser ────────────────────────────────────────────────────
+
+def parse_wellsfargo_xls(filepath: str | Path) -> list[dict]:
+    """
+    Parse a Wells Fargo WellsTrade portfolio positions XLS export.
+
+    WF exports a multi-section .xls file with separate header rows per asset type:
+      - Cash/Cash Alternatives (ignored — no symbol)
+      - Stocks (33 columns, headers on a row containing 'Symbol')
+      - ETFs   (30 columns, different layout)
+      - Mutual Funds (29 columns, different layout)
+
+    Strategy:
+      - Scan all rows looking for section header rows (col 1 == 'Symbol')
+      - For each section, build a dynamic column index from the header
+      - Aggregate per-symbol across all sections and all tax lots
+
+    Column positions are derived dynamically from the header row, so this
+    works even if WF adds/removes columns in future exports.
+    """
+    try:
+        import xlrd
+    except ImportError:
+        raise ImportError("xlrd is required for Wells Fargo XLS files: pip install xlrd")
+
+    filepath = Path(filepath)
+    wb = xlrd.open_workbook(str(filepath))
+    ws = wb.sheet_by_index(0)
+
+    SKIP_SYMBOLS = {"", "Symbol", "N/A", "Description"}
+    TOTAL_KEYWORDS = ("total", "grand total")
+    SECTION_KEYWORDS = ("stocks", "etfs", "mutual funds", "bonds", "options")
+
+    map_: dict = {}
+    acct_name = "WF"
+
+    # Extract account number from header area (rows 0–6)
+    for r in range(7):
+        cell0 = str(ws.cell_value(r, 0)).strip()
+        if "account number" in cell0.lower():
+            acct_name = cell0.replace("Account Number:", "").strip() or "WF"
+            break
+        if "nick name" in cell0.lower():
+            acct_name = cell0.replace("Nick Name:", "").strip() or "WF"
+
+    i = 0
+    while i < ws.nrows:
+        row = [str(ws.cell_value(i, c)).strip() for c in range(ws.ncols)]
+
+        # Detect section header row: col 0 is keyword, col 1 is 'Symbol'
+        if row[1].lower() == "symbol" and row[0].lower() not in TOTAL_KEYWORDS:
+            # Build column index from this header row
+            col_idx: dict[str, int] = {}
+            for c, hdr in enumerate(row):
+                h = hdr.lower().strip()
+                col_idx[h] = c
+
+            def gcol(patterns):
+                for p in patterns:
+                    if p in col_idx:
+                        return col_idx[p]
+                return None
+
+            # Map key columns — names differ per section
+            sym_c   = gcol(["symbol"])
+            price_c = gcol(["last price ($)", "nav ($)", "price"])
+            val_c   = gcol(["market value"])
+            cost_c  = gcol(["total cost1", "total cost", "total client investment"])
+            gl_c    = gcol(["unrealized gain/loss ($)1", "unrealized gain/loss ($)",
+                            "client inv gain/(loss) $"])
+            qty_c   = gcol(["shares"])
+
+            # Parse data rows until blank or new section
+            i += 1
+            while i < ws.nrows:
+                drow = [str(ws.cell_value(i, c)).strip() for c in range(ws.ncols)]
+                sym  = drow[sym_c] if sym_c is not None else ""
+
+                # End of section: blank row, total row, or next section header
+                if not sym or sym.lower() in ("", "n/a"):
+                    i += 1
+                    # Allow one blank row between tax lots
+                    continue
+                if any(sym.lower().startswith(k) for k in TOTAL_KEYWORDS):
+                    i += 1
+                    break
+                if any(drow[0].lower() == k for k in SECTION_KEYWORDS):
+                    break  # don't increment — outer loop will handle
+                if drow[1].lower() == "symbol":
+                    break  # new section header — don't increment
+
+                # Skip section sub-headers like "Common Stock", "Closed End"
+                # Also skip rows where sym is not a valid ticker (numeric, long description)
+                if not sym or sym == drow[0] or sym in SKIP_SYMBOLS:
+                    i += 1
+                    continue
+                # Skip if sym looks like a dollar amount or long description
+                if re.match(r'^\d+\.?\d*$', sym) or len(sym) > 10 or ' ' in sym:
+                    i += 1
+                    continue
+
+                def gval(c):
+                    if c is None: return None
+                    v = drow[c]
+                    if v.lower() in ("n/a", "detail", "not rated", ""):
+                        return None
+                    return _parse_money(v)
+
+                price = gval(price_c)
+                val   = gval(val_c)
+                cost  = gval(cost_c)
+                gl    = gval(gl_c)
+                qty   = gval(qty_c)
+
+                if val is None and price and qty:
+                    val = round(price * qty, 2)
+
+                if sym not in map_:
+                    map_[sym] = {
+                        "symbol": sym,
+                        "description": drow[0] if drow[0] != sym else "",
+                        "_accts": {acct_name},
+                        "total_qty":   0.0,
+                        "last_price":  price,
+                        "total_value": 0.0,
+                        "total_cost":  0.0,
+                        "total_gl":    0.0,
+                    }
+                r = map_[sym]
+                r["_accts"].add(acct_name)
+                if qty   is not None: r["total_qty"]   += qty
+                if val   is not None: r["total_value"] += val
+                if cost  is not None: r["total_cost"]  += cost
+                if gl    is not None: r["total_gl"]    += gl
+                if price is not None: r["last_price"]   = price
+                i += 1
+            continue
+        i += 1
+
+    rows = []
+    total_val = sum(r["total_value"] for r in map_.values())
+    for sym, r in map_.items():
+        if not r["total_gl"] and r["total_value"] and r["total_cost"]:
+            r["total_gl"] = round(r["total_value"] - r["total_cost"], 2)
+        r["gl_pct"]        = (r["total_gl"] / r["total_cost"] * 100) if r["total_cost"] else None
+        r["portfolio_pct"] = (r["total_value"] / total_val * 100) if total_val else None
+        r["accounts"]      = len(r["_accts"])
+        del r["_accts"]
+        rows.append(r)
+    return rows
+
+
+# ── Wells Fargo CSV parser (fallback if WF ever exports CSV) ──────────────────
+
+def parse_wellsfargo_csv(filepath: str | Path) -> list[dict]:
+    """
+    Parse a Wells Fargo WellsTrade / brokerage holdings CSV export.
+    WF primarily exports XLS — this handles any future CSV format.
+    Column names vary; we use flexible header matching.
+    """
+    filepath = Path(filepath)
+    with open(filepath, encoding="utf-8-sig") as fh:
+        raw = fh.read()
+
+    lines = [l for l in raw.splitlines() if l.strip()]
+    if len(lines) < 2:
+        return []
+
+    header_idx = -1
+    for i, line in enumerate(lines[:25]):
+        lower = line.lower()
+        if ("symbol" in lower or "ticker" in lower) and \
+           ("quantity" in lower or "shares" in lower or "market" in lower):
+            header_idx = i
+            break
+    if header_idx < 0:
+        return []
+
+    import io
+    df = pd.read_csv(
+        io.StringIO("\n".join(lines[header_idx:])),
+        dtype=str, on_bad_lines="skip",
+    )
+
+    def _col(patterns):
+        for p in patterns:
+            for c in df.columns:
+                if p.lower() in c.lower():
+                    return c
+        return None
+
+    sym_col   = _col(["symbol", "ticker"])
+    desc_col  = _col(["description", "security name", "name"])
+    qty_col   = _col(["quantity", "shares"])
+    price_col = _col(["last price", "price"])
+    val_col   = _col(["market value", "mkt value", "current value"])
+    cost_col  = _col(["total cost", "cost basis"])
+    gl_col    = _col(["unrealized gain/loss", "gain/loss"])
+
+    if not sym_col:
+        return []
+
+    map_: dict = {}
+    for _, row in df.iterrows():
+        sym = str(row.get(sym_col, "")).strip().rstrip("*")
+        if not sym or not re.match(r'^[A-Z0-9][A-Z0-9.\-]{0,9}$', sym):
+            continue
+        if re.match(r'^(total|grand)', sym, re.I):
+            continue
+
+        desc  = str(row.get(desc_col, "")).strip() if desc_col else ""
+        qty   = _parse_money(row.get(qty_col))   if qty_col   else None
+        price = _parse_money(row.get(price_col)) if price_col else None
+        val   = _parse_money(row.get(val_col))   if val_col   else None
+        cost  = _parse_money(row.get(cost_col))  if cost_col  else None
+        gl    = _parse_money(row.get(gl_col))    if gl_col    else None
+
+        if sym not in map_:
+            map_[sym] = {"symbol": sym, "description": desc, "_accts": {"WF"},
+                         "total_qty": 0.0, "last_price": price,
+                         "total_value": 0.0, "total_cost": 0.0, "total_gl": 0.0}
+        r = map_[sym]
+        if qty   is not None: r["total_qty"]   += qty
+        if val   is not None: r["total_value"] += val
+        if cost  is not None: r["total_cost"]  += cost
+        if gl    is not None: r["total_gl"]    += gl
+        if price is not None: r["last_price"]   = price
+
+    rows = []
+    total_val = sum(r["total_value"] for r in map_.values())
+    for sym, r in map_.items():
+        if not r["total_gl"] and r["total_value"] and r["total_cost"]:
+            r["total_gl"] = r["total_value"] - r["total_cost"]
+        r["gl_pct"]        = (r["total_gl"] / r["total_cost"] * 100) if r["total_cost"] else None
+        r["portfolio_pct"] = (r["total_value"] / total_val * 100) if total_val else None
+        r["accounts"]      = len(r["_accts"])
+        del r["_accts"]
+        rows.append(r)
+    return rows
+    """
     Parse a Vanguard brokerage holdings CSV export.
 
     Vanguard export columns (typical):
@@ -622,125 +982,12 @@ def parse_vanguard_csv(filepath: str | Path) -> list[dict]:
     return rows
 
 
-# ── Wells Fargo CSV parser ────────────────────────────────────────────────────
-
-def parse_wellsfargo_csv(filepath: str | Path) -> list[dict]:
-    """
-    Parse a Wells Fargo WellsTrade / brokerage holdings CSV export.
-
-    WF export columns (typical WellsTrade format):
-      Symbol, Description, Quantity, Price, Mkt Value, Cost Basis, Gain/Loss $, Gain/Loss %
-
-    WF sometimes exports multi-account files with account header rows between sections.
-    Returns same schema as parse_fidelity_csv().
-    """
-    filepath = Path(filepath)
-    with open(filepath, encoding="utf-8-sig") as fh:
-        raw = fh.read()
-
-    lines = [l for l in raw.splitlines() if l.strip()]
-    if len(lines) < 2:
-        return []
-
-    # Find header row
-    header_idx = -1
-    for i, line in enumerate(lines[:25]):
-        lower = line.lower()
-        if ("symbol" in lower or "ticker" in lower) and \
-           ("quantity" in lower or "shares" in lower or "market" in lower):
-            header_idx = i
-            break
-    if header_idx < 0:
-        return []
-
-    import io
-    df = pd.read_csv(
-        io.StringIO("\n".join(lines[header_idx:])),
-        dtype=str,
-        on_bad_lines="skip",
-    )
-
-    def _col(patterns):
-        for p in patterns:
-            for c in df.columns:
-                if p.lower() in c.lower():
-                    return c
-        return None
-
-    sym_col   = _col(["symbol", "ticker", "cusip"])
-    desc_col  = _col(["description", "security name", "name"])
-    qty_col   = _col(["quantity", "shares", "qty"])
-    price_col = _col(["price", "last price"])
-    val_col   = _col(["mkt value", "market value", "current value", "value"])
-    cost_col  = _col(["cost basis", "total cost", "cost"])
-    gl_col    = _col(["gain/loss $", "gain/loss dollar", "unrealized g/l", "gain loss"])
-    acct_col  = _col(["account"])
-
-    if not sym_col:
-        return []
-
-    map_ = {}
-    current_acct = "WF"
-
-    for _, row in df.iterrows():
-        sym = str(row.get(sym_col, "")).strip().rstrip("*")
-
-        # WF sometimes has account-label rows (long strings with no real symbol)
-        if not sym or sym in ("—", "-", "nan"):
-            continue
-        if not re.match(r'^[A-Z0-9][A-Z0-9.\-]{0,9}$', sym):
-            # Might be an account-label row — capture as current account context
-            raw_val = str(row.iloc[0]).strip() if len(row) > 0 else ""
-            if len(raw_val) > 4:
-                current_acct = raw_val[:30]
-            continue
-        # Skip totals
-        if re.match(r'^(total|grand|account)', sym, re.I):
-            continue
-
-        acct = str(row.get(acct_col, current_acct)).strip() if acct_col else current_acct
-
-        desc  = str(row.get(desc_col, "")).strip() if desc_col else ""
-        qty   = _parse_money(row.get(qty_col))   if qty_col   else None
-        price = _parse_money(row.get(price_col)) if price_col else None
-        val   = _parse_money(row.get(val_col))   if val_col   else None
-        cost  = _parse_money(row.get(cost_col))  if cost_col  else None
-        gl    = _parse_money(row.get(gl_col))    if gl_col    else None
-
-        if sym not in map_:
-            map_[sym] = {
-                "symbol": sym, "description": desc,
-                "_accts": set(), "total_qty": 0.0,
-                "last_price": price, "total_value": 0.0,
-                "total_cost": 0.0, "total_gl": 0.0,
-            }
-        r = map_[sym]
-        r["_accts"].add(acct)
-        if qty   is not None: r["total_qty"]   += qty
-        if val   is not None: r["total_value"] += val
-        if cost  is not None: r["total_cost"]  += cost
-        if gl    is not None: r["total_gl"]    += gl
-        if price is not None: r["last_price"]   = price
-
-    rows = []
-    total_val = sum(r["total_value"] for r in map_.values())
-    for sym, r in map_.items():
-        if not r["total_gl"] and r["total_value"] and r["total_cost"]:
-            r["total_gl"] = r["total_value"] - r["total_cost"]
-        r["gl_pct"]       = (r["total_gl"] / r["total_cost"] * 100) if r["total_cost"] else None
-        r["portfolio_pct"] = (r["total_value"] / total_val * 100) if total_val else None
-        r["accounts"]     = len(r["_accts"])
-        del r["_accts"]
-        rows.append(r)
-    return rows
-
-
 # ── Broker-aware ingest ───────────────────────────────────────────────────────
 
 BROKER_PARSERS = {
     "fidelity":   parse_fidelity_csv,
     "vanguard":   parse_vanguard_csv,
-    "wellsfargo": parse_wellsfargo_csv,
+    "wellsfargo": parse_wellsfargo_xls,   # WF exports .xls — use XLS parser
 }
 
 def ingest_broker_snapshot(filepath: str | Path, broker: str) -> dict:
