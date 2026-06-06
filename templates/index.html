@@ -6142,13 +6142,9 @@ function fetchProfitBasket() {
           .catch(() => {});
       }
     }
-    // Gain Guard: refresh if tab is open, or invalidate so next open is fresh
+    // Gain Guard: always refresh after any upload so numbers stay current
     if (window._ggRefresh) {
-      const ggView = document.getElementById('view-gainguard');
-      if (ggView && ggView.style.display !== 'none') {
-        window._ggRefresh();  // tab is open — refresh immediately
-      }
-      // Either way, mark cache stale so next tab open fetches fresh data
+      window._ggRefresh();  // fetches fresh data regardless of which tab is open
     }
   }
 
@@ -6670,6 +6666,8 @@ function fetchProfitBasket() {
             if (btn)  { btn.classList.add('loaded'); btn.style.opacity = '1'; }
             if (lbl)  lbl.textContent = BROKER_LABELS[broker] + ' ✓ ' + d.symbol_count;
             portLoadCombinedFromServer();
+            // Always refresh Gain Guard after any broker upload (even if tab is not open)
+            if (window._ggRefresh) { window._ggRefresh(); }
           })
           .catch(err => {
             if (meta) meta.textContent = '✗ Upload error: ' + err.message;

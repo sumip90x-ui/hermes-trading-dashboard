@@ -4237,6 +4237,10 @@ def api_portfolio_save_snapshot():
     # Also keep portfolio.csv updated as the latest
     import shutil
     shutil.copy2(str(dest), str(HOME / 'portfolio.csv'))
+    # Invalidate Gain Guard cache so next fetch returns fresh data
+    global _gl_health_cache, _gl_health_cache_ts
+    _gl_health_cache = {}
+    _gl_health_cache_ts = 0.0
     # Return list of all snapshots so frontend can show count
     snaps   = sorted(FIDELITY_HISTORY.glob('fidelity_*.csv'), reverse=True)
     return jsonify({
