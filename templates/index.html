@@ -670,12 +670,9 @@
 
         <!-- Chart top bar: range selector + stats -->
         <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 8px 2px;flex-shrink:0;gap:12px">
-          <!-- Range buttons -->
+          <!-- Range buttons: 1D and ALL only -->
           <div style="display:flex;gap:4px">
             <button class="pchart-range-btn active" data-range="1D"  onclick="setPortfolioRange('1D',this)">1D</button>
-            <button class="pchart-range-btn"        data-range="1W"  onclick="setPortfolioRange('1W',this)">1W</button>
-            <button class="pchart-range-btn"        data-range="1M"  onclick="setPortfolioRange('1M',this)">1M</button>
-            <button class="pchart-range-btn"        data-range="3M"  onclick="setPortfolioRange('3M',this)">3M</button>
             <button class="pchart-range-btn"        data-range="ALL" onclick="setPortfolioRange('ALL',this)">ALL</button>
           </div>
           <!-- Change stats -->
@@ -2968,7 +2965,7 @@ function setPortfolioRange(range, btnEl) {
   _portfolioChartRange = range;
   document.querySelectorAll('.pchart-range-btn').forEach(b => b.classList.remove('active'));
   if (btnEl) btnEl.classList.add('active');
-  // Show/hide OHLC bar only for 1D
+  // Show OHLC bar only for 1D
   const lbl = document.getElementById('intraday_label');
   if (lbl) lbl.style.display = range === '1D' ? 'flex' : 'none';
   loadPortfolioChart(range);

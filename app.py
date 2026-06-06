@@ -4373,11 +4373,11 @@ def api_portfolio_chart():
     All-accounts portfolio chart data.
 
     Query params:
-        range: '1D' | '1W' | '1M' | '3M' | 'ALL'  (default: ALL)
+        range: '1D' | 'ALL'  (default: ALL)
 
     For 1D: returns Alpaca intraday 1-min bars PLUS Fidelity baseline so Y-axis
             is anchored to total portfolio value (~$40k), not just Alpaca (~$1.2k).
-    For 1W/1M/3M/ALL: returns daily snapshot history from SQLite.
+    For ALL: returns all daily snapshot history from SQLite.
 
     Response:
         {
@@ -4429,9 +4429,11 @@ def api_portfolio_chart():
             'change_pct':   round((last - first) / first * 100, 2) if first else 0,
         })
 
-    # ── History (1W / 1M / 3M / ALL) ─────────────────────────────────────────
-    range_map = {'1W': 7, '1M': 30, '3M': 90, 'ALL': 0}
-    days = range_map.get(rng, 0)
+    # ── History (ALL) ─────────────────────────────────────────────────────────
+    # Only ALL is supported now — 1W/1M/3M removed
+    if rng not in ('ALL',):
+        rng = 'ALL'
+    days = 0  # always full history
 
     try:
         history = fidelity_db.get_portfolio_chart_history(range_days=days)
