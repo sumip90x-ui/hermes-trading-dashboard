@@ -4324,6 +4324,24 @@ def api_portfolio_combined_latest():
         return jsonify({'error': str(exc)}), 500
 
 
+def _get_alpaca_true_profit() -> float:
+    """Fetch live Alpaca equity and return true_profit (equity - principal)."""
+    try:
+        acct = alpaca('/v2/account')
+        equity = float(acct.get('equity', 0) or 0)
+        # Re-use the same principal calc as api_account
+        try:
+            csd_acts = alpaca('/v2/account/activities', {'activity_type': 'CSD'})
+            principal = round(sum(float(d.get('net_amount', 0)) for d in csd_acts if isinstance(d, dict)), 2)
+            if principal <= 0:
+                principal = 1189.0
+        except Exception:
+            principal = 1189.0
+        return round(equity - principal, 2)
+    except Exception:
+        return 0.0
+
+
 @app.route('/api/portfolio/gl_health')
 def api_portfolio_gl_health():
     """
@@ -4341,7 +4359,9 @@ def api_portfolio_gl_health():
     if _gl_health_cache and (now - _gl_health_cache_ts) < _GL_HEALTH_CACHE_TTL:
         return jsonify(_gl_health_cache)
     try:
-        data = fidelity_db.get_gl_health_history()
+        data = fidelity_db.get_gl_health_history(
+            alpaca_true_profit=_get_alpaca_true_profit()
+        )
         _gl_health_cache = data
         _gl_health_cache_ts = now
         return jsonify(data)

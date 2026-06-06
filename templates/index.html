@@ -1689,12 +1689,26 @@
           </div>
         </div>
 
+        <!-- ── GL Breakdown (current) ────────────────────────────────── -->
+        <div style="background:var(--panel);border:1px solid var(--border);border-radius:8px;
+                    padding:10px 14px;margin-bottom:14px;font-size:11px;font-family:monospace">
+          <div style="font-size:9px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px">
+            Current Gain Breakdown
+          </div>
+          <div style="display:flex;gap:20px;flex-wrap:wrap">
+            <span>🏦 Fidelity <span id="gg-bd-fidelity" style="font-weight:700">—</span></span>
+            <span>🟠 Vanguard <span id="gg-bd-vanguard" style="font-weight:700">—</span> <span style="color:var(--muted);font-size:9px">(PDF)</span></span>
+            <span>🔴 Wells Fargo <span id="gg-bd-wf" style="font-weight:700">—</span></span>
+            <span>🔵 Alpaca <span id="gg-bd-alpaca" style="font-weight:700">—</span> <span style="color:var(--muted);font-size:9px">(live)</span></span>
+          </div>
+        </div>
+
         <!-- ── GL Trend chart ────────────────────────────────────────── -->
         <div style="background:var(--panel);border:1px solid var(--border);border-radius:8px;
                     padding:12px;margin-bottom:14px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
             <div style="font-size:11px;font-weight:700;color:var(--gold);letter-spacing:.04em">
-              💰 Total Gain Trajectory
+              💰 Total Gain Trajectory — All Accounts
             </div>
             <div style="font-size:10px;color:var(--muted)">Each point = one CSV upload. Rising = compounding. Falling = eroding.</div>
           </div>
@@ -7530,6 +7544,19 @@ function fetchProfitBasket() {
     // Snaps
     const snEl = $('gg-snaps');
     if (snEl) snEl.textContent = d.total_snapshots;
+
+    // Breakdown row
+    const bd = d.breakdown || {};
+    const setBD = (id, val) => {
+      const el = $(id);
+      if (!el) return;
+      el.textContent = fmtD(val);
+      el.style.color = val >= 0 ? 'var(--green)' : 'var(--red)';
+    };
+    setBD('gg-bd-fidelity', bd.fidelity_gl   || 0);
+    setBD('gg-bd-vanguard',  bd.vanguard_gl   || 0);
+    setBD('gg-bd-wf',        bd.wellsfargo_gl || 0);
+    setBD('gg-bd-alpaca',    bd.alpaca_gl     || 0);
   }
 
   function _renderTable(points) {

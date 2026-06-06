@@ -1312,52 +1312,36 @@ def get_portfolio_chart_history(range_days: int = 0) -> list[dict]:
 
 # ── Gain Guard — GL health tracking ──────────────────────────────────────────
 
-def get_gl_health_history() -> dict:
+def get_gl_health_history(alpaca_true_profit: float = 0.0) -> dict:
     """
-    Track total gain/loss trajectory over time from all Fidelity CSV uploads.
+    Track total gain/loss trajectory across ALL accounts over time.
 
-    For each snapshot, uses the most-complete upload per day (max symbols).
-    Returns:
-    {
-      points: [
-        {
-          date:        'YYYY-MM-DD',
-          snapshot_ts: 'ISO datetime',
-          total_value: float,
-          total_gl:    float,       # total unrealised gain/loss on Fidelity
-          total_cost:  float,
-          gl_pct:      float,       # total_gl / total_cost * 100
-          gl_delta:    float,       # change in total_gl since previous upload
-          today_gl:    float,       # CSV today's gain/loss column (day's move)
-        }, ...
-      ],
-      peak_gl:          float,    # highest total_gl ever recorded
-      peak_gl_date:     str,
-      peak_value:       float,    # highest portfolio value ever
-      peak_value_date:  str,
-      current_gl:       float,
-      current_gl_pct:   float,
-      current_value:    float,
-      drawdown_gl:      float,    # current_gl - peak_gl (negative = eroding)
-      drawdown_gl_pct:  float,    # drawdown_gl / peak_gl * 100
-      recovery_needed:  float,    # abs(drawdown_gl) — dollars to recover
-      velocity_5:       float,    # avg gl_delta over last 5 uploads
-      velocity_label:   str,      # 'COMPOUNDING' | 'STABLE' | 'ERODING' | 'RECOVERING'
-      total_snapshots:  int,
-    }
+    Fidelity: full daily history from SQLite snapshots (25+ days)
+    Vanguard: single GL figure from performance PDF override (carry-forward to all days)
+    Wells Fargo: GL from latest WF snapshot in SQLite (carry-forward)
+    Alpaca: passed in as live parameter (true_profit = equity - principal)
+
+    For each Fidelity snapshot day, we compute:
+        total_gl = fidelity_gl + vanguard_gl (PDF) + wellsfargo_gl + alpaca_gl
+
+    This matches what the header shows as total all-accounts G/L.
+
+    Args:
+        alpaca_true_profit: live Alpaca true_profit from /api/account (equity - principal)
     """
     init_db()
+
     with get_conn() as conn:
-        rows = conn.execute("""
-            SELECT
-                DATE(snapshot_date)      AS day,
-                snapshot_date,
-                snapshot_id,
-                COUNT(DISTINCT symbol)   AS syms,
-                SUM(total_value)         AS val,
-                SUM(total_cost)          AS cost,
-                SUM(total_gl)            AS gl,
-                COALESCE(SUM(today_gl), 0) AS day_gl
+        # Fidelity: best snapshot per day (most symbols)
+        fid_rows = conn.execute("""
+            SELECT DATE(snapshot_date) AS day,
+                   snapshot_date,
+                   snapshot_id,
+                   COUNT(DISTINCT symbol) AS syms,
+                   SUM(total_value)       AS val,
+                   SUM(total_cost)        AS cost,
+                   SUM(total_gl)          AS gl,
+                   COALESCE(SUM(today_gl), 0) AS day_gl
             FROM snapshots
             WHERE broker = 'fidelity'
             GROUP BY snapshot_id
@@ -1365,73 +1349,132 @@ def get_gl_health_history() -> dict:
             ORDER BY snapshot_date ASC
         """).fetchall()
 
-    if not rows:
+        # WF: latest single snapshot GL (carry-forward for all historical days)
+        wf_latest = conn.execute("""
+            SELECT SUM(total_gl) AS gl, SUM(total_value) AS val, SUM(total_cost) AS cost,
+                   DATE(MAX(snapshot_date)) AS day
+            FROM snapshots
+            WHERE broker = 'wellsfargo'
+              AND snapshot_id = (
+                  SELECT snapshot_id FROM snapshots WHERE broker='wellsfargo'
+                  GROUP BY snapshot_id ORDER BY MAX(snapshot_date) DESC LIMIT 1
+              )
+        """).fetchone()
+
+    wf_gl    = round(wf_latest["gl"]    or 0, 2) if wf_latest else 0.0
+    wf_day   = wf_latest["day"]                   if wf_latest else None
+
+    # Vanguard: GL from performance PDF override file
+    vg_gl = 0.0
+    vg_day = None
+    try:
+        if PERF_OVERRIDE_PATH.exists():
+            overrides = json.loads(PERF_OVERRIDE_PATH.read_text())
+            vg = overrides.get("vanguard", {})
+            if vg.get("has_cost"):
+                vg_gl  = round(vg.get("gl", 0) or 0, 2)
+                vg_day = (vg.get("as_of_date") or "")[:10] or None
+    except Exception:
+        pass
+
+    if not fid_rows:
         return {
             "points": [], "peak_gl": 0, "peak_gl_date": None,
             "peak_value": 0, "peak_value_date": None,
             "current_gl": 0, "current_gl_pct": 0, "current_value": 0,
             "drawdown_gl": 0, "drawdown_gl_pct": 0, "recovery_needed": 0,
             "velocity_5": 0, "velocity_label": "NO DATA", "total_snapshots": 0,
+            "breakdown": {}
         }
 
-    # Deduplicate: best snapshot per day = most symbols, then latest time
+    # Deduplicate: best snapshot per day
     best_by_day: dict[str, dict] = {}
-    for r in rows:
+    for r in fid_rows:
         day = r["day"]
         if day not in best_by_day or r["syms"] > best_by_day[day]["syms"]:
             best_by_day[day] = dict(r)
 
     ordered = sorted(best_by_day.values(), key=lambda x: x["snapshot_date"])
 
-    # Build points with running gl_delta
+    # Build points
     points = []
-    prev_gl = None
-    peak_gl = None
-    peak_gl_date = None
-    peak_value = None
+    prev_total_gl = None
+    peak_gl       = None
+    peak_gl_date  = None
+    peak_value    = None
     peak_value_date = None
 
     for r in ordered:
-        val  = round(r["val"]   or 0, 2)
-        cost = round(r["cost"]  or 0, 2)
-        gl   = round(r["gl"]    or 0, 2)
-        dgl  = round(r["day_gl"] or 0, 2)
-        gl_pct = round(gl / cost * 100, 2) if cost else 0.0
-        gl_delta = round(gl - prev_gl, 2) if prev_gl is not None else 0.0
-        prev_gl = gl
+        fid_val  = round(r["val"]    or 0, 2)
+        fid_cost = round(r["cost"]   or 0, 2)
+        fid_gl   = round(r["gl"]     or 0, 2)
+        dgl      = round(r["day_gl"] or 0, 2)
 
-        if peak_gl is None or gl > peak_gl:
-            peak_gl = gl
+        # Add non-Fidelity GL only if their data predates or matches this day
+        # Vanguard PDF GL: always carry-forward (single figure, no daily history)
+        vg_contrib  = vg_gl  # full return since account opened
+        # WF: carry-forward if WF data was available on or before this day
+        wf_contrib  = wf_gl if (wf_day and r["day"] >= wf_day) else 0.0
+        # Alpaca: only add to CURRENT (latest) point — historical Alpaca not tracked
+        alp_contrib = 0.0  # applied after loop for current point
+
+        total_gl  = round(fid_gl + vg_contrib + wf_contrib, 2)
+        total_val = round(fid_val, 2)  # value chart uses Fidelity only (VG/WF not in daily DB)
+        total_cost = round(fid_cost + (vg_gl > 0 and 808.28 or 0), 2)  # approximate for pct
+
+        gl_pct = round(total_gl / fid_cost * 100, 2) if fid_cost else 0.0
+        gl_delta = round(total_gl - prev_total_gl, 2) if prev_total_gl is not None else 0.0
+        prev_total_gl = total_gl
+
+        if peak_gl is None or total_gl > peak_gl:
+            peak_gl = total_gl
             peak_gl_date = r["day"]
-        if peak_value is None or val > peak_value:
-            peak_value = val
+        if peak_value is None or fid_val > peak_value:
+            peak_value = fid_val
             peak_value_date = r["day"]
 
         points.append({
             "date":        r["day"],
             "snapshot_ts": r["snapshot_date"],
-            "total_value": val,
-            "total_cost":  cost,
-            "total_gl":    gl,
+            "total_value": total_val,
+            "total_cost":  fid_cost,
+            "fidelity_gl": fid_gl,
+            "vanguard_gl": vg_contrib,
+            "wellsfargo_gl": wf_contrib,
+            "alpaca_gl":   0.0,
+            "total_gl":    total_gl,
             "gl_pct":      gl_pct,
             "gl_delta":    gl_delta,
             "today_gl":    dgl,
         })
 
-    # Current values (latest point)
-    latest = points[-1]
-    current_gl    = latest["total_gl"]
+    # Patch the LATEST point to include live Alpaca true_profit
+    if points and alpaca_true_profit:
+        latest = points[-1]
+        latest["alpaca_gl"]  = round(alpaca_true_profit, 2)
+        latest["total_gl"]   = round(latest["total_gl"] + alpaca_true_profit, 2)
+        latest["gl_delta"]   = round(latest["total_gl"] - (points[-2]["total_gl"] if len(points) > 1 else latest["total_gl"]), 2)
+        latest["gl_pct"]     = round(latest["total_gl"] / latest["total_cost"] * 100, 2) if latest["total_cost"] else 0.0
+        # Re-check if this is new peak
+        if latest["total_gl"] > (peak_gl or 0):
+            peak_gl      = latest["total_gl"]
+            peak_gl_date = latest["date"]
+        prev_total_gl = latest["total_gl"]
+
+    # Current values
+    latest       = points[-1]
+    current_gl   = latest["total_gl"]
     current_value = latest["total_value"]
     current_gl_pct = latest["gl_pct"]
 
-    # Drawdown from peak GL
-    drawdown_gl     = round(current_gl - (peak_gl or 0), 2)
-    drawdown_gl_pct = round(drawdown_gl / peak_gl * 100, 2) if peak_gl else 0.0
-    recovery_needed = round(abs(drawdown_gl), 2) if drawdown_gl < 0 else 0.0
+    # Drawdown
+    drawdown_gl      = round(current_gl - (peak_gl or 0), 2)
+    drawdown_gl_pct  = round(drawdown_gl / peak_gl * 100, 2) if peak_gl else 0.0
+    recovery_needed  = round(abs(drawdown_gl), 2) if drawdown_gl < 0 else 0.0
 
-    # Velocity: avg gl_delta over last 5 uploads (excluding first point which has delta=0)
+    # Velocity over last 5 uploads
     recent_deltas = [p["gl_delta"] for p in points[-5:] if p["gl_delta"] != 0]
-    velocity_5 = round(sum(recent_deltas) / len(recent_deltas), 2) if recent_deltas else 0.0
+    velocity_5    = round(sum(recent_deltas) / len(recent_deltas), 2) if recent_deltas else 0.0
 
     if velocity_5 > 50:
         velocity_label = "COMPOUNDING"
@@ -1457,6 +1500,12 @@ def get_gl_health_history() -> dict:
         "velocity_5":        velocity_5,
         "velocity_label":    velocity_label,
         "total_snapshots":   len(points),
+        "breakdown": {
+            "fidelity_gl":    latest["fidelity_gl"],
+            "vanguard_gl":    latest["vanguard_gl"],
+            "wellsfargo_gl":  latest["wellsfargo_gl"],
+            "alpaca_gl":      latest["alpaca_gl"],
+        }
     }
 
 
