@@ -42,18 +42,32 @@
   .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 
   /* Header */
-  .header { grid-column: 1/-1; display: flex; flex-direction: column; justify-content: center; padding: 4px 16px; gap: 3px; }
-  .header-row1 { display: flex; align-items: center; gap: 6px; }
-  .header-row2 { display: flex; align-items: center; gap: 12px; padding: 2px 0; border-top: 1px solid var(--border); }
+  .header { grid-column: 1/-1; display: flex; flex-direction: column; justify-content: center; padding: 4px 16px; gap: 4px; }
+  .header-row1 { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
+  .header-row2 { display: flex; align-items: center; gap: 8px; padding: 3px 0 2px; border-top: 1px solid var(--border); flex-wrap: wrap; }
   .header h1 { font-size: 14px; color: var(--gold); font-weight: 700; white-space: nowrap; }
   .metric { text-align: center; }
   .metric .val { font-size: 18px; font-weight: 700; }
   .metric .lbl { font-size: 9px; color: var(--muted); }
+  /* legacy metric2 — kept for anything else that still references it */
   .metric2 { text-align: center; white-space: nowrap; }
   .metric2 .val2 { font-size: 15px; font-weight: 700; }
   .metric2 .lbl2 { font-size: 9px; color: var(--muted); letter-spacing: .3px; }
   .metric2.big .val2 { font-size: 17px; }
   .metric2.big .lbl2 { font-size: 9px; }
+  /* Account pills in row 2 */
+  .acct-pill { display:inline-flex; align-items:center; gap:5px; padding:2px 9px 2px 7px;
+               border:1px solid #252A36; border-radius:12px; background:#0B0E17;
+               font-size:11px; font-family:monospace; white-space:nowrap; cursor:default; }
+  .acct-pill .pill-label { font-size:9px; color:var(--muted); letter-spacing:.04em; }
+  .acct-pill .pill-val   { font-weight:700; }
+  .acct-pill .pill-gl    { font-size:10px; margin-left:2px; }
+  .acct-pill.editable    { cursor:pointer; }
+  .acct-pill.editable:hover { border-color:#446644; }
+  /* 401k inline edit */
+  #k401-input { background:transparent; border:none; outline:none; color:inherit;
+                font-family:monospace; font-size:11px; font-weight:700;
+                width:90px; text-align:right; }
   .ai-switch { display:flex; align-items:center; gap:5px; margin-left:4px; padding:3px 7px; border:1px solid #252A36; border-radius:6px; background:#0B0E17; white-space:nowrap; }
   .ai-switch label { font-size:9px; color:var(--muted); letter-spacing:.04em; }
   .ai-switch select { background:#131722; color:var(--text); border:1px solid #252A36; border-radius:4px; padding:2px 5px; font-size:10px; font-family:inherit; max-width:132px; }
@@ -459,100 +473,106 @@
 
   <!-- HEADER -->
   <div class="header panel">
-    <!-- Row 1: main metrics -->
+    <!-- Row 1: title + total + actions -->
     <div class="header-row1">
       <div style="display:flex;flex-direction:column;line-height:1.2">
         <h1>⚡ PROJECT J</h1>
         <span style="font-size:9px;color:var(--muted);letter-spacing:1.5px;font-family:monospace;padding-left:2px">for Jiana</span>
       </div>
       <span class="live-dot"></span>
-      <div class="metric">
-        <div class="val" id="equity">—</div>
-        <div class="lbl">ALPACA</div>
+
+      <!-- TOTAL ALL ACCOUNTS — the one big number -->
+      <div style="display:flex;flex-direction:column;align-items:center;margin:0 4px">
+        <div id="all-accounts-val" style="font-size:26px;font-weight:800;color:var(--gold);letter-spacing:-.5px">—</div>
+        <div style="font-size:9px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase">Total All Accounts</div>
       </div>
-      <div style="width:1px;height:28px;background:var(--border);margin:0 2px"></div>
-      <div class="metric" title="Combined total: Fidelity + Vanguard + Wells Fargo + Alpaca">
-        <div class="val" id="all-accounts-val" style="color:#88ccff">—</div>
-        <div class="lbl" style="color:#88ccff">ALL ACCOUNTS</div>
+
+      <!-- Total G/L across all accounts -->
+      <div style="display:flex;flex-direction:column;align-items:center;margin:0 4px">
+        <div id="all-accounts-gl" style="font-size:16px;font-weight:700;color:var(--green)">—</div>
+        <div id="all-accounts-gl-pct" style="font-size:11px;color:var(--muted)">— all accts G/L</div>
       </div>
-      <div class="metric">
-        <div class="val" id="day_pl">—</div>
-        <div class="lbl">DAY P/L</div>
+
+      <div style="width:1px;height:32px;background:var(--border);margin:0 4px;flex-shrink:0"></div>
+
+      <!-- Alpaca cash + day P/L -->
+      <div style="display:flex;flex-direction:column;align-items:center">
+        <div id="day_pl" class="val" style="font-size:15px;font-weight:700">—</div>
+        <div style="font-size:9px;color:var(--muted)">DAY P/L</div>
       </div>
-      <div class="metric">
-        <div class="val" id="cash_val" style="color:var(--gold)">—</div>
-        <div class="lbl">CASH</div>
+      <div style="display:flex;flex-direction:column;align-items:center">
+        <div id="cash_val" style="font-size:15px;font-weight:700;color:var(--gold)">—</div>
+        <div style="font-size:9px;color:var(--muted)">ALPACA CASH</div>
       </div>
-      <button class="ath-badge waiting" id="ath_badge" onclick="badgeClick()" title="Click for Hermes analysis">ATH WATCH</button>
-      <button id="best-signal-btn" onclick="openBestSignal()" title="Run convergence score — show best trade now">⚡ BEST SIGNAL</button>
-      <div id="macro_signal_badge" style="padding:3px 8px;font-size:10px;font-family:monospace;
-           border:1px solid #252A36;border-radius:4px;cursor:pointer;white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis"
-           onclick="openMacroAdvisory()"
-           title="Click for ORACLE macro buy suggestions">⚪ NEUTRAL</div>
-      <button class="btn-muted" style="padding:4px 12px;font-size:11px;margin-left:8px" onclick="saveSessionNote()" id="save-note-btn" title="Save today's session note to Trading Vault">📝 Save Note</button>
-      <button class="btn-muted" style="padding:4px 12px;font-size:11px;margin-left:4px" onclick="openReadNotes()" title="Read recent session notes from Trading Vault">📖 Read Notes</button>
-      <button class="btn-muted" style="padding:4px 12px;font-size:11px" onclick="location.reload(true)" title="Hard refresh — reloads page and clears cache">🔄 Refresh</button>
-      <span id="build-ts" style="font-size:9px;color:#4a9eff;font-family:monospace;opacity:0.7;white-space:nowrap;" title="Server loaded at this time">v{{ build_ts }}</span>
-      <div class="ai-switch" title="Only simple dashboard AI uses this. Trades, tools, ATH decisions, and final reports stay Claude Sonnet.">
-        <label for="ai-simple-model">Simple AI</label>
-        <select id="ai-simple-model" onchange="saveAiModel()"></select>
-        <button type="button" onclick="testAiModel()">Test</button>
-        <span class="ai-note" id="ai-model-status">Trades/final: Claude</span>
+
+      <div style="margin-left:auto;display:flex;align-items:center;gap:6px;flex-wrap:nowrap">
+        <button class="ath-badge waiting" id="ath_badge" onclick="badgeClick()" title="Click for Hermes analysis">ATH WATCH</button>
+        <button id="best-signal-btn" onclick="openBestSignal()" title="Run convergence score — show best trade now">⚡ BEST SIGNAL</button>
+        <div id="macro_signal_badge" style="padding:3px 8px;font-size:10px;font-family:monospace;
+             border:1px solid #252A36;border-radius:4px;cursor:pointer;white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis"
+             onclick="openMacroAdvisory()"
+             title="Click for ORACLE macro buy suggestions">⚪ NEUTRAL</div>
+        <button class="btn-muted" style="padding:4px 10px;font-size:11px" onclick="saveSessionNote()" id="save-note-btn" title="Save today's session note">📝</button>
+        <button class="btn-muted" style="padding:4px 10px;font-size:11px" onclick="openReadNotes()" title="Read recent session notes">📖</button>
+        <button class="btn-muted" style="padding:4px 10px;font-size:11px" onclick="location.reload(true)" title="Hard refresh">🔄</button>
+        <span id="build-ts" style="font-size:9px;color:#4a9eff;font-family:monospace;opacity:0.7;white-space:nowrap;" title="Server loaded at this time">v{{ build_ts }}</span>
+        <div class="ai-switch" title="Only simple dashboard AI uses this. Trades stay Claude Sonnet.">
+          <label for="ai-simple-model">AI</label>
+          <select id="ai-simple-model" onchange="saveAiModel()"></select>
+          <button type="button" onclick="testAiModel()">Test</button>
+        </div>
       </div>
     </div>
-    <!-- Row 2: key metrics only -->
+
+    <!-- Row 2: per-account pills + 401k edit -->
     <div class="header-row2">
-      <div class="metric2">
-        <div class="val2 green" id="intra_high">—</div>
-        <div class="lbl2">INTRADAY HIGH</div>
+      <span style="font-size:9px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;flex-shrink:0">Accounts:</span>
+
+      <!-- Fidelity pill -->
+      <div class="acct-pill" id="pill-fidelity" title="Fidelity — 480+ positions">
+        <span>🏦</span>
+        <span class="pill-label">FIDELITY</span>
+        <span class="pill-val" id="pill-fidelity-val">—</span>
+        <span class="pill-gl" id="pill-fidelity-gl"></span>
       </div>
-      <div style="width:1px;height:28px;background:var(--border);margin:0 4px"></div>
-      <div class="metric2">
-        <div class="val2" id="pullback_goal" style="color:var(--gold)">—</div>
-        <div class="lbl2">🎯 PULLBACK GOAL</div>
+
+      <!-- Vanguard pill -->
+      <div class="acct-pill" id="pill-vanguard" title="Vanguard">
+        <span>🟠</span>
+        <span class="pill-label">VANGUARD</span>
+        <span class="pill-val" id="pill-vanguard-val">—</span>
+        <span class="pill-gl" id="pill-vanguard-gl"></span>
       </div>
-      <div style="width:1px;height:28px;background:var(--border);margin:0 4px"></div>
-      <div class="metric2 big">
-        <div class="val2" id="true_profit_val" style="color:var(--green)">—</div>
-        <div class="lbl2">TRUE PROFIT</div>
+
+      <!-- Wells Fargo pill -->
+      <div class="acct-pill" id="pill-wellsfargo" title="Wells Fargo WellsTrade">
+        <span>🔴</span>
+        <span class="pill-label">WELLS FARGO</span>
+        <span class="pill-val" id="pill-wellsfargo-val">—</span>
+        <span class="pill-gl" id="pill-wellsfargo-gl"></span>
       </div>
-      <div class="metric2 big">
-        <div class="val2" id="true_profit_pct_val" style="color:var(--green)">—</div>
-        <div class="lbl2">VS $1,189 PRINCIPAL</div>
+
+      <!-- Alpaca pill -->
+      <div class="acct-pill" id="pill-alpaca" title="Alpaca — 10x runner portfolio">
+        <span>🔵</span>
+        <span class="pill-label">ALPACA</span>
+        <span class="pill-val" id="equity">—</span>
+        <span class="pill-gl" id="pill-alpaca-gl"></span>
       </div>
-      <div style="width:1px;height:28px;background:var(--border);margin:0 4px"></div>
-      <!-- Profit checkpoint / variation tracker -->
-      <div class="metric2 big">
-        <div style="display:flex;align-items:baseline;gap:6px">
-          <div class="val2" id="checkpoint_profit_val" style="color:var(--green)">—</div>
-          <div style="font-size:11px;color:var(--muted);cursor:pointer;user-select:none" onclick="zeroCheckpoint()" title="Click to zero out checkpoint">⊙</div>
-          <div class="val2" id="checkpoint_delta_val" style="color:var(--muted)">0.00</div>
-        </div>
-        <div class="lbl2" id="checkpoint_lbl">CHECKPOINT — click ⊙ to zero</div>
+
+      <!-- 401k pill — editable inline -->
+      <div class="acct-pill editable" id="pill-401k" title="Click value to update 401k total"
+           onclick="focus401k()">
+        <span>🏢</span>
+        <span class="pill-label">401K</span>
+        <span class="pill-val">$</span><input type="text" id="k401-input" placeholder="0.00"
+          onblur="save401k(this.value)"
+          onkeydown="if(event.key==='Enter'){this.blur();}"
+          title="Enter current 401k balance">
+        <span class="pill-gl" id="pill-401k-gl"></span>
       </div>
-      <div class="metric2">
-        <div class="val2" id="checkpoint_pct_val" style="color:var(--muted)">0.00%</div>
-        <div class="lbl2">VARIATION</div>
-      </div>
-      <div style="width:1px;height:28px;background:var(--border);margin:0 4px"></div>
-      <!-- Profit Basket: DIA+QQQ+VOO+SGOL vs True Profit -->
-      <div class="metric2 big" id="basket-widget" title="Click ⊙ to reset basket checkpoint">
-        <div style="display:flex;align-items:baseline;gap:6px">
-          <div class="val2" id="basket_total_val" style="color:var(--muted)">—</div>
-          <div style="font-size:11px;color:var(--muted);cursor:pointer;user-select:none" onclick="resetBasketCheckpoint()" title="Reset basket checkpoint">⊙</div>
-          <div class="val2" id="basket_delta_val" style="color:var(--muted)">—</div>
-        </div>
-        <div class="lbl2" id="basket_lbl">📦 BASKET</div>
-      </div>
-      <div class="metric2">
-        <div class="val2" id="basket_pct_val" style="color:var(--muted)">—</div>
-        <div class="lbl2">BASKET VAR</div>
-      </div>
-      <div class="metric2">
-        <div style="font-size:9px;color:var(--muted);font-family:monospace;line-height:1.6" id="basket_detail">DIA · QQQ · VOO · SGOL</div>
-        <div class="lbl2">TARGET $<span id="basket_target_each">—</span> EACH</div>
-      </div>
-      <div style="width:1px;height:28px;background:var(--border);margin:0 4px"></div>
+
+      <div style="width:1px;height:20px;background:var(--border);margin:0 4px;flex-shrink:0"></div>
       <button id="free-cash-btn" class="cash-ok" onclick="openFreeCash()" title="Free up cash — click to see sell plan">💵 FREE CASH</button>
     </div>
   </div>
@@ -2608,33 +2628,127 @@ let _lastEquity    = 0;
 
 // ── All-accounts combined total ────────────────────────────────────────────
 // Fetches broker totals from SQLite (Fidelity + Vanguard + WF) and adds Alpaca equity.
-// Updates the ALL ACCOUNTS header metric. Called on load + every 5 min.
-let _brokerTotalValue = 0;  // non-Alpaca brokers combined, used to build total
+// Updates the ALL ACCOUNTS header metric and per-account pills.
+let _brokerTotalValue = 0;
+let _brokerTotalGL    = 0;
+let _brokerBreakdown  = {};
+let _k401Data         = {value: 0, gl: 0, cost: 0};
+
 function fetchAllAccountsTotal() {
   fetch('/api/portfolio/combined_latest')
     .then(r => r.json())
     .then(data => {
-      const t = data.totals || {};
-      _brokerTotalValue = t.value || 0;
+      _brokerBreakdown  = data.broker_breakdown || {};
+      _brokerTotalValue = (data.totals || {}).value || 0;
+      _brokerTotalGL    = (data.totals || {}).gl    || 0;
+      _k401Data         = data.k401 || {value: 0, gl: 0, cost: 0};
       _updateAllAccountsDisplay();
 
-      // Also update the Portfolio tab broker bar if it's already open
-      if (window.portLoadCombinedFromServer && document.getElementById('view-portfolio') &&
-          document.getElementById('view-portfolio').style.display !== 'none') {
-        window.portLoadCombinedFromServer();
+      // Update 401k input field if empty or different
+      const k401inp = document.getElementById('k401-input');
+      if (k401inp && !k401inp._dirty && _k401Data.value > 0) {
+        k401inp.value = _k401Data.value.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+      }
+
+      // Populate per-broker pills
+      ['fidelity','vanguard','wellsfargo'].forEach(b => {
+        const bd = _brokerBreakdown[b];
+        const valEl = document.getElementById('pill-' + b + '-val');
+        const glEl  = document.getElementById('pill-' + b + '-gl');
+        if (!bd) {
+          if (valEl) valEl.textContent = '—';
+          if (glEl)  glEl.textContent  = '';
+          return;
+        }
+        if (valEl) valEl.textContent = '$' + (bd.value||0).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
+        if (glEl) {
+          const gl = bd.gl || 0;
+          glEl.textContent  = (gl >= 0 ? '+' : '') + '$' + Math.abs(gl).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
+          glEl.style.color  = gl >= 0 ? 'var(--green)' : 'var(--red)';
+        }
+      });
+
+      // 401k pill GL
+      const k401gl = document.getElementById('pill-401k-gl');
+      if (k401gl && _k401Data.gl) {
+        const gl = _k401Data.gl;
+        k401gl.textContent = (gl >= 0 ? '+' : '') + '$' + Math.abs(gl).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
+        k401gl.style.color = gl >= 0 ? 'var(--green)' : 'var(--red)';
+      }
+
+      // Refresh Portfolio tab if open
+      if (window.portLoadCombinedFromServer) {
+        const vp = document.getElementById('view-portfolio');
+        if (vp && vp.style.display !== 'none') window.portLoadCombinedFromServer();
       }
     })
     .catch(() => {});
 }
 
 function _updateAllAccountsDisplay() {
-  // Combined = broker total (Fidelity + Vanguard + WF) + Alpaca equity
   const alpacaEquity = window.portfolioData ? (window.portfolioData.equity || 0) : (_lastEquity || 0);
-  const combined = _brokerTotalValue + alpacaEquity;
-  const el = document.getElementById('all-accounts-val');
-  if (el && combined > 0) {
-    el.textContent = '$' + combined.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+  const k401val      = _k401Data.value || 0;
+  // Combined = broker SQLite total (already includes Fidelity+VG+WF) + Alpaca live + 401k
+  // Note: broker total does NOT include Alpaca — Alpaca is live from /api/account
+  const brokerNoAlpaca = _brokerTotalValue; // Fidelity+VG+WF only
+  const combined = brokerNoAlpaca + alpacaEquity + k401val;
+
+  // Total G/L: broker GL + 401k GL (Alpaca day P/L tracked separately)
+  const totalGL = _brokerTotalGL + (_k401Data.gl || 0);
+
+  const allValEl  = document.getElementById('all-accounts-val');
+  const allGLEl   = document.getElementById('all-accounts-gl');
+  const allGLPctEl= document.getElementById('all-accounts-gl-pct');
+
+  if (allValEl && combined > 0) {
+    allValEl.textContent = '$' + combined.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
   }
+  if (allGLEl) {
+    allGLEl.textContent = (totalGL >= 0 ? '+' : '') + '$' + Math.abs(totalGL).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+    allGLEl.style.color = totalGL >= 0 ? 'var(--green)' : 'var(--red)';
+  }
+  if (allGLPctEl) {
+    const cost = combined - totalGL;
+    const pct  = cost > 0 ? (totalGL / cost * 100) : 0;
+    allGLPctEl.textContent = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '% all accts G/L';
+    allGLPctEl.style.color = pct >= 0 ? 'var(--green)' : 'var(--red)';
+  }
+
+  // Alpaca pill
+  const alpacaPillVal = document.getElementById('equity');
+  if (alpacaPillVal && alpacaEquity > 0) {
+    alpacaPillVal.textContent = '$' + alpacaEquity.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
+  }
+}
+
+// ── 401k inline edit ────────────────────────────────────────────────────────
+function focus401k() {
+  const inp = document.getElementById('k401-input');
+  if (inp) { inp.focus(); inp.select(); }
+}
+
+function save401k(raw) {
+  const inp = document.getElementById('k401-input');
+  if (inp) inp._dirty = false;
+  const val = parseFloat((raw || '0').replace(/[$,]/g, ''));
+  if (isNaN(val) || val < 0) return;
+  const existing = _k401Data || {};
+  fetch('/api/portfolio/set_401k', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({value: val, cost: existing.cost || 0, gl: existing.gl || 0}),
+  })
+  .then(r => r.json())
+  .then(d => {
+    _k401Data = d;
+    _updateAllAccountsDisplay();
+    const k401gl = document.getElementById('pill-401k-gl');
+    if (k401gl && d.gl) {
+      k401gl.textContent = (d.gl >= 0 ? '+' : '') + '$' + Math.abs(d.gl).toLocaleString('en-US',{minimumFractionDigits:0});
+      k401gl.style.color = d.gl >= 0 ? 'var(--green)' : 'var(--red)';
+    }
+  })
+  .catch(() => {});
 }
 
 function fetchAccount() {

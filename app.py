@@ -4290,12 +4290,66 @@ def api_portfolio_combined_latest():
     """
     Return the latest snapshot per broker merged into one position list.
     Used by the Portfolio tab on load and after any upload.
+    Also injects 401k value from the manual savings file.
     """
     try:
         data = fidelity_db.get_combined_latest_positions()
+        # Inject 401k as metadata only — do NOT add to totals (client adds it)
+        k401 = _load_401k()
+        data['k401'] = k401
         return jsonify(data)
     except Exception as exc:
         return jsonify({'error': str(exc)}), 500
+
+
+# ── 401k manual value store ───────────────────────────────────────────────────
+_401K_PATH = HOME / 'Documents' / 'Trading Vault' / '401k_value.json'
+
+def _load_401k() -> dict:
+    """Load manually-entered 401k total from disk."""
+    try:
+        if _401K_PATH.exists():
+            return json.loads(_401K_PATH.read_text())
+    except Exception:
+        pass
+    return {'value': 0.0, 'gl': 0.0, 'cost': 0.0, 'updated_at': ''}
+
+def _save_401k(value: float, cost: float = 0.0, gl: float = 0.0) -> dict:
+    """Persist 401k totals to disk."""
+    data = {
+        'value':      round(value, 2),
+        'cost':       round(cost, 2),
+        'gl':         round(gl, 2),
+        'gl_pct':     round(gl / cost * 100, 2) if cost else 0.0,
+        'updated_at': datetime.now().strftime('%Y-%m-%dT%H:%M:%S'),
+    }
+    _401K_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _401K_PATH.write_text(json.dumps(data, indent=2))
+    return data
+
+@app.route('/api/portfolio/set_401k', methods=['POST'])
+def api_portfolio_set_401k():
+    """
+    Save or update the 401k total manually.
+    Body JSON: {value, cost (optional), gl (optional)}
+    """
+    try:
+        body  = request.get_json(force=True) or {}
+        value = float(body.get('value', 0))
+        cost  = float(body.get('cost', 0))
+        gl    = float(body.get('gl', 0))
+        if not cost and not gl:
+            # If only value provided, try to derive from existing cost
+            existing = _load_401k()
+            cost = existing.get('cost', 0)
+        result = _save_401k(value, cost, gl)
+        return jsonify({'status': 'saved', **result})
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 400
+
+@app.route('/api/portfolio/get_401k', methods=['GET'])
+def api_portfolio_get_401k():
+    return jsonify(_load_401k())
 
 
 # ── Background live updater ───────────────────────────────────────────────────
