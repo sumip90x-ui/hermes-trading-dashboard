@@ -58,10 +58,13 @@ def get_conn() -> sqlite3.Connection:
 def init_db() -> None:
     """Create tables if they don't exist. Safe to call on every startup."""
     with get_conn() as conn:
-        # ── Migrate first: add broker column if old DB lacks it ─────────────
+        # ── Migrate: add broker column if old DB lacks it ─────────────
         cols = [r[1] for r in conn.execute("PRAGMA table_info(snapshots)").fetchall()]
         if cols and "broker" not in cols:
             conn.execute("ALTER TABLE snapshots ADD COLUMN broker TEXT NOT NULL DEFAULT 'fidelity'")
+            conn.commit()
+        if cols and "today_gl" not in cols:
+            conn.execute("ALTER TABLE snapshots ADD COLUMN today_gl REAL")
             conn.commit()
 
         conn.executescript("""
@@ -79,6 +82,7 @@ def init_db() -> None:
                 total_value     REAL,
                 total_cost      REAL,
                 total_gl        REAL,
+                today_gl        REAL,
                 gl_pct          REAL,
                 portfolio_pct   REAL
             );
@@ -212,11 +216,13 @@ def parse_fidelity_csv(filepath: str | Path) -> list[dict]:
         df["_ticker"] = df["Sleeve Name"].str.strip()
     else:
         df["_ticker"] = df["Account Name"].str.strip()
-    df["_name"]   = df["Symbol"].str.strip()
-    df["_qty"]    = df["Description"].apply(_parse_money)
-    df["_price"]  = df["Quantity"].apply(_parse_money)
-    df["_val"]    = df["Last Price Change"].apply(_parse_money)
-    df["_cost"]   = df["Percent Of Account"].apply(_parse_money)
+    df["_name"]     = df["Symbol"].str.strip()
+    df["_qty"]      = df["Description"].apply(_parse_money)
+    df["_price"]    = df["Quantity"].apply(_parse_money)
+    df["_val"]      = df["Last Price Change"].apply(_parse_money)
+    df["_cost"]     = df["Percent Of Account"].apply(_parse_money)
+    # Today's G/L Dollar: after index_col=0 shift, "Current Value" col = today's $ change
+    df["_today_gl"] = df["Current Value"].apply(_parse_money)
 
     # Filter out rows where ticker is blank or a section header (not a real symbol)
     # Also filter money market funds (end with **) — these are cash positions not stocks
@@ -235,6 +241,7 @@ def parse_fidelity_csv(filepath: str | Path) -> list[dict]:
             last_price   =("_price",         "first"),
             total_value  =("_val",           "sum"),
             total_cost   =("_cost",          "sum"),
+            today_gl     =("_today_gl",      "sum"),
         )
         .reset_index()
         .rename(columns={"_ticker": "Symbol"})
@@ -268,6 +275,7 @@ def parse_fidelity_csv(filepath: str | Path) -> list[dict]:
             "total_value":  float(row["total_value"]) if pd.notna(row["total_value"]) else 0.0,
             "total_cost":   float(row["total_cost"]) if pd.notna(row["total_cost"]) else 0.0,
             "total_gl":     float(row["total_gl"]) if pd.notna(row["total_gl"]) else 0.0,
+            "today_gl":     float(row["today_gl"]) if pd.notna(row["today_gl"]) else 0.0,
             "gl_pct":       float(row["gl_pct"]) if pd.notna(row["gl_pct"]) else None,
             "portfolio_pct":float(row["portfolio_pct"]) if pd.notna(row["portfolio_pct"]) else None,
         })
@@ -1156,19 +1164,20 @@ def ingest_broker_snapshot(filepath: str | Path, broker: str) -> dict:
                 snapshot_id, snapshot_date, filename, broker,
                 symbol, description, accounts,
                 total_qty, last_price, total_value, total_cost,
-                total_gl, gl_pct, portfolio_pct
+                total_gl, today_gl, gl_pct, portfolio_pct
             ) VALUES (
                 :snapshot_id, :snapshot_date, :filename, :broker,
                 :symbol, :description, :accounts,
                 :total_qty, :last_price, :total_value, :total_cost,
-                :total_gl, :gl_pct, :portfolio_pct
+                :total_gl, :today_gl, :gl_pct, :portfolio_pct
             )
         """, [
             {**r,
              "snapshot_id":   snapshot_id,
              "snapshot_date": snapshot_date,
              "filename":      filename,
-             "broker":        broker}
+             "broker":        broker,
+             "today_gl":      r.get("today_gl", 0.0) or 0.0}
             for r in rows
         ])
 
@@ -1191,6 +1200,43 @@ def ingest_broker_snapshot(filepath: str | Path, broker: str) -> dict:
         "buy_signals":     len(buy_signals),
         "top_signals":     buy_signals[:5],
         "note":            f"{broker} snapshot ingested — {len(rows)} symbols",
+    }
+
+
+# ── Fidelity today's G/L ─────────────────────────────────────────────────────
+
+def get_fidelity_today_gl() -> dict:
+    """
+    Return today's total G/L from the most recent Fidelity snapshot.
+    Sums today_gl across all symbols in the latest snapshot.
+
+    Returns: {today_gl: float, snapshot_date: str, symbol_count: int}
+    Used by /api/account to include Fidelity daily change in the Day P/L header.
+    """
+    init_db()
+    with get_conn() as conn:
+        # Get latest Fidelity snapshot_id
+        latest = conn.execute("""
+            SELECT snapshot_id, MAX(snapshot_date) AS sd
+            FROM snapshots
+            WHERE broker = 'fidelity'
+            GROUP BY snapshot_id
+            ORDER BY sd DESC
+            LIMIT 1
+        """).fetchone()
+        if not latest:
+            return {"today_gl": 0.0, "snapshot_date": None, "symbol_count": 0}
+
+        result = conn.execute("""
+            SELECT SUM(today_gl) AS tgl, COUNT(*) AS syms, MAX(snapshot_date) AS sd
+            FROM snapshots
+            WHERE snapshot_id = ?
+        """, [latest["snapshot_id"]]).fetchone()
+
+    return {
+        "today_gl":      round(result["tgl"] or 0.0, 2),
+        "snapshot_date": result["sd"],
+        "symbol_count":  result["syms"] or 0,
     }
 
 
@@ -1404,15 +1450,19 @@ def ingest_snapshot(filepath: str | Path) -> dict:
                 snapshot_id, snapshot_date, filename,
                 symbol, description, accounts,
                 total_qty, last_price, total_value, total_cost,
-                total_gl, gl_pct, portfolio_pct
+                total_gl, today_gl, gl_pct, portfolio_pct
             ) VALUES (
                 :snapshot_id, :snapshot_date, :filename,
                 :symbol, :description, :accounts,
                 :total_qty, :last_price, :total_value, :total_cost,
-                :total_gl, :gl_pct, :portfolio_pct
+                :total_gl, :today_gl, :gl_pct, :portfolio_pct
             )
         """, [
-            {**r, "snapshot_id": snapshot_id, "snapshot_date": snapshot_date, "filename": filename}
+            {**r,
+             "snapshot_id":   snapshot_id,
+             "snapshot_date": snapshot_date,
+             "filename":      filename,
+             "today_gl":      r.get("today_gl", 0.0) or 0.0}
             for r in rows
         ])
 

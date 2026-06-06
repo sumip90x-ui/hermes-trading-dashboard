@@ -495,11 +495,13 @@
 
       <div style="width:1px;height:32px;background:var(--border);margin:0 4px;flex-shrink:0"></div>
 
-      <!-- Alpaca cash + day P/L -->
-      <div style="display:flex;flex-direction:column;align-items:center">
-        <div id="day_pl" class="val" style="font-size:15px;font-weight:700">—</div>
-        <div style="font-size:9px;color:var(--muted)">DAY P/L</div>
+      <!-- Combined Day P/L: Fidelity (CSV) + Alpaca (live) -->
+      <div style="display:flex;flex-direction:column;align-items:center" title="Today's G/L: Fidelity (from CSV) + Alpaca (live)">
+        <div id="combined_day_pl" style="font-size:15px;font-weight:700">—</div>
+        <div id="combined_day_pl_lbl" style="font-size:9px;color:var(--muted)">DAY P/L</div>
       </div>
+      <!-- Keep hidden day_pl for JS compat -->
+      <div id="day_pl" style="display:none"></div>
       <div style="display:flex;flex-direction:column;align-items:center">
         <div id="cash_val" style="font-size:15px;font-weight:700;color:var(--gold)">—</div>
         <div style="font-size:9px;color:var(--muted)">ALPACA CASH</div>
@@ -564,17 +566,10 @@
         <span class="pill-gl" id="pill-alpaca-gl"></span>
       </div>
 
-      <!-- 401k pill — editable inline -->
-      <div class="acct-pill editable" id="pill-401k" title="Click value to update 401k total"
-           onclick="focus401k()">
-        <span>🏢</span>
-        <span class="pill-label">401K</span>
-        <span class="pill-val">$</span><input type="text" id="k401-input" placeholder="0.00"
-          onblur="save401k(this.value)"
-          onkeydown="if(event.key==='Enter'){this.blur();}"
-          title="Enter current 401k balance">
-        <span class="pill-gl" id="pill-401k-gl"></span>
-      </div>
+      <!-- 401k pill removed — 401k (CSI Thrift Plan) is included in Fidelity CSV automatically -->
+      <!-- Hidden inputs kept for JS compat -->
+      <input type="text" id="k401-input" style="display:none">
+      <span id="pill-401k-gl" style="display:none"></span>
 
       <div style="width:1px;height:20px;background:var(--border);margin:0 4px;flex-shrink:0"></div>
       <button id="free-cash-btn" class="cash-ok" onclick="openFreeCash()" title="Free up cash — click to see sell plan">💵 FREE CASH</button>
@@ -2815,10 +2810,22 @@ function fetchAccount() {
     const eqEl = document.getElementById('equity');
     if (eqEl) eqEl.textContent = '$'+d.equity.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 
+    // Hidden day_pl kept for JS compat
     const pl = document.getElementById('day_pl');
-    if (pl) {
-      pl.textContent = (d.day_pl>=0?'+':'') + '$'+d.day_pl.toFixed(2);
-      pl.className   = 'val ' + (d.day_pl>=0?'green':'red');
+    if (pl) { pl.textContent = (d.day_pl>=0?'+':'') + '$'+d.day_pl.toFixed(2); }
+
+    // Combined Day P/L = Fidelity today_gl + Alpaca day_pl (from server)
+    const cdpl = document.getElementById('combined_day_pl');
+    const cdlbl = document.getElementById('combined_day_pl_lbl');
+    if (cdpl) {
+      const cdv = d.combined_day_pl || d.day_pl || 0;
+      cdpl.textContent = (cdv >= 0 ? '+' : '') + '$' + Math.abs(cdv).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+      cdpl.style.color = cdv >= 0 ? 'var(--green)' : 'var(--red)';
+    }
+    if (cdlbl && d.fidelity_today_gl_date) {
+      // Show which CSV date Fidelity GL comes from
+      const dt = (d.fidelity_today_gl_date||'').slice(0,10);
+      cdlbl.textContent = 'DAY P/L (FID+ALP)';
     }
 
     // Row 1 — cash

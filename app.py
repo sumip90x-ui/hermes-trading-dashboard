@@ -1341,22 +1341,37 @@ def api_account():
     at_risk       = round(intra_high - equity, 2)
     pullback_goal = round(intra_high - equity, 2)
 
+    # Fidelity today's G/L from latest uploaded CSV
+    try:
+        fid_today = fidelity_db.get_fidelity_today_gl()
+        fidelity_today_gl      = fid_today["today_gl"]
+        fidelity_today_gl_date = fid_today["snapshot_date"]
+    except Exception:
+        fidelity_today_gl      = 0.0
+        fidelity_today_gl_date = None
+
+    # Combined Day P/L = Alpaca live day_pl + Fidelity today_gl from latest CSV
+    combined_day_pl = round(day_pl + fidelity_today_gl, 2)
+
     return jsonify({
-        'equity':          equity,
-        'cash':            cash,
-        'buying_power':    float(acct.get('buying_power', 0)),
-        'day_pl':          day_pl,
-        'intra_high':      intra_high,
-        'intra_low':       intra_low,
-        'intra_open':      intra_open,
-        'ath':             round(ath, 2),
-        'total_profit':    total_profit,
-        'stable_profit':   stable_profit,
-        'at_risk':         at_risk,
-        'pullback_goal':   pullback_goal,
-        'principal':       VERIFIED_PRINCIPAL,
-        'true_profit':     true_profit,
-        'true_profit_pct': true_profit_pct,
+        'equity':               equity,
+        'cash':                 cash,
+        'buying_power':         float(acct.get('buying_power', 0)),
+        'day_pl':               day_pl,
+        'fidelity_today_gl':    fidelity_today_gl,
+        'fidelity_today_gl_date': fidelity_today_gl_date,
+        'combined_day_pl':      combined_day_pl,
+        'intra_high':           intra_high,
+        'intra_low':            intra_low,
+        'intra_open':           intra_open,
+        'ath':                  round(ath, 2),
+        'total_profit':         total_profit,
+        'stable_profit':        stable_profit,
+        'at_risk':              at_risk,
+        'pullback_goal':        pullback_goal,
+        'principal':            VERIFIED_PRINCIPAL,
+        'true_profit':          true_profit,
+        'true_profit_pct':      true_profit_pct,
     })
 
 @app.route('/api/ohlc')
