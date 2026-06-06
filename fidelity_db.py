@@ -1203,6 +1203,113 @@ def ingest_broker_snapshot(filepath: str | Path, broker: str) -> dict:
     }
 
 
+# ── Portfolio chart history ───────────────────────────────────────────────────
+
+def get_portfolio_chart_history(range_days: int = 0) -> list[dict]:
+    """
+    Build a daily time-series for the all-accounts portfolio chart.
+
+    Strategy:
+      - For each calendar day in the DB, pick the Fidelity snapshot with the most
+        symbols (most complete upload). Sum all brokers that have data on that day.
+      - For days where only Fidelity has data, Vanguard/WF values are carried forward
+        from their most recent upload.
+      - Returns list of {date, value, fidelity, vanguard, wellsfargo} sorted asc.
+
+    Args:
+        range_days: 0 = all history, 7 = last 7 days, 30 = last 30, 90 = last 90
+
+    Returns:
+        [{'date': 'YYYY-MM-DD', 'value': float, 'gl': float,
+          'fidelity': float, 'vanguard': float, 'wellsfargo': float}, ...]
+    """
+    init_db()
+    with get_conn() as conn:
+        # Best Fidelity snapshot per day: most symbols wins
+        fid_rows = conn.execute("""
+            SELECT DATE(snapshot_date) as day,
+                   snapshot_id,
+                   COUNT(DISTINCT symbol) as syms,
+                   SUM(total_value) as val,
+                   SUM(total_cost)  as cost
+            FROM snapshots
+            WHERE broker = 'fidelity'
+            GROUP BY snapshot_id
+            ORDER BY day ASC, syms DESC
+        """).fetchall()
+
+        # Best Vanguard snapshot per day
+        vg_rows = conn.execute("""
+            SELECT DATE(snapshot_date) as day,
+                   SUM(total_value) as val
+            FROM snapshots
+            WHERE broker = 'vanguard'
+            GROUP BY snapshot_id
+            ORDER BY day ASC
+        """).fetchall()
+
+        # Best WF snapshot per day
+        wf_rows = conn.execute("""
+            SELECT DATE(snapshot_date) as day,
+                   SUM(total_value) as val
+            FROM snapshots
+            WHERE broker = 'wellsfargo'
+            GROUP BY snapshot_id
+            ORDER BY day ASC
+        """).fetchall()
+
+    # Build day → best Fidelity value (most symbols = most complete)
+    fid_by_day: dict[str, dict] = {}
+    for r in fid_rows:
+        day = r["day"]
+        if day not in fid_by_day or r["syms"] > fid_by_day[day]["syms"]:
+            fid_by_day[day] = {"val": r["val"] or 0, "cost": r["cost"] or 0, "syms": r["syms"]}
+
+    # Latest Vanguard value on or before each day (carry-forward)
+    vg_days = sorted([(r["day"], r["val"] or 0) for r in vg_rows], key=lambda x: x[0])
+    wf_days = sorted([(r["day"], r["val"] or 0) for r in wf_rows], key=lambda x: x[0])
+
+    def _carry_forward(days_vals: list[tuple], target_day: str) -> float:
+        """Return the most recent value on or before target_day."""
+        val = 0.0
+        for d, v in days_vals:
+            if d <= target_day:
+                val = v
+            else:
+                break
+        return val
+
+    # Build combined daily series
+    all_days = sorted(fid_by_day.keys())
+    if not all_days:
+        return []
+
+    # Filter by range
+    if range_days > 0:
+        from datetime import date, timedelta
+        cutoff = (date.today() - timedelta(days=range_days)).isoformat()
+        all_days = [d for d in all_days if d >= cutoff]
+
+    points = []
+    for day in all_days:
+        fid_val  = fid_by_day[day]["val"]
+        fid_cost = fid_by_day[day]["cost"]
+        vg_val   = _carry_forward(vg_days, day)
+        wf_val   = _carry_forward(wf_days, day)
+        total    = round(fid_val + vg_val + wf_val, 2)
+        gl       = round(total - fid_cost, 2)   # GL vs Fidelity cost basis (best we have)
+        points.append({
+            "date":       day,
+            "value":      total,
+            "gl":         gl,
+            "fidelity":   round(fid_val, 2),
+            "vanguard":   round(vg_val, 2),
+            "wellsfargo": round(wf_val, 2),
+        })
+
+    return points
+
+
 # ── Fidelity today's G/L ─────────────────────────────────────────────────────
 
 def get_fidelity_today_gl() -> dict:

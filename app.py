@@ -4367,6 +4367,113 @@ def api_portfolio_get_401k():
     return jsonify(_load_401k())
 
 
+@app.route('/api/portfolio/chart')
+def api_portfolio_chart():
+    """
+    All-accounts portfolio chart data.
+
+    Query params:
+        range: '1D' | '1W' | '1M' | '3M' | 'ALL'  (default: ALL)
+
+    For 1D: returns Alpaca intraday 1-min bars PLUS Fidelity baseline so Y-axis
+            is anchored to total portfolio value (~$40k), not just Alpaca (~$1.2k).
+    For 1W/1M/3M/ALL: returns daily snapshot history from SQLite.
+
+    Response:
+        {
+          range: str,
+          mode: 'intraday' | 'history',
+          points: [{t: ms_epoch, v: float, date: str}, ...],
+          first_value: float,
+          last_value:  float,
+          change:      float,
+          change_pct:  float,
+        }
+    """
+    rng = request.args.get('range', 'ALL').upper()
+
+    # ── Intraday (1D) ─────────────────────────────────────────────────────────
+    if rng == '1D':
+        try:
+            data = alpaca('/v2/account/portfolio/history',
+                          {'period': '1D', 'timeframe': '1Min', 'extended_hours': 'true'})
+            bars = [(e, t) for e, t in zip(data.get('equity', []), data.get('timestamp', []))
+                    if e and e > 0]
+        except Exception:
+            bars = []
+
+        # Alpaca equity offset: we want total portfolio value, not just Alpaca
+        # Get broker total (Fidelity+VG+WF) and add as offset to each Alpaca bar
+        try:
+            combined = fidelity_db.get_combined_latest_positions()
+            broker_total = combined['totals']['value']   # Fidelity+VG+WF
+        except Exception:
+            broker_total = 0.0
+
+        points = []
+        if bars:
+            for equity, ts in bars:
+                total_v = round((equity or 0) + broker_total, 2)
+                points.append({'t': ts * 1000, 'v': total_v, 'date': ''})
+
+        first = points[0]['v'] if points else 0
+        last  = points[-1]['v'] if points else 0
+
+        return jsonify({
+            'range':        '1D',
+            'mode':         'intraday',
+            'points':       points,
+            'first_value':  first,
+            'last_value':   last,
+            'change':       round(last - first, 2),
+            'change_pct':   round((last - first) / first * 100, 2) if first else 0,
+        })
+
+    # ── History (1W / 1M / 3M / ALL) ─────────────────────────────────────────
+    range_map = {'1W': 7, '1M': 30, '3M': 90, 'ALL': 0}
+    days = range_map.get(rng, 0)
+
+    try:
+        history = fidelity_db.get_portfolio_chart_history(range_days=days)
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
+    if not history:
+        return jsonify({'range': rng, 'mode': 'history', 'points': [],
+                        'first_value': 0, 'last_value': 0, 'change': 0, 'change_pct': 0})
+
+    # Convert to epoch ms for chart — use noon UTC for each date
+    from datetime import datetime as _dt
+    points = []
+    for h in history:
+        try:
+            epoch_ms = int(_dt.strptime(h['date'], '%Y-%m-%d').timestamp() * 1000)
+        except Exception:
+            epoch_ms = 0
+        points.append({
+            't':          epoch_ms,
+            'v':          h['value'],
+            'date':       h['date'],
+            'gl':         h.get('gl', 0),
+            'fidelity':   h.get('fidelity', 0),
+            'vanguard':   h.get('vanguard', 0),
+            'wellsfargo': h.get('wellsfargo', 0),
+        })
+
+    first = points[0]['v']
+    last  = points[-1]['v']
+
+    return jsonify({
+        'range':        rng,
+        'mode':         'history',
+        'points':       points,
+        'first_value':  first,
+        'last_value':   last,
+        'change':       round(last - first, 2),
+        'change_pct':   round((last - first) / first * 100, 2) if first else 0,
+    })
+
+
 @app.route('/api/portfolio/upload_performance_pdf', methods=['POST'])
 def api_portfolio_upload_performance_pdf():
     """

@@ -368,6 +368,14 @@
   }
   .mkt-range-btn:hover { border-color: var(--green); color: var(--green); }
   .mkt-range-btn.active { background: #252A36; border-color: var(--green); color: var(--green); font-weight:700; }
+  /* Portfolio chart range buttons — same style, gold accent */
+  .pchart-range-btn {
+    background: #131722; border: 1px solid #252A36; color: #446644;
+    font-family: monospace; font-size: 10px; font-weight: 600;
+    padding: 3px 9px; cursor: pointer; border-radius: 4px; transition: all .15s;
+  }
+  .pchart-range-btn:hover  { border-color: var(--gold); color: var(--gold); }
+  .pchart-range-btn.active { background: #1a1200; border-color: var(--gold); color: var(--gold); }
   .mkt-card {
     background: #131722; border: 1px solid #252A36; border-radius:5px;
     padding: 6px 8px; display:flex; flex-direction:column; gap:3px;
@@ -657,24 +665,47 @@
       <div class="tab" id="tab-performance" onclick="switchChart('performance',this)">📈 Performance</div>
     </div>
     <div class="chart-body">
-      <!-- Intraday equity curve -->
+      <!-- Portfolio chart — All accounts, stock-chart style with range selector -->
       <div id="view-intraday" style="display:flex;flex-direction:column;height:100%">
-        <!-- Phase badge strip -->
-        <div style="display:flex;align-items:center;gap:10px;padding:4px 4px 2px;flex-shrink:0">
-          <span style="font-size:10px;color:var(--muted)">PHASE:</span>
-          <span id="phase-badge" style="font-size:11px;font-weight:700;padding:2px 10px;border-radius:10px;background:#1A1E2B;color:var(--muted)">—</span>
-          <span id="phase-detail" style="font-size:10px;color:var(--muted)"></span>
+
+        <!-- Chart top bar: range selector + stats -->
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 8px 2px;flex-shrink:0;gap:12px">
+          <!-- Range buttons -->
+          <div style="display:flex;gap:4px">
+            <button class="pchart-range-btn active" data-range="1D"  onclick="setPortfolioRange('1D',this)">1D</button>
+            <button class="pchart-range-btn"        data-range="1W"  onclick="setPortfolioRange('1W',this)">1W</button>
+            <button class="pchart-range-btn"        data-range="1M"  onclick="setPortfolioRange('1M',this)">1M</button>
+            <button class="pchart-range-btn"        data-range="3M"  onclick="setPortfolioRange('3M',this)">3M</button>
+            <button class="pchart-range-btn"        data-range="ALL" onclick="setPortfolioRange('ALL',this)">ALL</button>
+          </div>
+          <!-- Change stats -->
+          <div style="display:flex;align-items:center;gap:16px;font-family:monospace;font-size:11px">
+            <span style="color:var(--muted)">TOTAL: <span id="pchart-total" style="color:var(--gold);font-weight:700">—</span></span>
+            <span id="pchart-change" style="font-weight:700">—</span>
+            <span id="pchart-change-pct" style="font-size:10px;color:var(--muted)">—</span>
+          </div>
+          <!-- Phase badge (kept for existing logic) -->
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:10px;color:var(--muted)">PHASE:</span>
+            <span id="phase-badge" style="font-size:11px;font-weight:700;padding:2px 10px;border-radius:10px;background:#1A1E2B;color:var(--muted)">—</span>
+            <span id="phase-detail" style="font-size:10px;color:var(--muted)"></span>
+          </div>
         </div>
+
+        <!-- Chart canvas -->
         <canvas id="intradayChart" style="flex:1;min-height:0"></canvas>
+
+        <!-- OHLC bar (1D mode only) -->
         <div id="intraday_label" style="display:flex;gap:16px;justify-content:center;padding:3px 8px;font-size:11px;font-family:monospace;flex-shrink:0">
-          <span style="color:var(--muted)">O: <span id="il_open" style="color:#88cc88">—</span></span>
+          <span style="color:var(--muted)">O: <span id="il_open"  style="color:#88cc88">—</span></span>
           <span style="color:#00ff88">H: <span id="il_high">—</span></span>
           <span style="color:#f85149">L: <span id="il_low">—</span></span>
           <span style="color:var(--muted)">C: <span id="il_close" style="color:#88cc88">—</span></span>
           <span style="color:var(--muted)">Rng: <span id="il_range" style="color:#d4a017">—</span></span>
           <span style="color:var(--muted)">Bars: <span id="il_bars" style="color:#446644">—</span></span>
         </div>
-        <!-- HERMES SEES panel -->
+
+        <!-- HERMES SEES panel — preserved -->
         <div id="hermes-sees" style="margin:6px 0 0;background:#0B0E17;border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:10px;font-family:monospace;color:var(--muted);line-height:1.6;display:none">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
             <span style="color:var(--gold);font-weight:700;font-size:10px">👁 HERMES SEES</span>
@@ -2615,7 +2646,9 @@ window.onload = () => {
   setInterval(fetchTrigger, 60000);
   setInterval(fetchProfitBasket, 60000);
   fetchProfitBasket();
-  setInterval(fetchMacroSignal, 300000);  // refresh every 5 min
+  // Refresh chart every 60s — 1D re-fetches live Alpaca data; other ranges skip
+  setInterval(() => { if (_portfolioChartRange === '1D') loadPortfolioChart('1D'); }, 60000);
+  setInterval(fetchMacroSignal, 300000);
   fetchMacroSignal();
   setInterval(fetchAllAccountsTotal, 300000); // refresh broker totals every 5 min
 };
@@ -2926,19 +2959,222 @@ setInterval(() => {
 }, 1000);
 
 // ── OHLC + Charts ─────────────────────────────────────────────────────────
+
+// ── Portfolio chart — All accounts, range selector ──────────────────────────
+let _portfolioChartRange = '1D';
+let _portfolioChartInstance = null;
+
+function setPortfolioRange(range, btnEl) {
+  _portfolioChartRange = range;
+  document.querySelectorAll('.pchart-range-btn').forEach(b => b.classList.remove('active'));
+  if (btnEl) btnEl.classList.add('active');
+  // Show/hide OHLC bar only for 1D
+  const lbl = document.getElementById('intraday_label');
+  if (lbl) lbl.style.display = range === '1D' ? 'flex' : 'none';
+  loadPortfolioChart(range);
+}
+
+function loadPortfolioChart(range) {
+  fetch('/api/portfolio/chart?range=' + (range || _portfolioChartRange))
+    .then(r => r.json())
+    .then(d => {
+      if (!d.points || !d.points.length) return;
+
+      // Update stats bar
+      const fmt = n => '$' + Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+      const totalEl = document.getElementById('pchart-total');
+      const chgEl   = document.getElementById('pchart-change');
+      const pctEl   = document.getElementById('pchart-change-pct');
+      if (totalEl) totalEl.textContent = fmt(d.last_value);
+      if (chgEl) {
+        const up = d.change >= 0;
+        chgEl.textContent = (up ? '+' : '-') + fmt(d.change);
+        chgEl.style.color = up ? 'var(--green)' : 'var(--red)';
+      }
+      if (pctEl) {
+        const up = d.change_pct >= 0;
+        pctEl.textContent = (up ? '+' : '') + d.change_pct.toFixed(2) + '%';
+        pctEl.style.color = up ? 'var(--green)' : 'var(--red)';
+      }
+
+      // For 1D mode, also populate OHLC bar and feed existing phase analyzer
+      if (d.mode === 'intraday') {
+        const vals = d.points.map(p => p.v);
+        const hi = vals.reduce((a,b)=>Math.max(a,b),-Infinity);
+        const lo = vals.reduce((a,b)=>Math.min(a,b),Infinity);
+        const s = v => '$'+v.toFixed(2);
+        ['il_open','il_high','il_low','il_close','il_range','il_bars'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) {
+            if (id==='il_open')  el.textContent = s(vals[0]);
+            if (id==='il_high')  el.textContent = s(hi);
+            if (id==='il_low')   el.textContent = s(lo);
+            if (id==='il_close') { el.textContent = s(vals[vals.length-1]); el.style.color = vals[vals.length-1]>=vals[0]?'#00ff88':'#f85149'; }
+            if (id==='il_range') el.textContent = s(hi-lo);
+            if (id==='il_bars')  el.textContent = vals.length;
+          }
+        });
+        // Feed the existing phase analyzer with 1D data for phase badge
+        const legacyBars = d.points.map(p => ({t: p.t, v: p.v}));
+        _equityPoints = legacyBars;
+        if (_curveAnalyzer) _curveAnalyzer = new EquityCurveAnalyzer(legacyBars);
+        updatePhasePanel();
+      }
+
+      buildPortfolioChart(d);
+    })
+    .catch(() => {});
+}
+
+function buildPortfolioChart(d) {
+  const ctx = document.getElementById('intradayChart');
+  if (!ctx) return;
+
+  const labels = d.points.map(p => {
+    if (d.mode === 'intraday') return new Date(p.t);
+    return p.date;   // 'YYYY-MM-DD' string for daily
+  });
+  const values = d.points.map(p => p.v);
+  const isUp = d.change >= 0;
+  const lineColor = isUp ? '#00ff88' : '#f85149';
+  const fillColor = isUp ? 'rgba(0,255,136,0.07)' : 'rgba(248,81,73,0.07)';
+
+  // Compute rolling MAs for history mode
+  function rollingMA(vals, period) {
+    return vals.map((v, i) => {
+      if (i < period - 1) return null;
+      return vals.slice(i - period + 1, i + 1).reduce((a,b)=>a+b,0) / period;
+    });
+  }
+
+  const datasets = [{
+    label: 'All Accounts',
+    data:  values,
+    borderColor: lineColor,
+    borderWidth: 2,
+    pointRadius: d.mode === 'intraday' ? 0 : (values.length <= 30 ? 3 : 0),
+    pointHoverRadius: 5,
+    fill: true,
+    backgroundColor: fillColor,
+    tension: d.mode === 'intraday' ? 0.3 : 0.1,
+  }];
+
+  // Add MA lines for history mode
+  if (d.mode === 'history' && values.length >= 5) {
+    const ma5 = rollingMA(values, 5);
+    datasets.push({
+      label: 'MA5',
+      data:  ma5,
+      borderColor: 'rgba(255,170,0,0.6)',
+      borderWidth: 1,
+      pointRadius: 0,
+      fill: false,
+      tension: 0.3,
+    });
+  }
+  if (d.mode === 'history' && values.length >= 20) {
+    const ma20 = rollingMA(values, 20);
+    datasets.push({
+      label: 'MA20',
+      data:  ma20,
+      borderColor: 'rgba(100,150,255,0.5)',
+      borderWidth: 1,
+      pointRadius: 0,
+      fill: false,
+      tension: 0.3,
+    });
+  }
+
+  if (_portfolioChartInstance) _portfolioChartInstance.destroy();
+
+  const yMin = Math.min(...values) * 0.998;
+  const yMax = Math.max(...values) * 1.002;
+
+  _portfolioChartInstance = new Chart(ctx.getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 200 },
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#0B0E17',
+          borderColor: '#252A36',
+          borderWidth: 1,
+          titleColor: '#88cc88',
+          bodyColor: '#aaa',
+          callbacks: {
+            title: items => {
+              const lbl = items[0]?.label;
+              if (d.mode === 'intraday') {
+                const dt = new Date(lbl);
+                return dt.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+              }
+              return lbl;
+            },
+            label: item => {
+              if (item.datasetIndex > 0) return item.dataset.label + ': $' + (item.raw||0).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
+              const pt = d.points[item.dataIndex];
+              const parts = ['Total: $' + (item.raw||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})];
+              if (pt && pt.gl !== undefined && d.mode === 'history') {
+                const glSign = pt.gl >= 0 ? '+' : '';
+                parts.push('G/L: ' + glSign + '$' + (pt.gl||0).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}));
+              }
+              if (pt && pt.fidelity && d.mode === 'history') {
+                parts.push('Fidelity: $' + (pt.fidelity||0).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}));
+              }
+              return parts;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          type: d.mode === 'intraday' ? 'time' : 'category',
+          time: d.mode === 'intraday' ? {
+            unit: 'minute',
+            displayFormats: { minute: 'h:mm a' }
+          } : undefined,
+          ticks: {
+            color: '#446644',
+            maxTicksLimit: d.mode === 'intraday' ? 8 : 10,
+            maxRotation: 0,
+            font: { size: 10, family: 'monospace' }
+          },
+          grid: { color: 'rgba(37,42,54,0.6)' }
+        },
+        y: {
+          min: yMin,
+          max: yMax,
+          ticks: {
+            color: '#446644',
+            font: { size: 10, family: 'monospace' },
+            callback: v => '$' + (v/1000).toFixed(0) + 'k'
+          },
+          grid: { color: 'rgba(37,42,54,0.4)' }
+        }
+      }
+    }
+  });
+
+  // Keep intradayChart alias for existing code that references it
+  intradayChart = _portfolioChartInstance;
+}
+
 function fetchOHLC() {
+  // Legacy: still fetch from /api/ohlc for EquityCurveAnalyzer + ATH
   fetch('/api/ohlc').then(r=>r.json()).then(d => {
     ohlcData = d;
-    _equityPoints = d.intraday || [];
-    _curveAnalyzer = new EquityCurveAnalyzer(_equityPoints);
     if (!_chartMonitor) {
       _chartMonitor = new HermesChartMonitor();
       setInterval(() => _chartMonitor.check(), 60 * 1000);
     }
-    // Pass current live equity to chart so Y range includes it even if bars lag
-    buildIntradayChart(d.intraday, d.ath_zone, d.ath, _lastEquity);
     updateATHDist(d);
-    updatePhasePanel();
+    // Load portfolio chart — default to 1D on startup
+    loadPortfolioChart('1D');
   });
 }
 
