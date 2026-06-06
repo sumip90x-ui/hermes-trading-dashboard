@@ -2700,14 +2700,13 @@ function fetchAllAccountsTotal() {
 
 function _updateAllAccountsDisplay() {
   const alpacaEquity = window.portfolioData ? (window.portfolioData.equity || 0) : (_lastEquity || 0);
+  const alpacaGL     = window.portfolioData ? (window.portfolioData.true_profit || 0) : 0;
   const k401val      = _k401Data.value || 0;
-  // Combined = broker SQLite total (already includes Fidelity+VG+WF) + Alpaca live + 401k
-  // Note: broker total does NOT include Alpaca — Alpaca is live from /api/account
   const brokerNoAlpaca = _brokerTotalValue; // Fidelity+VG+WF only
   const combined = brokerNoAlpaca + alpacaEquity + k401val;
 
-  // Total G/L: broker GL + 401k GL (Alpaca day P/L tracked separately)
-  const totalGL = _brokerTotalGL + (_k401Data.gl || 0);
+  // Total G/L: broker GL (has_cost only) + Alpaca true_profit + 401k GL
+  const totalGL = _brokerTotalGL + alpacaGL + (_k401Data.gl || 0);
 
   const allValEl  = document.getElementById('all-accounts-val');
   const allGLEl   = document.getElementById('all-accounts-gl');
@@ -2727,10 +2726,19 @@ function _updateAllAccountsDisplay() {
     allGLPctEl.style.color = pct >= 0 ? 'var(--green)' : 'var(--red)';
   }
 
-  // Alpaca pill
+  // Alpaca pill — show balance AND true_profit G/L
   const alpacaPillVal = document.getElementById('equity');
   if (alpacaPillVal && alpacaEquity > 0) {
     alpacaPillVal.textContent = '$' + alpacaEquity.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
+  }
+  const alpacaGLEl = document.getElementById('pill-alpaca-gl');
+  if (alpacaGLEl) {
+    if (alpacaGL !== 0) {
+      alpacaGLEl.textContent = (alpacaGL >= 0 ? '+' : '') + '$' + Math.abs(alpacaGL).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
+      alpacaGLEl.style.color = alpacaGL >= 0 ? 'var(--green)' : 'var(--red)';
+    } else {
+      alpacaGLEl.textContent = '';
+    }
   }
 }
 
@@ -2801,7 +2809,7 @@ function uploadPerfPdf(inputEl, broker) {
 
 function fetchAccount() {
   fetch('/api/account').then(r=>r.json()).then(d => {
-    window.portfolioData = {equity: d.equity, cash: d.cash, day_pl: d.day_pl};
+    window.portfolioData = {equity: d.equity, cash: d.cash, day_pl: d.day_pl, true_profit: d.true_profit || 0};
 
     // Row 1
     const eqEl = document.getElementById('equity');
