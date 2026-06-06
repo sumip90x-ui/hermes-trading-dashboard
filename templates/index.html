@@ -2818,8 +2818,8 @@ function fetchAccount() {
     const cdpl = document.getElementById('combined_day_pl');
     const cdlbl = document.getElementById('combined_day_pl_lbl');
     if (cdpl) {
-      const cdv = d.combined_day_pl || d.day_pl || 0;
-      cdpl.textContent = (cdv >= 0 ? '+' : '') + '$' + Math.abs(cdv).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+      const cdv = d.combined_day_pl !== undefined ? d.combined_day_pl : (d.day_pl || 0);
+      cdpl.textContent = (cdv >= 0 ? '+' : '-') + '$' + Math.abs(cdv).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
       cdpl.style.color = cdv >= 0 ? 'var(--green)' : 'var(--red)';
     }
     if (cdlbl && d.fidelity_today_gl_date) {
