@@ -1159,25 +1159,30 @@ def get_combined_latest_positions() -> dict:
     # Sort by total_value desc
     rows.sort(key=lambda r: r["total_value"] or 0, reverse=True)
 
-    # Broker breakdown
+    # Broker breakdown — pull stored GL from DB, NOT recomputed from value-cost
+    # This is critical for brokers like Vanguard that have no cost basis data.
+    # value - cost = wrong GL when cost = 0. Use stored total_gl which is 0 when unknown.
     broker_breakdown = {}
     for b, snap in best.items():
         tv  = snap["total_value"] or 0
         tc  = snap["total_cost"]  or 0
-        gl  = round(tv - tc, 2)
-        # Count distinct accounts for this broker's latest snapshot
+        # Pull the actual stored GL sum — never recompute from tv-tc
         with get_conn() as conn:
-            acct_count = conn.execute("""
-                SELECT SUM(accounts) FROM snapshots WHERE snapshot_id = ?
-            """, [snap["snapshot_id"]]).fetchone()[0] or 0
+            stored = conn.execute("""
+                SELECT SUM(total_gl) AS gl, SUM(accounts) AS accts
+                FROM snapshots WHERE snapshot_id = ?
+            """, [snap["snapshot_id"]]).fetchone()
+        gl       = round(stored["gl"] or 0, 2)
+        acct_count = stored["accts"] or 0
         broker_breakdown[b] = {
             "value":         round(tv, 2),
             "cost":          round(tc, 2),
             "gl":            gl,
-            "gl_pct":        round(gl / tc * 100, 2) if tc else 0,
+            "gl_pct":        round(gl / tc * 100, 2) if tc else None,
             "symbols":       snap["symbol_count"],
             "snapshot_date": snap["snapshot_date"],
             "accounts":      acct_count,
+            "has_cost":      tc > 0,   # flag: False means no cost basis available
         }
 
     # Grand totals

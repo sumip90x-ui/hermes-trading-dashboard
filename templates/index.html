@@ -2638,7 +2638,11 @@ function fetchAllAccountsTotal() {
     .then(data => {
       _brokerBreakdown  = data.broker_breakdown || {};
       _brokerTotalValue = (data.totals || {}).value || 0;
-      _brokerTotalGL    = (data.totals || {}).gl    || 0;
+      // Total GL: only sum brokers that actually have cost basis data
+      // (Vanguard has no cost basis — stored GL is $0, not a real figure)
+      _brokerTotalGL = Object.values(_brokerBreakdown).reduce((sum, bd) => {
+        return sum + (bd.has_cost ? (bd.gl || 0) : 0);
+      }, 0);
       _k401Data         = data.k401 || {value: 0, gl: 0, cost: 0};
       _updateAllAccountsDisplay();
 
@@ -2661,8 +2665,13 @@ function fetchAllAccountsTotal() {
         if (valEl) valEl.textContent = '$' + (bd.value||0).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
         if (glEl) {
           const gl = bd.gl || 0;
-          glEl.textContent  = (gl >= 0 ? '+' : '') + '$' + Math.abs(gl).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
-          glEl.style.color  = gl >= 0 ? 'var(--green)' : 'var(--red)';
+          // Only show G/L if we have cost basis data (has_cost=true) and gl is non-zero
+          if (!bd.has_cost || gl === 0) {
+            glEl.textContent = '';  // no cost basis — don't show misleading $0 GL
+          } else {
+            glEl.textContent  = (gl >= 0 ? '+' : '') + '$' + Math.abs(gl).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
+            glEl.style.color  = gl >= 0 ? 'var(--green)' : 'var(--red)';
+          }
         }
       });
 
