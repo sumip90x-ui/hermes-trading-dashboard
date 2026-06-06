@@ -29,6 +29,19 @@ import pandas as pd
 VAULT_DIR = Path.home() / "Documents" / "Trading Vault" / "Fidelity_History"
 DB_PATH   = VAULT_DIR / "portfolio_history.db"
 
+# Broker-specific history directories
+BROKER_DIRS = {
+    "fidelity":   VAULT_DIR,
+    "vanguard":   Path.home() / "Documents" / "Trading Vault" / "Vanguard_History",
+    "wellsfargo": Path.home() / "Documents" / "Trading Vault" / "WellsFargo_History",
+}
+
+def _ensure_broker_dirs():
+    for d in BROKER_DIRS.values():
+        d.mkdir(parents=True, exist_ok=True)
+
+_ensure_broker_dirs()
+
 # ── DB init ───────────────────────────────────────────────────────────────────
 
 def get_conn() -> sqlite3.Connection:
@@ -44,12 +57,19 @@ def get_conn() -> sqlite3.Connection:
 def init_db() -> None:
     """Create tables if they don't exist. Safe to call on every startup."""
     with get_conn() as conn:
+        # ── Migrate first: add broker column if old DB lacks it ─────────────
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(snapshots)").fetchall()]
+        if cols and "broker" not in cols:
+            conn.execute("ALTER TABLE snapshots ADD COLUMN broker TEXT NOT NULL DEFAULT 'fidelity'")
+            conn.commit()
+
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS snapshots (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 snapshot_id     TEXT    NOT NULL,
                 snapshot_date   TEXT    NOT NULL,
                 filename        TEXT    NOT NULL,
+                broker          TEXT    NOT NULL DEFAULT 'fidelity',
                 symbol          TEXT    NOT NULL,
                 description     TEXT,
                 accounts        INTEGER,
@@ -68,6 +88,8 @@ def init_db() -> None:
                 ON snapshots(symbol);
             CREATE INDEX IF NOT EXISTS idx_snap_date
                 ON snapshots(snapshot_date);
+            CREATE INDEX IF NOT EXISTS idx_snap_broker
+                ON snapshots(broker);
 
             CREATE TABLE IF NOT EXISTS deviations (
                 id                   INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -493,6 +515,442 @@ def calculate_deviations(curr_snapshot_id: str) -> list[dict]:
             """, deviations)
 
     return deviations
+
+
+# ── Vanguard CSV parser ───────────────────────────────────────────────────────
+
+def parse_vanguard_csv(filepath: str | Path) -> list[dict]:
+    """
+    Parse a Vanguard brokerage holdings CSV export.
+
+    Vanguard export columns (typical):
+      Account Number, Investment Name, Symbol, Shares, Share Price,
+      Total Value, [Cost Basis Total], [Change $], [Change %]
+
+    Some exports include 'Cost Basis Total', some don't.
+    Money-market / settlement funds are filtered (no valid ticker symbol).
+    Returns same schema as parse_fidelity_csv().
+    """
+    filepath = Path(filepath)
+    with open(filepath, encoding="utf-8-sig") as fh:
+        raw = fh.read()
+
+    lines = [l for l in raw.splitlines() if l.strip()]
+    if len(lines) < 2:
+        return []
+
+    # Find header row — look for a line containing 'Symbol' + ('Shares' OR 'Quantity')
+    header_idx = -1
+    for i, line in enumerate(lines[:20]):
+        lower = line.lower()
+        if "symbol" in lower and ("shares" in lower or "quantity" in lower):
+            header_idx = i
+            break
+    if header_idx < 0:
+        return []
+
+    # Parse with pandas starting at header row
+    import io
+    df = pd.read_csv(
+        io.StringIO("\n".join(lines[header_idx:])),
+        dtype=str,
+        on_bad_lines="skip",
+    )
+
+    # Normalize column names for flexible matching
+    def _col(patterns):
+        for p in patterns:
+            for c in df.columns:
+                if p.lower() in c.lower():
+                    return c
+        return None
+
+    sym_col   = _col(["symbol", "ticker"])
+    desc_col  = _col(["investment name", "fund name", "description", "name"])
+    qty_col   = _col(["shares", "quantity"])
+    price_col = _col(["share price", "price"])
+    val_col   = _col(["total value", "market value", "current value"])
+    cost_col  = _col(["cost basis"])
+    acct_col  = _col(["account number", "account"])
+
+    if not sym_col:
+        return []
+
+    acct_set_all = set()
+    map_ = {}
+
+    for _, row in df.iterrows():
+        sym = str(row.get(sym_col, "")).strip().rstrip("*")
+        if not sym or sym in ("—", "-", "nan") or not re.match(r'^[A-Z0-9][A-Z0-9.\-]{0,9}$', sym):
+            continue
+        # Skip money market / settlement funds (Vanguard uses VMFXX, VMMXX etc)
+        if re.search(r'(money market|settlement|federal|prime|treasury)', sym, re.I):
+            continue
+
+        acct = str(row.get(acct_col, "VG")).strip() if acct_col else "VG"
+        acct_set_all.add(acct)
+
+        desc  = str(row.get(desc_col, "")).strip() if desc_col else ""
+        qty   = _parse_money(row.get(qty_col))   if qty_col   else None
+        price = _parse_money(row.get(price_col)) if price_col else None
+        val   = _parse_money(row.get(val_col))   if val_col   else None
+        cost  = _parse_money(row.get(cost_col))  if cost_col  else None
+
+        if sym not in map_:
+            map_[sym] = {
+                "symbol": sym, "description": desc,
+                "_accts": set(), "total_qty": 0.0,
+                "last_price": price, "total_value": 0.0,
+                "total_cost": 0.0, "total_gl": 0.0,
+            }
+        r = map_[sym]
+        r["_accts"].add(acct)
+        if qty   is not None: r["total_qty"]   += qty
+        if val   is not None: r["total_value"] += val
+        if cost  is not None: r["total_cost"]  += cost
+        if price is not None: r["last_price"]   = price
+
+    rows = []
+    total_val = sum(r["total_value"] for r in map_.values())
+    for sym, r in map_.items():
+        r["total_gl"]    = r["total_value"] - r["total_cost"] if r["total_cost"] else 0.0
+        r["gl_pct"]      = (r["total_gl"] / r["total_cost"] * 100) if r["total_cost"] else None
+        r["portfolio_pct"] = (r["total_value"] / total_val * 100) if total_val else None
+        r["accounts"]    = len(r["_accts"])
+        del r["_accts"]
+        rows.append(r)
+    return rows
+
+
+# ── Wells Fargo CSV parser ────────────────────────────────────────────────────
+
+def parse_wellsfargo_csv(filepath: str | Path) -> list[dict]:
+    """
+    Parse a Wells Fargo WellsTrade / brokerage holdings CSV export.
+
+    WF export columns (typical WellsTrade format):
+      Symbol, Description, Quantity, Price, Mkt Value, Cost Basis, Gain/Loss $, Gain/Loss %
+
+    WF sometimes exports multi-account files with account header rows between sections.
+    Returns same schema as parse_fidelity_csv().
+    """
+    filepath = Path(filepath)
+    with open(filepath, encoding="utf-8-sig") as fh:
+        raw = fh.read()
+
+    lines = [l for l in raw.splitlines() if l.strip()]
+    if len(lines) < 2:
+        return []
+
+    # Find header row
+    header_idx = -1
+    for i, line in enumerate(lines[:25]):
+        lower = line.lower()
+        if ("symbol" in lower or "ticker" in lower) and \
+           ("quantity" in lower or "shares" in lower or "market" in lower):
+            header_idx = i
+            break
+    if header_idx < 0:
+        return []
+
+    import io
+    df = pd.read_csv(
+        io.StringIO("\n".join(lines[header_idx:])),
+        dtype=str,
+        on_bad_lines="skip",
+    )
+
+    def _col(patterns):
+        for p in patterns:
+            for c in df.columns:
+                if p.lower() in c.lower():
+                    return c
+        return None
+
+    sym_col   = _col(["symbol", "ticker", "cusip"])
+    desc_col  = _col(["description", "security name", "name"])
+    qty_col   = _col(["quantity", "shares", "qty"])
+    price_col = _col(["price", "last price"])
+    val_col   = _col(["mkt value", "market value", "current value", "value"])
+    cost_col  = _col(["cost basis", "total cost", "cost"])
+    gl_col    = _col(["gain/loss $", "gain/loss dollar", "unrealized g/l", "gain loss"])
+    acct_col  = _col(["account"])
+
+    if not sym_col:
+        return []
+
+    map_ = {}
+    current_acct = "WF"
+
+    for _, row in df.iterrows():
+        sym = str(row.get(sym_col, "")).strip().rstrip("*")
+
+        # WF sometimes has account-label rows (long strings with no real symbol)
+        if not sym or sym in ("—", "-", "nan"):
+            continue
+        if not re.match(r'^[A-Z0-9][A-Z0-9.\-]{0,9}$', sym):
+            # Might be an account-label row — capture as current account context
+            raw_val = str(row.iloc[0]).strip() if len(row) > 0 else ""
+            if len(raw_val) > 4:
+                current_acct = raw_val[:30]
+            continue
+        # Skip totals
+        if re.match(r'^(total|grand|account)', sym, re.I):
+            continue
+
+        acct = str(row.get(acct_col, current_acct)).strip() if acct_col else current_acct
+
+        desc  = str(row.get(desc_col, "")).strip() if desc_col else ""
+        qty   = _parse_money(row.get(qty_col))   if qty_col   else None
+        price = _parse_money(row.get(price_col)) if price_col else None
+        val   = _parse_money(row.get(val_col))   if val_col   else None
+        cost  = _parse_money(row.get(cost_col))  if cost_col  else None
+        gl    = _parse_money(row.get(gl_col))    if gl_col    else None
+
+        if sym not in map_:
+            map_[sym] = {
+                "symbol": sym, "description": desc,
+                "_accts": set(), "total_qty": 0.0,
+                "last_price": price, "total_value": 0.0,
+                "total_cost": 0.0, "total_gl": 0.0,
+            }
+        r = map_[sym]
+        r["_accts"].add(acct)
+        if qty   is not None: r["total_qty"]   += qty
+        if val   is not None: r["total_value"] += val
+        if cost  is not None: r["total_cost"]  += cost
+        if gl    is not None: r["total_gl"]    += gl
+        if price is not None: r["last_price"]   = price
+
+    rows = []
+    total_val = sum(r["total_value"] for r in map_.values())
+    for sym, r in map_.items():
+        if not r["total_gl"] and r["total_value"] and r["total_cost"]:
+            r["total_gl"] = r["total_value"] - r["total_cost"]
+        r["gl_pct"]       = (r["total_gl"] / r["total_cost"] * 100) if r["total_cost"] else None
+        r["portfolio_pct"] = (r["total_value"] / total_val * 100) if total_val else None
+        r["accounts"]     = len(r["_accts"])
+        del r["_accts"]
+        rows.append(r)
+    return rows
+
+
+# ── Broker-aware ingest ───────────────────────────────────────────────────────
+
+BROKER_PARSERS = {
+    "fidelity":   parse_fidelity_csv,
+    "vanguard":   parse_vanguard_csv,
+    "wellsfargo": parse_wellsfargo_csv,
+}
+
+def ingest_broker_snapshot(filepath: str | Path, broker: str) -> dict:
+    """
+    Parse and store any broker CSV into the shared snapshots DB.
+    broker must be one of: 'fidelity', 'vanguard', 'wellsfargo'
+    Returns same summary dict as ingest_snapshot().
+    """
+    filepath = Path(filepath)
+    broker   = broker.lower().strip()
+    if broker not in BROKER_PARSERS:
+        raise ValueError(f"Unknown broker '{broker}'. Must be: {list(BROKER_PARSERS)}")
+
+    init_db()
+    rows = BROKER_PARSERS[broker](filepath)
+    if not rows:
+        raise ValueError(f"No valid position rows parsed from {filepath.name} (broker={broker})")
+
+    snapshot_id   = str(uuid.uuid4())
+    filename      = filepath.name
+    snapshot_date = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
+    total_value   = sum(r.get("total_value", 0) or 0 for r in rows)
+
+    with get_conn() as conn:
+        conn.executemany("""
+            INSERT INTO snapshots (
+                snapshot_id, snapshot_date, filename, broker,
+                symbol, description, accounts,
+                total_qty, last_price, total_value, total_cost,
+                total_gl, gl_pct, portfolio_pct
+            ) VALUES (
+                :snapshot_id, :snapshot_date, :filename, :broker,
+                :symbol, :description, :accounts,
+                :total_qty, :last_price, :total_value, :total_cost,
+                :total_gl, :gl_pct, :portfolio_pct
+            )
+        """, [
+            {**r,
+             "snapshot_id":   snapshot_id,
+             "snapshot_date": snapshot_date,
+             "filename":      filename,
+             "broker":        broker}
+            for r in rows
+        ])
+
+    # Fidelity also runs deviation signals (other brokers: future work)
+    deviations = []
+    if broker == "fidelity":
+        deviations = calculate_deviations(snapshot_id)
+
+    buy_signals = [d for d in deviations if d.get("signal") == "BUY"]
+    buy_signals.sort(key=lambda d: d.get("deploy_amount", 0), reverse=True)
+
+    return {
+        "snapshot_id":     snapshot_id,
+        "snapshot_date":   snapshot_date,
+        "broker":          broker,
+        "filename":        filename,
+        "symbol_count":    len(rows),
+        "total_value":     round(total_value, 2),
+        "deviation_count": len(deviations),
+        "buy_signals":     len(buy_signals),
+        "top_signals":     buy_signals[:5],
+        "note":            f"{broker} snapshot ingested — {len(rows)} symbols",
+    }
+
+
+# ── Combined latest positions across all brokers ──────────────────────────────
+
+def get_combined_latest_positions() -> dict:
+    """
+    Return the latest snapshot per broker, merged by symbol.
+
+    Strategy:
+      - For each broker, pick the single most recent snapshot_id
+      - Aggregate symbol rows across all brokers: sum value/cost/gl/qty, count accounts
+      - Recalculate gl_pct and portfolio_pct from aggregated totals
+      - Return broker_breakdown + merged rows
+
+    Returns:
+    {
+      rows: [{symbol, description, total_value, total_cost, total_gl, gl_pct,
+              last_price, total_qty, accounts, brokers}],
+      broker_breakdown: {fidelity: {value, cost, gl, symbols, snapshot_date},
+                         vanguard: {...}, wellsfargo: {...}},
+      totals: {value, cost, gl, gl_pct, symbols, accounts},
+      loaded_brokers: ['fidelity', ...]
+    }
+    """
+    init_db()
+    with get_conn() as conn:
+        # Latest snapshot_id per broker
+        latest_snaps = conn.execute("""
+            SELECT broker,
+                   snapshot_id,
+                   MAX(snapshot_date) AS snapshot_date,
+                   COUNT(DISTINCT symbol) AS symbol_count,
+                   SUM(total_value) AS total_value,
+                   SUM(total_cost)  AS total_cost
+            FROM snapshots
+            GROUP BY broker, snapshot_id
+            ORDER BY snapshot_date DESC
+        """).fetchall()
+
+    # Pick the most recent snapshot_id per broker
+    best: dict[str, dict] = {}
+    for row in latest_snaps:
+        b = row["broker"]
+        if b not in best:
+            best[b] = dict(row)
+
+    if not best:
+        return {
+            "rows": [], "broker_breakdown": {}, "loaded_brokers": [],
+            "totals": {"value": 0, "cost": 0, "gl": 0, "gl_pct": 0, "symbols": 0, "accounts": 0}
+        }
+
+    # Pull all position rows for the selected snapshots
+    snap_ids = [v["snapshot_id"] for v in best.values()]
+    placeholders = ",".join("?" * len(snap_ids))
+
+    with get_conn() as conn:
+        position_rows = conn.execute(f"""
+            SELECT broker, symbol, description, accounts,
+                   total_qty, last_price, total_value, total_cost, total_gl
+            FROM snapshots
+            WHERE snapshot_id IN ({placeholders})
+        """, snap_ids).fetchall()
+
+    # Merge by symbol across brokers
+    merged: dict[str, dict] = {}
+    for r in position_rows:
+        sym = r["symbol"]
+        if sym not in merged:
+            merged[sym] = {
+                "symbol":      sym,
+                "description": r["description"] or "",
+                "total_qty":   0.0,
+                "last_price":  r["last_price"],
+                "total_value": 0.0,
+                "total_cost":  0.0,
+                "total_gl":    0.0,
+                "accounts":    0,
+                "brokers":     [],
+            }
+        m = merged[sym]
+        m["total_qty"]   += (r["total_qty"]   or 0)
+        m["total_value"] += (r["total_value"] or 0)
+        m["total_cost"]  += (r["total_cost"]  or 0)
+        m["total_gl"]    += (r["total_gl"]    or 0)
+        m["accounts"]    += (r["accounts"]    or 0)
+        if r["broker"] not in m["brokers"]:
+            m["brokers"].append(r["broker"])
+        if r["last_price"]:
+            m["last_price"] = r["last_price"]
+
+    # Recalculate derived fields
+    total_portfolio_value = sum(m["total_value"] for m in merged.values())
+    rows = []
+    for m in merged.values():
+        tc = m["total_cost"]
+        tv = m["total_value"]
+        tg = m["total_gl"]
+        m["gl_pct"]       = round(tg / tc * 100, 4) if tc else None
+        m["portfolio_pct"] = round(tv / total_portfolio_value * 100, 4) if total_portfolio_value else None
+        rows.append(m)
+
+    # Sort by total_value desc
+    rows.sort(key=lambda r: r["total_value"] or 0, reverse=True)
+
+    # Broker breakdown
+    broker_breakdown = {}
+    for b, snap in best.items():
+        tv  = snap["total_value"] or 0
+        tc  = snap["total_cost"]  or 0
+        gl  = round(tv - tc, 2)
+        # Count distinct accounts for this broker's latest snapshot
+        with get_conn() as conn:
+            acct_count = conn.execute("""
+                SELECT SUM(accounts) FROM snapshots WHERE snapshot_id = ?
+            """, [snap["snapshot_id"]]).fetchone()[0] or 0
+        broker_breakdown[b] = {
+            "value":         round(tv, 2),
+            "cost":          round(tc, 2),
+            "gl":            gl,
+            "gl_pct":        round(gl / tc * 100, 2) if tc else 0,
+            "symbols":       snap["symbol_count"],
+            "snapshot_date": snap["snapshot_date"],
+            "accounts":      acct_count,
+        }
+
+    # Grand totals
+    tv_all   = sum(m["total_value"] for m in rows)
+    tc_all   = sum(m["total_cost"]  for m in rows)
+    gl_all   = sum(m["total_gl"]    for m in rows)
+    acct_all = sum(v.get("accounts", 0) for v in broker_breakdown.values())
+
+    return {
+        "rows":             rows,
+        "broker_breakdown": broker_breakdown,
+        "loaded_brokers":   list(best.keys()),
+        "totals": {
+            "value":    round(tv_all, 2),
+            "cost":     round(tc_all, 2),
+            "gl":       round(gl_all, 2),
+            "gl_pct":   round(gl_all / tc_all * 100, 2) if tc_all else 0,
+            "symbols":  len(rows),
+            "accounts": acct_all,
+        }
+    }
 
 
 # ── Ingest ────────────────────────────────────────────────────────────────────

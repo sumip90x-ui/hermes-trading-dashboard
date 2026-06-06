@@ -4228,6 +4228,73 @@ def api_portfolio_save_snapshot():
         'all_snapshots':   [s.name for s in snaps[:20]]  # last 20
     })
 
+
+@app.route('/api/portfolio/upload_broker', methods=['POST'])
+def api_portfolio_upload_broker():
+    """
+    Upload any broker CSV → save to broker-specific history dir → ingest to SQLite.
+    Form fields: file (multipart), broker (fidelity|vanguard|wellsfargo)
+    Returns ingest summary including symbol_count, total_value, broker_breakdown.
+    """
+    if 'file' not in request.files:
+        return jsonify({'error': 'no file'}), 400
+    broker = request.form.get('broker', 'fidelity').lower().strip()
+    if broker not in ('fidelity', 'vanguard', 'wellsfargo'):
+        return jsonify({'error': f'unknown broker: {broker}'}), 400
+
+    f    = request.files['file']
+    ts   = datetime.now().strftime('%Y-%m-%d_%H%M%S')
+    orig = f.filename or 'snapshot'
+    safe = re.sub(r'[^\w.\-]', '_', orig)
+    fname = f'{broker}_{ts}_{safe}'
+
+    broker_dir = fidelity_db.BROKER_DIRS[broker]
+    dest = broker_dir / fname
+    f.save(str(dest))
+
+    # Fidelity: also keep portfolio.csv and the old Fidelity_History glob alive
+    if broker == 'fidelity':
+        import shutil as _shutil
+        _shutil.copy2(str(dest), str(HOME / 'portfolio.csv'))
+
+    try:
+        result = fidelity_db.ingest_broker_snapshot(dest, broker)
+    except Exception as exc:
+        return jsonify({'error': str(exc), 'filename': fname}), 422
+
+    # After any upload, also return the full combined breakdown so UI can refresh
+    try:
+        combined = fidelity_db.get_combined_latest_positions()
+        result['broker_breakdown'] = combined['broker_breakdown']
+        result['loaded_brokers']   = combined['loaded_brokers']
+        result['totals']           = combined['totals']
+    except Exception:
+        pass
+
+    # Invalidate intelligence brief cache
+    global _brief_cache, _brief_cache_ts
+    try:
+        _brief_cache = {}
+        _brief_cache_ts = 0.0
+    except Exception:
+        pass
+
+    return jsonify(result)
+
+
+@app.route('/api/portfolio/combined_latest', methods=['GET'])
+def api_portfolio_combined_latest():
+    """
+    Return the latest snapshot per broker merged into one position list.
+    Used by the Portfolio tab on load and after any upload.
+    """
+    try:
+        data = fidelity_db.get_combined_latest_positions()
+        return jsonify(data)
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
+
 # ── Background live updater ───────────────────────────────────────────────────
 
 def _proactive_brain():

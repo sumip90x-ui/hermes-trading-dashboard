@@ -4471,7 +4471,7 @@ function switchChart(view, el) {
   if (view === 'portfolio') loadTrueProfit();
   if (view === 'portfolio') loadGainLossSplit();
   if (view === 'portfolio') loadCompoundingScorecard();
-  if (view === 'portfolio') _portAutoLoadCSV();  // auto-load latest portfolio.csv from server
+  if (view === 'portfolio') portLoadCombinedFromServer();  // load all-broker combined data from DB
   if (view === 'portfolio') {
     // restore Alpaca balance from localStorage and re-render sync panel
     const balEl = document.getElementById('sync-balance');
@@ -5977,26 +5977,133 @@ function fetchProfitBasket() {
     if (det) det.innerHTML = html;
   }
 
+  // ── Load combined positions from server DB ─────────────────────────────────
+  // This is the PRIMARY data loader. Called on tab open and after every upload.
+  // Pulls /api/portfolio/combined_latest which merges the latest snapshot per
+  // broker from SQLite — data persists across page refreshes.
+  function portLoadCombinedFromServer() {
+    const meta = document.getElementById('port-meta-line');
+    if (meta) meta.textContent = '⟳ Loading portfolio from server…';
+
+    fetch('/api/portfolio/combined_latest')
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) {
+          if (meta) meta.textContent = '✗ Error: ' + data.error;
+          return;
+        }
+        if (!data.rows || !data.rows.length) {
+          if (meta) meta.textContent = 'No data yet — upload broker CSVs to begin';
+          return;
+        }
+
+        // Convert server rows to the shape the existing table renderer expects
+        const rows = data.rows.map(r => ({
+          Symbol:       r.symbol,
+          Description:  r.description || '',
+          Accounts:     r.accounts || 0,
+          Total_Qty:    r.total_qty || 0,
+          Last_Price:   r.last_price || null,
+          Total_Value:  r.total_value || 0,
+          Total_Cost:   r.total_cost  || 0,
+          Total_GL:     r.total_gl    || 0,
+          GL_Pct:       r.gl_pct      || null,
+          Today_GL:     0,
+          _brokers:     r.brokers || [],
+        }));
+
+        const t = data.totals || {};
+        portAllRows = rows;
+        portPage    = 0;
+
+        const ts = new Date().toLocaleString('en-US', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+        const brokers = data.loaded_brokers || [];
+        if (meta) meta.textContent =
+          `${brokers.length} broker${brokers.length!==1?'s':''} in DB  ·  ` +
+          `${t.symbols||rows.length} symbols  ·  ` +
+          `${ts}`;
+
+        portUpdateSummary(rows, t.accounts || 0);
+        portRender();
+
+        // Update broker buttons to show loaded state
+        const allBrokers = ['fidelity','vanguard','wellsfargo'];
+        allBrokers.forEach(b => {
+          const btn = document.getElementById('port-btn-' + b);
+          const lbl = document.getElementById('port-lbl-' + b);
+          const bd  = data.broker_breakdown ? data.broker_breakdown[b] : null;
+          if (btn) btn.classList.toggle('loaded', !!bd);
+          if (lbl && bd) lbl.textContent = BROKER_LABELS[b] + ' ✓ ' + (bd.symbols||'');
+          if (lbl && !bd) lbl.textContent = BROKER_LABELS[b];
+        });
+
+        // Update broker breakdown bar
+        if (data.broker_breakdown) {
+          // Patch the _brokerData cache so portUpdateBrokerBar() works
+          allBrokers.forEach(b => {
+            const bd = data.broker_breakdown[b];
+            if (bd) {
+              _brokerData[b].loaded   = true;
+              _brokerData[b].accounts = 0;
+              // Build synthetic rows for the value/gl totals in the bar
+              _brokerData[b].rows = [{
+                Symbol: '__total__', Total_Value: bd.value || 0, Total_GL: bd.gl || 0,
+              }];
+            }
+          });
+          portUpdateBrokerBar();
+        }
+
+        // Archive count for Fidelity snap counter
+        const snapEl = document.getElementById('port-snap-count');
+        if (snapEl && data.broker_breakdown && data.broker_breakdown.fidelity) {
+          // Count comes from history dir — just show broker breakdown note
+          snapEl.textContent = '';
+        }
+      })
+      .catch(err => {
+        if (meta) meta.textContent = '✗ Failed to load from server: ' + err.message;
+      });
+  }
+  window.portLoadCombinedFromServer = portLoadCombinedFromServer;
+
   // ── Event wiring ───────────────────────────────────────────────────────────
   window.addEventListener('DOMContentLoaded', function() {
-    // Wire all three broker file inputs
+    // Wire all three broker file inputs → POST to server for backend ingest
     ['fidelity', 'vanguard', 'wellsfargo'].forEach(function(broker) {
       const inp = document.getElementById('port-csv-' + broker);
       if (!inp) return;
       inp.addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (!file) return;
-        const reader = new FileReader();
-        reader.onload = function(ev) {
-          const result = portAutoDetectAndParse(ev.target.result, broker);
-          const meta = document.getElementById('port-meta-line');
-          if (!result || !result.rows.length) {
-            if (meta) meta.textContent = 'Could not parse ' + file.name + ' — check export format. Try re-downloading from your broker.';
-            return;
-          }
-          portOnBrokerLoaded(broker, result, file.name);
-        };
-        reader.readAsText(file, 'utf-8');
+
+        const meta = document.getElementById('port-meta-line');
+        const btn  = document.getElementById('port-btn-' + broker);
+        const lbl  = document.getElementById('port-lbl-' + broker);
+        if (meta) meta.textContent = '⟳ Uploading ' + file.name + ' to server…';
+        if (btn)  btn.style.opacity = '0.6';
+
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('broker', broker);
+
+        fetch('/api/portfolio/upload_broker', { method: 'POST', body: fd })
+          .then(r => r.json())
+          .then(d => {
+            if (d.error) {
+              if (meta) meta.textContent = '✗ Upload failed: ' + d.error;
+              if (btn)  btn.style.opacity = '1';
+              return;
+            }
+            // Upload + ingest succeeded — refresh full combined view from DB
+            if (btn)  { btn.classList.add('loaded'); btn.style.opacity = '1'; }
+            if (lbl)  lbl.textContent = BROKER_LABELS[broker] + ' ✓ ' + d.symbol_count;
+            portLoadCombinedFromServer();
+          })
+          .catch(err => {
+            if (meta) meta.textContent = '✗ Upload error: ' + err.message;
+            if (btn)  btn.style.opacity = '1';
+          });
       });
     });
 
