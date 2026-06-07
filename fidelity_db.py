@@ -1689,10 +1689,26 @@ def get_combined_latest_positions() -> dict:
             "perf_as_of":    perf.get("as_of_date")  if perf else None,
         }
 
-    # Grand totals
-    tv_all   = sum(m["total_value"] for m in rows)
-    tc_all   = sum(m["total_cost"]  for m in rows)
-    gl_all   = sum(m["total_gl"]    for m in rows)
+    # Add PDF-only brokers (e.g. Vanguard with no CSV positions) into broker_breakdown
+    for b, perf in perf_overrides.items():
+        if b not in broker_breakdown and perf.get("value"):
+            broker_breakdown[b] = {
+                "value":         round(perf.get("value") or 0, 2),
+                "cost":          round(perf.get("cost")  or 0, 2),
+                "gl":            round(perf.get("gl")    or 0, 2),
+                "gl_pct":        round(perf.get("gl_pct") or 0, 2),
+                "symbols":       0,
+                "snapshot_date": perf.get("updated_at", ""),
+                "accounts":      0,
+                "has_cost":      bool(perf.get("has_cost")),
+                "perf_source":   perf.get("source_file"),
+                "perf_as_of":    perf.get("as_of_date"),
+            }
+
+    # Grand totals — include PDF-only broker values/gl
+    tv_all   = sum(v.get("value", 0) for v in broker_breakdown.values())
+    tc_all   = sum(v.get("cost",  0) for v in broker_breakdown.values())
+    gl_all   = sum(v.get("gl",    0) for v in broker_breakdown.values())
     acct_all = sum(v.get("accounts", 0) for v in broker_breakdown.values())
 
     return {
