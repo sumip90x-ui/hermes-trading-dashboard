@@ -1155,7 +1155,28 @@ def ingest_broker_snapshot(filepath: str | Path, broker: str) -> dict:
 
     snapshot_id   = str(uuid.uuid4())
     filename      = filepath.name
-    snapshot_date = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
+    # Parse snapshot date from filename. Priority:
+    # 1. Portfolio_Positions_Mon-DD-YYYY (most reliable ground-truth date)
+    # 2. Last fidelity_YYYY-MM-DD_HHMMSS in filename (original, not wrapper ts)
+    # 3. UTC now as fallback
+    _month_map = {
+        'Jan':'01','Feb':'02','Mar':'03','Apr':'04','May':'05','Jun':'06',
+        'Jul':'07','Aug':'08','Sep':'09','Oct':'10','Nov':'11','Dec':'12'
+    }
+    _dm_pos = re.search(r'Portfolio_Positions_(\w{3})-(\d{2})-(\d{4})', filename)
+    _dm_fid = list(re.finditer(r'fidelity_(\d{4}-\d{2}-\d{2})_(\d{6})', filename))
+    if _dm_pos:
+        mon, day, yr = _dm_pos.group(1), _dm_pos.group(2), _dm_pos.group(3)
+        mm = _month_map.get(mon, '01')
+        snapshot_date = f"{yr}-{mm}-{day}T00:00:00"
+    elif _dm_fid:
+        # Use the LAST (innermost/original) fidelity timestamp in the name
+        _dm = _dm_fid[-1]
+        date_str = _dm.group(1)
+        time_str = _dm.group(2)
+        snapshot_date = f"{date_str}T{time_str[:2]}:{time_str[2:4]}:{time_str[4:6]}"
+    else:
+        snapshot_date = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
     total_value   = sum(r.get("total_value", 0) or 0 for r in rows)
 
     with get_conn() as conn:
