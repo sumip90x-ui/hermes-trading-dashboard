@@ -5449,66 +5449,6 @@ def research_reports():
             if rd.is_dir():
                 add_markdown_report(rd / 'full_report.md', rd.name, rd.name)
 
-    # Also scan Trading Vault ORACLE directory for composite + final memo files
-    oracle_dir = Path.home() / 'Documents' / 'Trading Vault' / '03_Stock_Analysis' / 'ORACLE'
-    _oracle_month = {'Jan':'01','Feb':'02','Mar':'03','Apr':'04','May':'05','Jun':'06',
-                     'Jul':'07','Aug':'08','Sep':'09','Oct':'10','Nov':'11','Dec':'12'}
-
-    def _oracle_file_entry(path):
-        fname = path.stem  # filename without .md
-        try:
-            text = path.read_text(encoding='utf-8', errors='replace')
-            if not text.strip():
-                return
-            stat = path.stat()
-            # Extract ticker from filename patterns:
-            #   ORACLE_TICKER_YYYYMMDD_composite
-            #   ORACLE_MEMO_sim_YYYYMMDD_TICKER_YYYYMMDD_HHMM
-            ticker = fname
-            date_str = None
-            m1 = re.match(r'ORACLE_([A-Z0-9._-]+?)_(\d{8})_composite', fname)
-            m2 = re.match(r'ORACLE_MEMO_sim_(\d{8})_([A-Z0-9._-]+?)_\d{8}_\d{4}', fname)
-            if m1:
-                ticker = m1.group(1)
-                raw_date = m1.group(2)  # YYYYMMDD
-                date_str = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:8]}"
-            elif m2:
-                ticker = m2.group(2)
-                raw_date = m2.group(1)
-                date_str = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:8]}"
-            else:
-                # Generic fallback
-                dm = re.search(r'(\d{8})', fname)
-                if dm:
-                    raw_date = dm.group(1)
-                    date_str = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:8]}"
-            if not date_str:
-                date_str = datetime.fromtimestamp(stat.st_mtime).isoformat(timespec='seconds')
-            report_id = f'oracle__{path.relative_to(oracle_dir).as_posix().replace("/", "__").replace(".md", "")}'
-            ftype = 'composite' if '_composite' in fname else 'memo' if 'MEMO' in fname else 'oracle'
-            results.append({
-                'report_id': report_id,
-                'ticker': ticker,
-                'date': date_str,
-                'size_kb': max(1, stat.st_size // 1024),
-                'preview': text[:120].replace('\n', ' ').strip(),
-                'source': 'oracle',
-                'type': ftype,
-                '_mtime': stat.st_mtime,
-            })
-        except Exception:
-            pass
-
-    if oracle_dir.exists():
-        # Top-level composite files
-        for p in oracle_dir.glob('ORACLE_*_composite.md'):
-            _oracle_file_entry(p)
-        # final/ memo files
-        final_dir = oracle_dir / 'final'
-        if final_dir.exists():
-            for p in final_dir.glob('ORACLE_MEMO_*.md'):
-                _oracle_file_entry(p)
-
     results.sort(key=lambda x: x['_mtime'], reverse=True)
     for item in results:
         item.pop('_mtime', None)
