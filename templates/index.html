@@ -2509,10 +2509,11 @@ socket.on('candle_trade_result', d => {
 
 socket.on('edgar_result', d => {
   const r = document.getElementById('edgar-result');
-  if (d.error) { if (r) r.textContent = `Error: ${d.error}`; return; }
+  if (d.error) { if (r) r.textContent = `Error: ${d.error}`; window._edgarActiveScore = null; return; }
   if (r) r.innerHTML = `<b style="color:var(--gold)">${d.ticker}</b> Score: <b>${d.score}/18</b><br>
     GM: ${d.gm ? d.gm.toFixed(0)+'%' : 'N/A'} | NM: ${d.nm ? d.nm.toFixed(0)+'%' : 'N/A'}<br>
     <span style="color:var(--muted)">${d.reasons || ''}</span>`;
+  window._edgarActiveScore = null;
   // Update Research tab status bar
   const rs = document.getElementById('research-edgar-status');
   if (rs) {
@@ -2544,6 +2545,11 @@ socket.on('edgar_progress', d => {
   if (rs) {
     rs.style.color = '#88ccff';
     rs.textContent = `⟳ ${d.ticker}: ${d.msg || d.status}`;
+  }
+  // Also update the Trade panel edgar-result if this is the active score run
+  if (window._edgarActiveScore === d.ticker) {
+    const r = document.getElementById('edgar-result');
+    if (r) r.innerHTML = `<span style="color:#88ccff">⟳ ${d.msg || d.status}…</span>`;
   }
   // Also update priority research card if visible
   const pqSt = document.getElementById(`pq-card-${d.ticker}`);
@@ -2988,6 +2994,9 @@ function fetchAccount() {
     _lastEquity    = d.equity;
     updatePullbackCounter(d.equity, d.intra_high);
     _updateAllAccountsDisplay(); // refresh ALL ACCOUNTS header with new Alpaca equity
+    // Also refresh Portfolio tab broker bar and summary card with new Alpaca equity
+    if (typeof window.portUpdateBrokerBar === 'function') window.portUpdateBrokerBar();
+    if (typeof window.portUpdateSummary === 'function' && window._portGetState) window.portUpdateSummary(window._portGetState().rows, 0);
 
     // True profit vs $1,154 principal
     const tp2El  = document.getElementById('true_profit_val');
@@ -4887,7 +4896,9 @@ function executeTrade() {
 function runEdgar() {
   const sym = document.getElementById('edgar-sym').value.trim().toUpperCase();
   if (!sym) return;
-  document.getElementById('edgar-result').textContent = `Pulling EDGAR data for ${sym}...`;
+  const r = document.getElementById('edgar-result');
+  r.innerHTML = `<span style="color:var(--muted)">⟳ Downloading EDGAR data for <b>${sym}</b>… (30–60s)</span>`;
+  window._edgarActiveScore = sym;
   fetch('/api/run_edgar',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({ticker:sym})});
 }
@@ -6042,12 +6053,16 @@ function fetchProfitBasket() {
     if (!bar || !items) return;
 
     const loaded = Object.entries(_brokerData).filter(([,bd]) => bd.loaded);
-    if (!loaded.length) { bar.style.display = 'none'; return; }
+    const alpacaEquity = (window.portfolioData && window.portfolioData.equity) ? window.portfolioData.equity : (_lastEquity || 0);
+    const alpacaGL     = (window.portfolioData && window.portfolioData.true_profit) ? window.portfolioData.true_profit : 0;
+    const hasAlpaca    = alpacaEquity > 0;
+
+    if (!loaded.length && !hasAlpaca) { bar.style.display = 'none'; return; }
 
     bar.style.display = 'flex';
     let combinedValue = 0;
     let combinedGL = 0;
-    items.innerHTML = loaded.map(([broker, bd]) => {
+    const brokerHtml = loaded.map(([broker, bd]) => {
       const tv  = bd.rows.reduce((s,r) => s + (r.Total_Value||0), 0);
       const tgl = bd.rows.reduce((s,r) => s + (r.Total_GL||0), 0);
       combinedValue += tv;
@@ -6061,7 +6076,23 @@ function fetchProfitBasket() {
         <span class="port-broker-val">$${tv.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
         <span class="port-broker-gl" style="color:${glColor}">(${glSign}$${Math.abs(tgl).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})})</span>
       </span>`;
-    }).join('<span class="port-broker-sep">|</span>');
+    });
+
+    // Append Alpaca as a live broker entry
+    if (hasAlpaca) {
+      combinedValue += alpacaEquity;
+      combinedGL    += alpacaGL;
+      const glSign  = alpacaGL >= 0 ? '+' : '';
+      const glColor = alpacaGL >= 0 ? '#00ff88' : '#f85149';
+      brokerHtml.push(`<span class="port-broker-item">
+        <span class="port-broker-dot" style="background:#4a9eff;"></span>
+        <span class="port-broker-name">Alpaca</span>
+        <span class="port-broker-val">$${alpacaEquity.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+        <span class="port-broker-gl" style="color:${glColor}">(${glSign}$${Math.abs(alpacaGL).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})})</span>
+      </span>`);
+    }
+
+    items.innerHTML = brokerHtml.join('<span class="port-broker-sep">|</span>');
 
     if (totalEl) {
       const glSign = combinedGL >= 0 ? '+' : '';
@@ -6528,12 +6559,15 @@ function fetchProfitBasket() {
     const tv  = rows.reduce((s,r) => s + (r.Total_Value||0), 0);
     const tc  = rows.reduce((s,r) => s + (r.Total_Cost ||0), 0);
     const tgl = rows.reduce((s,r) => s + (r.Total_GL   ||0), 0);
+    // Include Alpaca live equity in the total value card
+    const alpacaEquity = (window.portfolioData && window.portfolioData.equity) ? window.portfolioData.equity : (_lastEquity || 0);
+    const tvWithAlpaca = tv + alpacaEquity;
     const ret = tc ? tgl / tc * 100 : null;
     const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
     const cls = (id, v) => { const el = document.getElementById(id); if (el) el.className = 'port-card-val ' + (v >= 0 ? 'port-gl-pos' : 'port-gl-neg'); };
     set('pc-sym',  rows.length);
     set('pc-acct', totalAccounts);
-    set('pc-val',  pFmtD(tv));
+    set('pc-val',  pFmtD(tvWithAlpaca));
     set('pc-cost', pFmtD(tc));
     set('pc-gl',   pFmtD(tgl));  cls('pc-gl',  tgl);
     set('pc-ret',  pFmtP(ret));  cls('pc-ret', ret || 0);
@@ -7441,6 +7475,7 @@ function fetchProfitBasket() {
   window.portProcessCSV    = portProcessCSV;
   window.portRender        = portRender;
   window.portUpdateSummary = portUpdateSummary;
+  window.portUpdateBrokerBar = portUpdateBrokerBar;
   window._portOnBrokerLoaded = portOnBrokerLoaded;
   window._portGetState     = function() { return { rows: portAllRows, page: portPage }; };
   window._portSetState     = function(rows) {
